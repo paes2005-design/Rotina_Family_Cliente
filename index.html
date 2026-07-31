@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#3b4252">
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meu Espaço de Metas</title>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --cor-primaria: #ff4d6d;
+            --cor-secundaria: #ff758f;
+            --cor-clara: #ffb3c1;
+            --cor-fundo: #fff0f3;
+            --cor-texto: #590d22;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--cor-fundo); color: var(--cor-texto); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; transition: all 0.5s ease; }
+        .auth-container { width: 100%; max-width: 400px; background: white; padding: 30px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; margin-top: 50px; }
+        .auth-container input, .auth-container button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 12px; border: 2px solid #ddd; box-sizing: border-box; font-size: 1rem; }
+        .auth-container button { background-color: #4a4e69; color: white; border: none; font-weight: bold; cursor: pointer; }
+        .app-container { display: none; width: 100%; max-width: 950px; background: white; padding: 30px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative; }
+        .btn-sair-top { position: absolute; top: 20px; right: 20px; background: #e63946; color: white; border: none; padding: 8px 16px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        h1 { font-size: 2.3rem; color: var(--cor-primaria); text-align: center; margin-bottom: 5px; padding-right: 60px; }
+        .subtitulo { text-align: center; color: var(--cor-secundaria); margin-bottom: 25px; font-size: 1.1rem; }
+        .dash-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px; }
+        .card { background: var(--cor-fundo); padding: 15px; border-radius: 16px; text-align: center; border: 1px solid var(--cor-clara); }
+        .card span { font-size: 0.85rem; color: var(--cor-secundaria); display: block; font-weight: 600; text-transform: uppercase; }
+        .card strong { font-size: 1.5rem; color: var(--cor-primaria); }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { background-color: var(--cor-secundaria); color: white; font-weight: 600; padding: 15px; text-align: left; border-radius: 12px 12px 0 0; }
+        td { padding: 18px 15px; border-bottom: 1px solid var(--cor-clara); font-size: 1.05rem; }
+        .horario-container { display: flex; flex-direction: column; }
+        .horario-sugerido { font-weight: 600; }
+        .horario-real { font-size: 0.85rem; color: #666; margin-top: 4px; }
+        .btn { border: none; padding: 10px 20px; border-radius: 50px; font-weight: 600; cursor: pointer; }
+        .btn-iniciar { background-color: var(--cor-secundaria); color: white; }
+        .btn-finalizar { background-color: #ffb703; color: #212529; }
+        .status-badge { padding: 6px 14px; border-radius: 30px; font-size: 0.9rem; font-weight: 600; display: inline-block; }
+        .status-pendente { background: #e9ecef; color: #495057; }
+        .status-andamento { background: #cce5ff; color: #004085; }
+        .status-prazo { background: #d4edda; color: #155724; }
+        .status-atrasado { background: #f8d7da; color: #721c24; }
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 999; }
+        .modal-box { background: white; padding: 40px; border-radius: 24px; text-align: center; max-width: 450px; width: 90%; position: relative; }
+
+        .avatar-box { height: 120px; display: flex; justify-content: center; align-items: flex-end; margin-bottom: 25px; position: relative; }
+
+        .boneca-container { display: flex; flex-direction: column; align-items: center; animation: dancaFem 0.8s infinite alternate ease-in-out; }
+        .boneca-emoji { font-size: 55px; }
+        .status-texto { margin-top: 6px; font-size: 13px; font-weight: bold; color: #db2777; }
+        @keyframes dancaFem { 
+            0% { transform: translateY(0) rotate(-6deg); } 
+            100% { transform: translateY(-10px) rotate(6deg); } 
+        }
+    </style>
+</head>
+<body>
+    <div id="telaAuth" class="auth-container">
+        <h2>Bem-vindo(a) ao Metas!</h2>
+        <input type="text" id="authNome" placeholder="Seu Nome Cadastrado">
+        <input type="text" id="authCodigo" placeholder="Código do Grupo (ex: GRUP-123)">
+        <button onclick="conectarCliente()">Entrar no Meu Espaço</button>
+    </div>
+
+    <div id="modalFeedback" class="overlay" onclick="fecharModal('modalFeedback')">
+        <div class="modal-box">
+            <div style="font-size:3.5rem">😢</div>
+            <h3 style="font-size:1.6rem; margin:10px 0;">Ah, puxa vida...</h3>
+            <p style="font-size:1.1rem; color:#555;">Infelizmente, você estourou o tempo limite planejado.</p>
+        </div>
+    </div>
+
+    <div id="modalCelebracao" class="overlay" onclick="fecharModal('modalCelebracao')">
+        <div class="modal-box">
+            <div class="avatar-box" id="avatarCelebracaoContainer"></div>
+            <h2 style="color:#2a9d8f; font-size:2rem; margin:5px 0;">Uhu! Dia 100% Concluído!</h2>
+            <p style="font-size:1.2rem; font-weight:bold;" id="txtParabens100">Parabéns!</p>
+        </div>
+    </div>
+
+    <div id="telaApp" class="app-container">
+        <button class="btn-sair-top" onclick="sairCliente()">Sair 🚪</button>
+        <h1 id="tituloSaudacao">Carregando...</h1>
+        <p class="subtitulo" id="txtDiaSemana">Hoje</p>
+        <div class="dash-cards">
+            <div class="card"><span>Hoje</span><strong id="ptsHoje">0</strong></div>
+            <div class="card"><span>Semana</span><strong id="ptsSemana">0</strong></div>
+            <div class="card"><span>Mês</span><strong id="ptsMes">0</strong></div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Horário Sugerido / Real</th>
+                    <th style="width: 45%;">Tarefa</th>
+                    <th style="width: 15%;">Status</th>
+                    <th style="width: 10%;">Ação</th>
+                </tr>
+            </thead>
+            <tbody id="tabelaCorpo"></tbody>
+        </table>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, query, where, onSnapshot, updateDoc, doc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCP9odEV8TJGOM4lflHk64BbPyXXVjGcYg",
+            authDomain: "sistema-de-metas-diarias.firebaseapp.com",
+            projectId: "sistema-de-metas-diarias",
+            storageBucket: "sistema-de-metas-diarias.firebasestorage.app",
+            messagingSenderId: "576624564310",
+            appId: "1:576624564310:web:fb2115a0c21659fefb83f7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let clienteNome = "";
+        let clienteSexo = "Feminino";
+        let codigoGrupo = "";
+        let unsubscribeTarefas = null;
+        let unsubscribePontos = null;
+
+        const diasSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+        const diaAtualTexto = diasSemana[new Date().getDay()];
+
+        const somFogos = new Audio("https://assets.mixkit.co/active_storage/sfx/2000/2000-84.wav");
+        const somMusica100 = new Audio("https://assets.mixkit.co/active_storage/sfx/123/123-84.wav");
+        const somErroQuak = new Audio("https://assets.mixkit.co/active_storage/sfx/2749/2749-84.wav");
+
+        function converterHoraParaMinutos(stringHora) {
+            if(!stringHora) return 0;
+            const [h, m] = stringHora.split(':').map(Number);
+            return (h * 60) + m;
+        }
+
+        function aplicarTemaVisual(sexo) {
+            if(sexo === "Masculino") {
+                document.documentElement.style.setProperty('--cor-primaria', '#1e6091');
+                document.documentElement.style.setProperty('--cor-secundaria', '#1a759f');
+                document.documentElement.style.setProperty('--cor-clara', '#b5e2fa');
+                document.documentElement.style.setProperty('--cor-fundo', '#e8f1f5');
+                document.documentElement.style.setProperty('--cor-texto', '#012a4a');
+            } else {
+                document.documentElement.style.setProperty('--cor-primaria', '#ff4d6d');
+                document.documentElement.style.setProperty('--cor-secundaria', '#ff758f');
+                document.documentElement.style.setProperty('--cor-clara', '#ffb3c1');
+                document.documentElement.style.setProperty('--cor-fundo', '#fff0f3');
+                document.documentElement.style.setProperty('--cor-texto', '#590d22');
+            }
+        }
+
+        window.conectarCliente = async () => {
+            let nomeInput = document.getElementById("authNome").value.trim();
+            let codInput = document.getElementById("authCodigo").value.trim().toUpperCase();
+
+            if(!nomeInput || !codInput) return alert("Por favor, preencha o seu nome e o código do grupo!");
+            let nomeFormatado = nomeInput.charAt(0).toUpperCase() + nomeInput.slice(1);
+
+            const qPerfil = query(collection(db, "perfis"), where("grupoId", "==", codInput), where("nome", "==", nomeFormatado));
+            const snapPerfil = await getDocs(qPerfil);
+
+            if(snapPerfil.empty) {
+                alert("⚠️ Cliente não cadastrado neste grupo! Por favor, solicite o cadastro ao seu controlador.");
+                return;
+            }
+
+            const dadosMembro = snapPerfil.docs[0].data();
+            
+            localStorage.setItem("cliente_nome", nomeFormatado);
+            localStorage.setItem("cliente_grupo", codInput);
+            localStorage.setItem("cliente_sexo", dadosMembro.sexo || "Feminino");
+
+            iniciarSessaoCliente(nomeFormatado, codInput, dadosMembro.sexo || "Feminino");
+        };
+
+        function iniciarSessaoCliente(nome, grupo, sexo) {
+            clienteNome = nome;
+            codigoGrupo = grupo;
+            clienteSexo = sexo;
+
+            aplicarTemaVisual(clienteSexo);
+
+            document.getElementById("telaAuth").style.display = "none";
+            document.getElementById("telaApp").style.display = "block";
+            document.getElementById("tituloSaudacao").innerText = `${clienteNome}, hoje é ${diaAtualTexto}-feira!`;
+            document.getElementById("txtDiaSemana").innerText = `Acompanhe suas janelas de prazos diários!`;
+
+            inicializarEscutasFirebase();
+        }
+
+        window.sairCliente = () => {
+            if(unsubscribeTarefas) unsubscribeTarefas();
+            if(unsubscribePontos) unsubscribePontos();
+            
+            localStorage.removeItem("cliente_nome");
+            localStorage.removeItem("cliente_grupo");
+            localStorage.removeItem("cliente_sexo");
+
+            document.getElementById("authNome").value = "";
+            document.getElementById("authCodigo").value = "";
+            document.getElementById("telaApp").style.display = "none";
+            document.getElementById("telaAuth").style.display = "block";
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const salvoNome = localStorage.getItem("cliente_nome");
+            const salvoGrupo = localStorage.getItem("cliente_grupo");
+            const salvoSexo = localStorage.getItem("cliente_sexo");
+
+            if(salvoNome && salvoGrupo) {
+                iniciarSessaoCliente(salvoNome, salvoGrupo, salvoSexo);
+            }
+        });
+
+        function inicializarEscutasFirebase() {
+            const q = query(collection(db, "tarefas"), where("grupoId", "==", codigoGrupo), where("perfilNome", "==", clienteNome), where("diaSemana", "==", diaAtualTexto));
+
+            unsubscribeTarefas = onSnapshot(q, (snapshot) => {
+                const tabelaCorpo = document.getElementById("tabelaCorpo");
+                tabelaCorpo.innerHTML = "";
+                let listaTarefas = [];
+                let totalTarefasDoDia = 0;
+                let tarefasConcluidas100 = 0;
+
+                snapshot.forEach((docSnap) => {
+                    const dados = docSnap.data();
+                    dados.id = docSnap.id;
+                    listaTarefas.push(dados);
+                });
+
+                listaTarefas.sort((a, b) => (a.horaSugeridaInicio || "00:00").localeCompare(b.horaSugeridaInicio || "00:00"));
+
+                if(listaTarefas.length === 0) {
+                    tabelaCorpo.innerHTML = `<tr><td colspan="4" style="text-align: center;">Nenhuma tarefa cadastrada para hoje.</td></tr>`;
+                    return;
+                }
+
+                listaTarefas.forEach((dados) => {
+                    totalTarefasDoDia++;
+                    if(dados.status && (dados.status.includes("Prazo") || dados.status.includes("Atrasado"))) {
+                        tarefasConcluidas100++;
+                    }
+
+                    let botaoAcao = "";
+                    let statusClasse = "status-pendente";
+                    let statusTexto = dados.status || "Pendente";
+
+                    let exibicaoHorario = `<div class="horario-container">`;
+                    exibicaoHorario += `<span class="horario-sugerido">⏰ ${dados.horaSugeridaInicio} - ${dados.horaSugeridaFim}</span>`;
+                    if (dados.horarioInicio) {
+                        exibicaoHorario += `<span class="horario-real">▶️ ${dados.horarioInicio}`;
+                        if (dados.horarioTermino) exibicaoHorario += ` / ⏹️ ${dados.horarioTermino}`;
+                        exibicaoHorario += `</span>`;
+                    }
+                    exibicaoHorario += `</div>`;
+
+                    let txtAvisoInicio = "";
+                    if (dados.iniciouComAtraso) {
+                        txtAvisoInicio = `<br><span style="color:#d90429; font-weight:bold; font-size:0.85rem;">⚠️ Iniciado com Atraso (-50% pts)</span>`;
+                    }
+
+                    if (statusTexto === "Pendente") {
+                        botaoAcao = `<button class="btn btn-iniciar" onclick="iniciarTarefa('${dados.id}', '${dados.horaSugeridaInicio}', ${dados.tempoLimite})">Iniciar</button>`;
+                    } else if (statusTexto === "Em andamento") {
+                        botaoAcao = `<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}', '${dados.horaSugeridaFim}', ${dados.tempoLimite}, ${dados.pontosMaximos}, ${dados.iniciouComAtraso || false})">Finalizar</button>`;
+                        statusClasse = "status-andamento";
+                    } else if (statusTexto.includes("Prazo")) {
+                        statusClasse = "status-prazo"; botaoAcao = "🎉";
+                    } else {
+                        statusClasse = "status-atrasado"; botaoAcao = "⏰";
+                    }
+
+                    const linha = `
+                        <tr>
+                            <td>${exibicaoHorario}</td>
+                            <td><strong>${dados.nome}</strong>${txtAvisoInicio}<br><small style="color:gray">${dados.pontosMaximos} pontos (Tolerância: ${dados.tempoLimite} min)</small></td>
+                            <td><span class="status-badge ${statusClasse}">${statusTexto}</span></td>
+                            <td>${botaoAcao}</td>
+                        </tr>
+                    `;
+                    tabelaCorpo.innerHTML += linha;
+                });
+
+                let todasConcluidas = totalTarefasDoDia > 0 && (tarefasConcluidas100 === totalTarefasDoDia);
+                let temAlgumAtraso = listaTarefas.some(t => t.status && t.status.includes("Atrasado"));
+
+                if(todasConcluidas && !temAlgumAtraso && !sessionStorage.getItem("parabens_mostrado_" + diaAtualTexto)) {
+                     triggerCelebracao100();
+                }
+            });
+
+            const qPontos = query(collection(db, "tarefas"), where("grupoId", "==", codigoGrupo), where("perfilNome", "==", clienteNome));
+            unsubscribePontos = onSnapshot(qPontos, (snapshot) => {
+                let hoje = 0; let sem = 0; let mes = 0;
+                snapshot.forEach((docSnap) => {
+                    const d = docSnap.data();
+                    if(d.status && d.status.includes("Prazo")) {
+                        let pts = d.pontosGanhos || 0;
+                        sem += pts; mes += pts;
+                        if(d.diaSemana === diaAtualTexto) hoje += pts;
+                    }
+                });
+                document.getElementById("ptsHoje").innerText = hoje;
+                document.getElementById("ptsSemana").innerText = sem;
+                document.getElementById("ptsMes").innerText = mes;
+            });
+        }
+
+        window.iniciarTarefa = async (id, horaSugeridaInicio, tempoLimite) => {
+            const agora = new Date();
+            const horaAtualTexto = agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+
+            const minSugerido = converterHoraParaMinutos(horaSugeridaInicio);
+            const minAtual = converterHoraParaMinutos(horaAtualTexto);
+
+            let iniciouComAtraso = false;
+            if (minAtual > (minSugerido + tempoLimite)) {
+                iniciouComAtraso = true;
+            }
+
+            await updateDoc(doc(db, "tarefas", id), { 
+                horarioInicio: horaAtualTexto, 
+                iniciouComAtraso: iniciouComAtraso,
+                status: "Em andamento" 
+            });
+        };
+
+        window.finalizarTarefa = async (id, horaSugeridaFim, tempoLimite, pontosMaximos, iniciouComAtraso) => {
+            const agora = new Date();
+            const horaFinalTexto = agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+
+            const minSugeridoFim = converterHoraParaMinutos(horaSugeridaFim);
+            const minAtualFinal = converterHoraParaMinutos(horaFinalTexto);
+            const tetoMaximoPermitido = minSugeridoFim + tempoLimite;
+
+            if (minAtualFinal <= tetoMaximoPermitido) {
+                let finalPontos = pontosMaximos;
+                let finalStatus = "No Prazo";
+
+                if (iniciouComAtraso) {
+                    finalPontos = Math.floor(pontosMaximos / 2);
+                    finalStatus = "No Prazo (-50%)";
+                }
+
+                // Dispara confetes apenas ao concluir a tarefa dentro do prazo com sucesso
+                confetti({
+                    particleCount: 45,
+                    spread: 60,
+                    origin: { y: 0.75 }
+                });
+
+                await updateDoc(doc(db, "tarefas", id), { 
+                    horarioTermino: horaFinalTexto, 
+                    status: finalStatus, 
+                    pontosGanhos: finalPontos 
+                });
+            } else {
+                await updateDoc(doc(db, "tarefas", id), { 
+                    horarioTermino: horaFinalTexto, 
+                    status: "Atrasado", 
+                    pontosGanhos: 0 
+                });
+                somErroQuak.play().catch(e => {});
+                document.getElementById("modalFeedback").style.display = "flex";
+            }
+        };
+
+        function triggerCelebracao100() {
+            sessionStorage.setItem("parabens_mostrado_" + diaAtualTexto, "true");
+            const containerAvatar = document.getElementById("avatarCelebracaoContainer");
+
+            containerAvatar.innerHTML = "";
+            if(clienteSexo === "Feminino") {
+                containerAvatar.innerHTML = `
+                    <div class="boneca-container">
+                        <div class="boneca-emoji">💃</div>
+                        <div class="status-texto">Meta Diária Atingida!</div>
+                    </div>`;
+            } else {
+                containerAvatar.innerHTML = `
+                    <div class="boneca-container">
+                        <div class="boneca-emoji">🕺</div>
+                        <div class="status-texto" style="color: #2563eb;">Meta Diária Atingida!</div>
+                    </div>`;
+            }
+
+            somMusica100.play().catch(e => {});
+            somFogos.play().catch(e => {});
+
+            document.getElementById("txtParabens100").innerText = `${clienteNome}, você completou 100% das suas metas hoje! 🎉`;
+
+            confetti({
+                particleCount: 160,
+                spread: 110,
+                origin: { y: 0.5 }
+            });
+
+            document.getElementById("modalCelebracao").style.display = "flex";
+        }
+        window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
+    </script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('Service Worker registrado com sucesso!', reg))
+            .catch(err => console.error('Erro ao registrar Service Worker:', err));
+        });
+      }
+    </script>
+</body>
+</html>
