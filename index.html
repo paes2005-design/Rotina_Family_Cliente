@@ -1,12 +1,19 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#3b4252">
-
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Meu Espaço de Metas</title>
+
+    <link rel="manifest" href="manifest-cliente.json">
+    <meta name="theme-color" content="#ff4d6d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Metas">
+    <link rel="apple-touch-icon" href="icon-cliente-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-cliente-192.png">
+
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <style>
         :root {
@@ -127,6 +134,18 @@
         const diasSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
         const diaAtualTexto = diasSemana[new Date().getDay()];
 
+        // Sábado e Domingo não levam o sufixo "-feira" em português; os demais dias levam
+        const diasSemanaExibicao = {
+            "Domingo": "Domingo",
+            "Segunda": "Segunda-feira",
+            "Terça": "Terça-feira",
+            "Quarta": "Quarta-feira",
+            "Quinta": "Quinta-feira",
+            "Sexta": "Sexta-feira",
+            "Sábado": "Sábado"
+        };
+        const diaAtualExibicao = diasSemanaExibicao[diaAtualTexto];
+
         const somFogos = new Audio("https://assets.mixkit.co/active_storage/sfx/2000/2000-84.wav");
         const somMusica100 = new Audio("https://assets.mixkit.co/active_storage/sfx/123/123-84.wav");
         const somErroQuak = new Audio("https://assets.mixkit.co/active_storage/sfx/2749/2749-84.wav");
@@ -186,7 +205,7 @@
 
             document.getElementById("telaAuth").style.display = "none";
             document.getElementById("telaApp").style.display = "block";
-            document.getElementById("tituloSaudacao").innerText = `${clienteNome}, hoje é ${diaAtualTexto}-feira!`;
+            document.getElementById("tituloSaudacao").innerText = `${clienteNome}, hoje é ${diaAtualExibicao}!`;
             document.getElementById("txtDiaSemana").innerText = `Acompanhe suas janelas de prazos diários!`;
 
             inicializarEscutasFirebase();
@@ -406,7 +425,7 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js')
+          navigator.serviceWorker.register('./sw-cliente.js')
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });
