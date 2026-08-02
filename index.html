@@ -35,6 +35,7 @@
         .card { background: var(--cor-fundo); padding: 15px; border-radius: 16px; text-align: center; border: 1px solid var(--cor-clara); }
         .card span { font-size: 0.85rem; color: var(--cor-secundaria); display: block; font-weight: 600; text-transform: uppercase; }
         .card strong { font-size: 1.5rem; color: var(--cor-primaria); }
+        .card strong small { font-size: 0.95rem; color: #999; font-weight: 500; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th { background-color: var(--cor-secundaria); color: white; font-weight: 600; padding: 15px; text-align: left; border-radius: 12px 12px 0 0; }
         td { padding: 18px 15px; border-bottom: 1px solid var(--cor-clara); font-size: 1.05rem; }
@@ -92,9 +93,9 @@
         <h1 id="tituloSaudacao">Carregando...</h1>
         <p class="subtitulo" id="txtDiaSemana">Hoje</p>
         <div class="dash-cards">
-            <div class="card"><span>Hoje</span><strong id="ptsHoje">0</strong></div>
-            <div class="card"><span>Semana</span><strong id="ptsSemana">0</strong></div>
-            <div class="card"><span>Mês</span><strong id="ptsMes">0</strong></div>
+            <div class="card"><span>Hoje</span><strong><span id="ptsHoje">0</span><small id="possivelHoje"> / 0 pts</small></strong></div>
+            <div class="card"><span>Semana</span><strong><span id="ptsSemana">0</span><small id="possivelSemana"> / 0 pts</small></strong></div>
+            <div class="card"><span>Mês</span><strong><span id="ptsMes">0</span><small id="possivelMes"> / 0 pts</small></strong></div>
         </div>
         <table>
             <thead>
@@ -111,7 +112,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, query, where, onSnapshot, updateDoc, doc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, query, where, onSnapshot, updateDoc, doc, getDocs, addDoc, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCP9odEV8TJGOM4lflHk64BbPyXXVjGcYg",
@@ -129,7 +130,11 @@
         let clienteSexo = "Feminino";
         let codigoGrupo = "";
         let unsubscribeTarefas = null;
-        let unsubscribePontos = null;
+        let unsubscribeTarefasTodas = null;
+        let unsubscribeHistorico = null;
+        let cacheTarefasHoje = [];
+        let cacheTarefasTodas = [];
+        let cacheHistorico = [];
 
         const diasSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
         const diaAtualTexto = diasSemana[new Date().getDay()];
@@ -154,6 +159,100 @@
             if(!stringHora) return 0;
             const [h, m] = stringHora.split(':').map(Number);
             return (h * 60) + m;
+        }
+
+        function formatarDataISO(d) {
+            const ano = d.getFullYear();
+            const mes = String(d.getMonth() + 1).padStart(2, '0');
+            const dia = String(d.getDate()).padStart(2, '0');
+            return `${ano}-${mes}-${dia}`;
+        }
+
+        function obterInicioSemana(dataRef = new Date()) {
+            const d = new Date(dataRef);
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() - d.getDay()); // volta até o Domingo
+            return d;
+        }
+
+        function contarOcorrenciasNoMes(diaSemanaTexto, ano, mes) {
+            const indiceDia = diasSemana.indexOf(diaSemanaTexto);
+            const totalDiasNoMes = new Date(ano, mes + 1, 0).getDate();
+            let contagem = 0;
+            for (let dia = 1; dia <= totalDiasNoMes; dia++) {
+                if (new Date(ano, mes, dia).getDay() === indiceDia) contagem++;
+            }
+            return contagem;
+        }
+
+        // Calcula e exibe Hoje/Semana/Mês (ganho a partir do histórico com data real, possível a partir das tarefas atuais)
+        function atualizarPainelPontos() {
+            const hojeISO = formatarDataISO(new Date());
+            const inicioSemanaISO = formatarDataISO(obterInicioSemana());
+            const anoAtual = new Date().getFullYear();
+            const mesAtual = new Date().getMonth();
+
+            let ganhoHoje = 0, ganhoSemana = 0, ganhoMes = 0;
+            cacheHistorico.forEach((h) => {
+                if(!h.status || !h.status.includes("Prazo")) return;
+                const pts = h.pontosGanhos || 0;
+                if(h.data === hojeISO) ganhoHoje += pts;
+                if(h.data >= inicioSemanaISO) ganhoSemana += pts;
+                const [anoH, mesH] = (h.data || "0-0-0").split('-').map(Number);
+                if(anoH === anoAtual && (mesH - 1) === mesAtual) ganhoMes += pts;
+            });
+
+            let possivelHoje = 0;
+            cacheTarefasHoje.forEach((t) => { possivelHoje += t.pontosMaximos || 0; });
+
+            let possivelSemana = 0, possivelMes = 0;
+            cacheTarefasTodas.forEach((t) => {
+                possivelSemana += t.pontosMaximos || 0;
+                possivelMes += (t.pontosMaximos || 0) * contarOcorrenciasNoMes(t.diaSemana, anoAtual, mesAtual);
+            });
+
+            document.getElementById("ptsHoje").innerText = ganhoHoje;
+            document.getElementById("possivelHoje").innerText = ` / ${possivelHoje} pts`;
+            document.getElementById("ptsSemana").innerText = ganhoSemana;
+            document.getElementById("possivelSemana").innerText = ` / ${possivelSemana} pts`;
+            document.getElementById("ptsMes").innerText = ganhoMes;
+            document.getElementById("possivelMes").innerText = ` / ${possivelMes} pts`;
+        }
+
+        // Reset semanal (aos domingos): o histórico já guardou tudo permanentemente antes disso,
+        // então aqui é seguro só devolver as tarefas para "Pendente".
+        async function verificarEExecutarResetSemanal(grupoId) {
+            try {
+                const refConfig = doc(db, "configGrupos", grupoId);
+                const snapConfig = await getDoc(refConfig);
+                const dadosConfig = snapConfig.exists() ? snapConfig.data() : {};
+
+                const inicioSemanaAtual = obterInicioSemana();
+                const ultimoReset = dadosConfig.ultimoReset ? new Date(dadosConfig.ultimoReset) : new Date(0);
+
+                if(ultimoReset < inicioSemanaAtual) {
+                    const qTarefas = query(collection(db, "tarefas"), where("grupoId", "==", grupoId));
+                    const snapTarefas = await getDocs(qTarefas);
+
+                    const batch = writeBatch(db);
+                    snapTarefas.forEach((docSnap) => {
+                        const t = docSnap.data();
+                        if(t.status && t.status !== "Pendente") {
+                            batch.update(docSnap.ref, {
+                                status: "Pendente",
+                                horarioInicio: "",
+                                horarioTermino: "",
+                                pontosGanhos: 0,
+                                iniciouComAtraso: false
+                            });
+                        }
+                    });
+                    batch.set(refConfig, { grupoId, ultimoReset: inicioSemanaAtual.toISOString() }, { merge: true });
+                    await batch.commit();
+                }
+            } catch (erro) {
+                console.error("Erro ao verificar reset semanal:", erro);
+            }
         }
 
         function aplicarTemaVisual(sexo) {
@@ -196,7 +295,7 @@
             iniciarSessaoCliente(nomeFormatado, codInput, dadosMembro.sexo || "Feminino");
         };
 
-        function iniciarSessaoCliente(nome, grupo, sexo) {
+        async function iniciarSessaoCliente(nome, grupo, sexo) {
             clienteNome = nome;
             codigoGrupo = grupo;
             clienteSexo = sexo;
@@ -208,12 +307,14 @@
             document.getElementById("tituloSaudacao").innerText = `${clienteNome}, hoje é ${diaAtualExibicao}!`;
             document.getElementById("txtDiaSemana").innerText = `Acompanhe suas janelas de prazos diários!`;
 
+            await verificarEExecutarResetSemanal(codigoGrupo);
             inicializarEscutasFirebase();
         }
 
         window.sairCliente = () => {
             if(unsubscribeTarefas) unsubscribeTarefas();
-            if(unsubscribePontos) unsubscribePontos();
+            if(unsubscribeTarefasTodas) unsubscribeTarefasTodas();
+            if(unsubscribeHistorico) unsubscribeHistorico();
             
             localStorage.removeItem("cliente_nome");
             localStorage.removeItem("cliente_grupo");
@@ -253,6 +354,9 @@
 
                 listaTarefas.sort((a, b) => (a.horaSugeridaInicio || "00:00").localeCompare(b.horaSugeridaInicio || "00:00"));
 
+                cacheTarefasHoje = listaTarefas;
+                atualizarPainelPontos();
+
                 if(listaTarefas.length === 0) {
                     tabelaCorpo.innerHTML = `<tr><td colspan="4" style="text-align: center;">Nenhuma tarefa cadastrada para hoje.</td></tr>`;
                     return;
@@ -285,7 +389,7 @@
                     if (statusTexto === "Pendente") {
                         botaoAcao = `<button class="btn btn-iniciar" onclick="iniciarTarefa('${dados.id}', '${dados.horaSugeridaInicio}', ${dados.tempoLimite})">Iniciar</button>`;
                     } else if (statusTexto === "Em andamento") {
-                        botaoAcao = `<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}', '${dados.horaSugeridaFim}', ${dados.tempoLimite}, ${dados.pontosMaximos}, ${dados.iniciouComAtraso || false})">Finalizar</button>`;
+                        botaoAcao = `<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}', '${dados.horaSugeridaFim}', ${dados.tempoLimite}, ${dados.pontosMaximos}, ${dados.iniciouComAtraso || false}, '${dados.nome}', '${dados.diaSemana}', '${dados.horaSugeridaInicio}')">Finalizar</button>`;
                         statusClasse = "status-andamento";
                     } else if (statusTexto.includes("Prazo")) {
                         statusClasse = "status-prazo"; botaoAcao = "🎉";
@@ -312,20 +416,16 @@
                 }
             });
 
-            const qPontos = query(collection(db, "tarefas"), where("grupoId", "==", codigoGrupo), where("perfilNome", "==", clienteNome));
-            unsubscribePontos = onSnapshot(qPontos, (snapshot) => {
-                let hoje = 0; let sem = 0; let mes = 0;
-                snapshot.forEach((docSnap) => {
-                    const d = docSnap.data();
-                    if(d.status && d.status.includes("Prazo")) {
-                        let pts = d.pontosGanhos || 0;
-                        sem += pts; mes += pts;
-                        if(d.diaSemana === diaAtualTexto) hoje += pts;
-                    }
-                });
-                document.getElementById("ptsHoje").innerText = hoje;
-                document.getElementById("ptsSemana").innerText = sem;
-                document.getElementById("ptsMes").innerText = mes;
+            const qTodas = query(collection(db, "tarefas"), where("grupoId", "==", codigoGrupo), where("perfilNome", "==", clienteNome));
+            unsubscribeTarefasTodas = onSnapshot(qTodas, (snapshot) => {
+                cacheTarefasTodas = snapshot.docs.map(d => d.data());
+                atualizarPainelPontos();
+            });
+
+            const qHistorico = query(collection(db, "historico"), where("grupoId", "==", codigoGrupo), where("perfilNome", "==", clienteNome));
+            unsubscribeHistorico = onSnapshot(qHistorico, (snapshot) => {
+                cacheHistorico = snapshot.docs.map(d => d.data());
+                atualizarPainelPontos();
             });
         }
 
@@ -348,17 +448,20 @@
             });
         };
 
-        window.finalizarTarefa = async (id, horaSugeridaFim, tempoLimite, pontosMaximos, iniciouComAtraso) => {
+        window.finalizarTarefa = async (id, horaSugeridaFim, tempoLimite, pontosMaximos, iniciouComAtraso, nomeTarefa, diaSemanaTarefa, horaSugeridaInicio) => {
             const agora = new Date();
             const horaFinalTexto = agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+            const dataHojeISO = formatarDataISO(agora);
 
             const minSugeridoFim = converterHoraParaMinutos(horaSugeridaFim);
             const minAtualFinal = converterHoraParaMinutos(horaFinalTexto);
             const tetoMaximoPermitido = minSugeridoFim + tempoLimite;
 
+            let finalStatus, finalPontos;
+
             if (minAtualFinal <= tetoMaximoPermitido) {
-                let finalPontos = pontosMaximos;
-                let finalStatus = "No Prazo";
+                finalPontos = pontosMaximos;
+                finalStatus = "No Prazo";
 
                 if (iniciouComAtraso) {
                     finalPontos = Math.floor(pontosMaximos / 2);
@@ -378,6 +481,9 @@
                     pontosGanhos: finalPontos 
                 });
             } else {
+                finalPontos = 0;
+                finalStatus = "Atrasado";
+
                 await updateDoc(doc(db, "tarefas", id), { 
                     horarioTermino: horaFinalTexto, 
                     status: "Atrasado", 
@@ -386,6 +492,24 @@
                 somErroQuak.play().catch(e => {});
                 document.getElementById("modalFeedback").style.display = "flex";
             }
+
+            // Registro permanente e imutável: se a tarefa for editada depois (pontos, horário etc.),
+            // esse registro do histórico não muda mais.
+            await addDoc(collection(db, "historico"), {
+                grupoId: codigoGrupo,
+                perfilNome: clienteNome,
+                nomeTarefa: nomeTarefa,
+                diaSemana: diaSemanaTarefa,
+                data: dataHojeISO,
+                horaSugeridaInicio: horaSugeridaInicio,
+                horaSugeridaFim: horaSugeridaFim,
+                horarioTermino: horaFinalTexto,
+                tempoLimite: tempoLimite,
+                pontosMaximos: pontosMaximos,
+                pontosGanhos: finalPontos,
+                status: finalStatus,
+                iniciouComAtraso: iniciouComAtraso
+            });
         };
 
         function triggerCelebracao100() {
