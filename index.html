@@ -80,6 +80,15 @@
         </div>
     </div>
 
+    <!-- Modal de Trava de Ordem de Tarefas -->
+    <div id="modalTrava" class="overlay" onclick="fecharModal('modalTrava')">
+        <div class="modal-box">
+            <div style="font-size:3.5rem">✋ Ops!</div>
+            <h3 style="font-size:1.6rem; margin:10px 0;">Calma lá, um passo de cada vez! 🛑</h3>
+            <p style="font-size:1.1rem; color:#555;"><strong>Tarefa anterior ainda não terminada.</strong><br><br>Garanta que as tarefas estejam em ordem de horários e que não possam ser puladas ou executadas juntas!</p>
+        </div>
+    </div>
+
     <div id="modalCelebracao" class="overlay" onclick="fecharModal('modalCelebracao')">
         <div class="modal-box">
             <div class="avatar-box" id="avatarCelebracaoContainer"></div>
@@ -430,6 +439,22 @@
         }
 
         window.iniciarTarefa = async (id, horaSugeridaInicio, tempoLimite) => {
+            // Trava 1: Verifica se existe alguma tarefa que já esteja "Em andamento"
+            const temEmAndamento = cacheTarefasHoje.some(t => t.status === "Em andamento");
+
+            // Trava 2: Encontra o índice da tarefa atual e verifica se há alguma anterior não finalizada
+            const indiceAtual = cacheTarefasHoje.findIndex(t => t.id === id);
+            const temAnteriorIncompleta = cacheTarefasHoje.slice(0, indiceAtual).some(t => {
+                return t.status === "Pendente" || t.status === "Em andamento";
+            });
+
+            // Se tentar pular ordem ou iniciar duas juntas, dispara o alerta divertido
+            if (temEmAndamento || temAnteriorIncompleta) {
+                somErroQuak.play().catch(e => {});
+                document.getElementById("modalTrava").style.display = "flex";
+                return;
+            }
+
             const agora = new Date();
             const horaAtualTexto = agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
 
