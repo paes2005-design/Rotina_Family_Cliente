@@ -1,0 +1,44 @@
+name: Add optional justification policy
+on:
+  push:
+    paths:
+      - .github/workflows/add-optional-justification.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Cliente
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text()
+          s=s.replace('''            <p style="font-size:0.95rem; color:#444; text-align:left; margin-bottom:6px;"><strong>Qual foi o motivo do atraso?</strong> Você pode escrever ou tocar no microfone e falar. A fala será convertida em texto para você revisar antes de confirmar.</p>''','''            <p id="textoPerguntaJustificativa" style="font-size:0.95rem; color:#444; text-align:left; margin-bottom:6px;"><strong>Qual foi o motivo do atraso?</strong> Você pode escrever ou tocar no microfone e falar. A fala será convertida em texto para você revisar antes de confirmar.</p>''')
+          s=s.replace('''            <textarea id="textoJustificativaAtraso" rows="3"''','''            <div id="blocoCamposJustificativa">\n            <textarea id="textoJustificativaAtraso" rows="3"''')
+          s=s.replace('''            <button class="btn" onclick="confirmarJustificativaAtraso()" style="background-color: var(--cor-primaria); color:white; width:100%; margin-top:15px; padding:12px;">Confirmar</button>''','''            <button class="btn" onclick="confirmarJustificativaAtraso()" style="background-color: var(--cor-primaria); color:white; width:100%; margin-top:15px; padding:12px;">Confirmar justificativa</button>\n            </div>\n            <div id="acoesJustificativaOpcional" style="display:none;gap:10px;margin-top:15px;justify-content:center;flex-wrap:wrap">\n                <button class="btn" onclick="optarJustificarAtraso(true)" style="background:var(--cor-primaria);color:white">Sim, quero justificar</button>\n                <button class="btn" onclick="optarJustificarAtraso(false)" style="background:#6c757d;color:white">Não quero justificar</button>\n            </div>''')
+          old="""            }else{\n                pendenteJustificativaAtraso={id,horaFinalTexto:hora,dataHojeISO:data,tarefa}; document.getElementById('textoJustificativaAtraso').value=''; justificativaFoiDitada=false; const sv=document.getElementById('statusReconhecimentoVoz'); if(sv) sv.innerText=''; document.getElementById('erroJustificativaAtraso').style.display='none'; somErroQuak.play().catch(()=>{});document.getElementById('modalFeedback').style.display='flex';\n            }"""
+          new="""            }else{\n                pendenteJustificativaAtraso={id,horaFinalTexto:hora,dataHojeISO:data,tarefa};\n                document.getElementById('textoJustificativaAtraso').value=''; justificativaFoiDitada=false;\n                const sv=document.getElementById('statusReconhecimentoVoz'); if(sv) sv.innerText='';\n                document.getElementById('erroJustificativaAtraso').style.display='none';\n                const obrigatoria=tarefa.justificativaObrigatoria !== false;\n                const bloco=document.getElementById('blocoCamposJustificativa');\n                const acoes=document.getElementById('acoesJustificativaOpcional');\n                const pergunta=document.getElementById('textoPerguntaJustificativa');\n                bloco.style.display=obrigatoria?'block':'none';\n                acoes.style.display=obrigatoria?'none':'flex';\n                pergunta.innerHTML=obrigatoria?'<strong>Qual foi o motivo do atraso?</strong> Você pode escrever ou tocar no microfone e falar. A fala será convertida em texto para você revisar antes de confirmar.':'<strong>Você se atrasou. Quer justificar?</strong>';\n                somErroQuak.play().catch(()=>{}); document.getElementById('modalFeedback').style.display='flex';\n            }"""
+          assert old in s
+          s=s.replace(old,new)
+          marker="""        window.confirmarJustificativaAtraso = async () => {"""
+          helper="""        async function concluirAtrasoSemJustificativa() {\n            if(!pendenteJustificativaAtraso) return;\n            const p=pendenteJustificativaAtraso, t=p.tarefa;\n            const base={horarioTermino:p.horaFinalTexto,status:'Atrasado',pontosGanhos:0,justificativaAtraso:'',tipoJustificativa:'nao-informada',justificativaRecusada:true};\n            await updateDoc(doc(db,'tarefas',p.id),base);\n            const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:p.id,tarefaGrupoId:t.tarefaGrupoId||'',nomeTarefa:t.nome,diaSemana:t.diaSemana,data:p.dataHojeISO,horaSugeridaInicio:t.horaSugeridaInicio,horaSugeridaFim:t.horaSugeridaFim,horarioInicio:t.horarioInicio||'',tempoLimite:Number(t.tempoLimite)||0,pontosMaximos:Number(t.pontosMaximos)||0,iniciouComAtraso:!!t.iniciouComAtraso,...base};\n            await setDoc(doc(db,'historico',`${clientePerfilId}_${p.id}_${p.dataHojeISO}`),hist,{merge:true});\n            await setDoc(doc(db,'execucoes',execucaoId(p.id,new Date())),hist,{merge:true});\n            pendenteJustificativaAtraso=null; justificativaFoiDitada=false; document.getElementById('modalFeedback').style.display='none';\n        }\n\n        window.optarJustificarAtraso = async (querJustificar) => {\n            if(!pendenteJustificativaAtraso) return;\n            if(!querJustificar){ await concluirAtrasoSemJustificativa(); return; }\n            document.getElementById('acoesJustificativaOpcional').style.display='none';\n            document.getElementById('blocoCamposJustificativa').style.display='block';\n            document.getElementById('textoPerguntaJustificativa').innerHTML='<strong>Qual foi o motivo do atraso?</strong> Você pode escrever ou tocar no microfone e falar.';\n            document.getElementById('textoJustificativaAtraso').focus();\n        };\n\n"""
+          assert marker in s
+          s=s.replace(marker,helper+marker)
+          s=s.replace("tipoJustificativa: justificativaFoiDitada ? 'voz-transcrita' : 'texto'","tipoJustificativa: justificativaFoiDitada ? 'voz-transcrita' : 'texto',\n                justificativaRecusada: false")
+          s=s.replace("const lista=cacheHistorico.filter(h=>h.justificativaAtraso)","const lista=cacheHistorico.filter(h=>h.justificativaAtraso || h.justificativaRecusada)")
+          s=s.replace("<span>${escaparHtml(h.justificativaAtraso)}</span> <button class=\"btn\" style=\"padding:4px 8px;margin-left:6px\" onclick=\"editarJustificativa('${h.id}')\">Editar</button>","<span>${h.justificativaRecusada?'Usuário não quis justificar.':escaparHtml(h.justificativaAtraso)}</span> ${h.justificativaRecusada?'':`<button class=\"btn\" style=\"padding:4px 8px;margin-left:6px\" onclick=\"editarJustificativa('${h.id}')\">Editar</button>`}")
+          p.write_text(s)
+          PY
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html
+          git commit -m "Support admin-configured optional delay justification"
+          git pull --rebase origin main
+          git push
