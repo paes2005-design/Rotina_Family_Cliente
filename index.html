@@ -72,11 +72,15 @@
         <button onclick="conectarCliente()">Entrar no Meu Espaço</button>
     </div>
 
-    <div id="modalFeedback" class="overlay" onclick="fecharModal('modalFeedback')">
+    <div id="modalFeedback" class="overlay">
         <div class="modal-box">
             <div style="font-size:3.5rem">😢</div>
             <h3 style="font-size:1.6rem; margin:10px 0;">Ah, puxa vida...</h3>
-            <p style="font-size:1.1rem; color:#555;">Infelizmente, você estourou o tempo limite planejado.</p>
+            <p style="font-size:1.1rem; color:#555; margin-bottom: 15px;">Infelizmente, você estourou o tempo limite planejado.</p>
+            <p style="font-size:0.95rem; color:#444; text-align:left; margin-bottom:6px;"><strong>Qual foi o motivo do atraso?</strong> (mínimo 5 palavras, obrigatório)</p>
+            <textarea id="textoJustificativaAtraso" rows="3" style="width:100%; box-sizing:border-box; padding:10px; border-radius:12px; border:2px solid #ddd; font-family:inherit; font-size:0.95rem; resize:vertical;" placeholder="Explique rapidinho o que aconteceu..."></textarea>
+            <p id="erroJustificativaAtraso" style="color:#d90429; font-size:0.85rem; margin-top:6px; display:none; text-align:left;">Escreve pelo menos 5 palavras pra continuar.</p>
+            <button class="btn" onclick="confirmarJustificativaAtraso()" style="background-color: var(--cor-primaria); color:white; width:100%; margin-top:15px; padding:12px;">Confirmar</button>
         </div>
     </div>
 
@@ -144,6 +148,7 @@
         let cacheTarefasHoje = [];
         let cacheTarefasTodas = [];
         let cacheHistorico = [];
+        let pendenteJustificativaAtraso = null;
 
         const diasSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
         const diaAtualTexto = diasSemana[new Date().getDay()];
@@ -482,11 +487,9 @@
             const minAtualFinal = converterHoraParaMinutos(horaFinalTexto);
             const tetoMaximoPermitido = minSugeridoFim + tempoLimite;
 
-            let finalStatus, finalPontos;
-
             if (minAtualFinal <= tetoMaximoPermitido) {
-                finalPontos = pontosMaximos;
-                finalStatus = "No Prazo";
+                let finalPontos = pontosMaximos;
+                let finalStatus = "No Prazo";
 
                 if (iniciouComAtraso) {
                     finalPontos = Math.floor(pontosMaximos / 2);
@@ -505,36 +508,77 @@
                     status: finalStatus, 
                     pontosGanhos: finalPontos 
                 });
-            } else {
-                finalPontos = 0;
-                finalStatus = "Atrasado";
 
-                await updateDoc(doc(db, "tarefas", id), { 
-                    horarioTermino: horaFinalTexto, 
-                    status: "Atrasado", 
-                    pontosGanhos: 0 
+                // Registro permanente e imutável: se a tarefa for editada depois (pontos, horário etc.),
+                // esse registro do histórico não muda mais.
+                await addDoc(collection(db, "historico"), {
+                    grupoId: codigoGrupo,
+                    perfilNome: clienteNome,
+                    nomeTarefa: nomeTarefa,
+                    diaSemana: diaSemanaTarefa,
+                    data: dataHojeISO,
+                    horaSugeridaInicio: horaSugeridaInicio,
+                    horaSugeridaFim: horaSugeridaFim,
+                    horarioTermino: horaFinalTexto,
+                    tempoLimite: tempoLimite,
+                    pontosMaximos: pontosMaximos,
+                    pontosGanhos: finalPontos,
+                    status: finalStatus,
+                    iniciouComAtraso: iniciouComAtraso
                 });
+            } else {
+                // Atrasado: nada é gravado ainda. Guarda os dados e pede a justificativa primeiro.
+                pendenteJustificativaAtraso = {
+                    id, horaFinalTexto, dataHojeISO, nomeTarefa, diaSemanaTarefa,
+                    horaSugeridaInicio, horaSugeridaFim, tempoLimite, pontosMaximos, iniciouComAtraso
+                };
+                document.getElementById("textoJustificativaAtraso").value = "";
+                document.getElementById("erroJustificativaAtraso").style.display = "none";
                 somErroQuak.play().catch(e => {});
                 document.getElementById("modalFeedback").style.display = "flex";
             }
+        };
 
-            // Registro permanente e imutável: se a tarefa for editada depois (pontos, horário etc.),
-            // esse registro do histórico não muda mais.
+        // Valida a justificativa (mínimo 5 palavras) e só então grava o atraso na tarefa e no histórico
+        window.confirmarJustificativaAtraso = async () => {
+            if(!pendenteJustificativaAtraso) return;
+
+            const texto = document.getElementById("textoJustificativaAtraso").value.trim();
+            const palavras = texto.split(/\s+/).filter(p => p.length > 0);
+
+            if(palavras.length < 5) {
+                document.getElementById("erroJustificativaAtraso").style.display = "block";
+                return;
+            }
+
+            const p = pendenteJustificativaAtraso;
+
+            await updateDoc(doc(db, "tarefas", p.id), {
+                horarioTermino: p.horaFinalTexto,
+                status: "Atrasado",
+                pontosGanhos: 0,
+                justificativaAtraso: texto
+            });
+
             await addDoc(collection(db, "historico"), {
                 grupoId: codigoGrupo,
                 perfilNome: clienteNome,
-                nomeTarefa: nomeTarefa,
-                diaSemana: diaSemanaTarefa,
-                data: dataHojeISO,
-                horaSugeridaInicio: horaSugeridaInicio,
-                horaSugeridaFim: horaSugeridaFim,
-                horarioTermino: horaFinalTexto,
-                tempoLimite: tempoLimite,
-                pontosMaximos: pontosMaximos,
-                pontosGanhos: finalPontos,
-                status: finalStatus,
-                iniciouComAtraso: iniciouComAtraso
+                nomeTarefa: p.nomeTarefa,
+                diaSemana: p.diaSemanaTarefa,
+                data: p.dataHojeISO,
+                horaSugeridaInicio: p.horaSugeridaInicio,
+                horaSugeridaFim: p.horaSugeridaFim,
+                horarioTermino: p.horaFinalTexto,
+                tempoLimite: p.tempoLimite,
+                pontosMaximos: p.pontosMaximos,
+                pontosGanhos: 0,
+                status: "Atrasado",
+                iniciouComAtraso: p.iniciouComAtraso,
+                justificativaAtraso: texto
             });
+
+            pendenteJustificativaAtraso = null;
+            document.getElementById("modalFeedback").style.display = "none";
         };
 
         function triggerCelebracao100() {
