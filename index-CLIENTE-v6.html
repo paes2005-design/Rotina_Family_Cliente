@@ -139,7 +139,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, onSnapshot, updateDoc, doc, getDocs, addDoc, writeBatch, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, onSnapshot, updateDoc, doc, getDocs, addDoc, writeBatch, getDoc, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCP9odEV8TJGOM4lflHk64BbPyXXVjGcYg",
@@ -152,6 +152,12 @@
 
         const app = initializeApp(firebaseConfig);
         const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+
+        async function hashPin(pin) {
+            const data = new TextEncoder().encode(pin);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
 
         let clienteNome = "";
         let clienteSexo = "Feminino";
@@ -321,7 +327,16 @@
             const snap=await getDocs(query(collection(db,'perfis'),where('grupoId','==',codInput),where('nome','==',nomeFormatado)));
             if(snap.empty) return alert('Cliente não cadastrado neste grupo.');
             const perfilDoc=snap.docs[0], dados=perfilDoc.data();
-            if(dados.pin && dados.pin!==pinInput) return alert('PIN incorreto.');
+            if(dados.pinHash) {
+                const informadoHash=await hashPin(pinInput);
+                if(informadoHash!==dados.pinHash) return alert('PIN incorreto.');
+            } else if(dados.pin) {
+                if(dados.pin!==pinInput) return alert('PIN incorreto.');
+                const pinHash=await hashPin(pinInput);
+                updateDoc(perfilDoc.ref,{pinHash,pinVersion:2,pin:deleteField(),pinMigradoEm:new Date().toISOString()}).catch(console.error);
+            } else {
+                return alert('Este perfil ainda não possui PIN. Peça ao administrador para definir um PIN.');
+            }
             clientePerfilId=dados.perfilId || perfilDoc.id;
             localStorage.setItem('cliente_nome',nomeFormatado); localStorage.setItem('cliente_grupo',codInput); localStorage.setItem('cliente_sexo',dados.sexo||'Feminino'); localStorage.setItem('cliente_perfil_id',clientePerfilId);
             iniciarSessaoCliente(nomeFormatado,codInput,dados.sexo||'Feminino',clientePerfilId);
