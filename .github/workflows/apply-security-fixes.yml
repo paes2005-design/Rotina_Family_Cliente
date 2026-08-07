@@ -1,0 +1,33 @@
+name: Apply security fixes
+on:
+  push:
+    paths:
+      - .github/workflows/apply-security-fixes.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Cliente
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text()
+          s=s.replace('import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, onSnapshot, updateDoc, doc, getDocs, addDoc, writeBatch, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";','import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, onSnapshot, updateDoc, doc, getDocs, addDoc, writeBatch, getDoc, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";')
+          s=s.replace('        const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });\n','''        const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });\n\n        async function hashPin(pin) {\n            const data = new TextEncoder().encode(pin);\n            const digest = await crypto.subtle.digest('SHA-256', data);\n            return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');\n        }\n''')
+          s=s.replace("            if(dados.pin && dados.pin!==pinInput) return alert('PIN incorreto.');","""            if(dados.pinHash) {\n                const informadoHash=await hashPin(pinInput);\n                if(informadoHash!==dados.pinHash) return alert('PIN incorreto.');\n            } else if(dados.pin) {\n                if(dados.pin!==pinInput) return alert('PIN incorreto.');\n                const pinHash=await hashPin(pinInput);\n                updateDoc(perfilDoc.ref,{pinHash,pinVersion:2,pin:deleteField(),pinMigradoEm:new Date().toISOString()}).catch(console.error);\n            } else {\n                return alert('Este perfil ainda não possui PIN. Peça ao administrador para definir um PIN.');\n            }""")
+          assert 'pinHash' in s and 'deleteField' in s and 'hashPin' in s
+          p.write_text(s)
+          PY
+      - name: Commit Cliente fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html
+          git commit -m "Hash client PINs and migrate legacy profiles"
+          git push
