@@ -1,0 +1,42 @@
+name: Finalize optional justification behavior
+on:
+  push:
+    paths:
+      - .github/workflows/finalize-optional-justification.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Cliente
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text()
+          s=s.replace("tipoJustificativa: \"\"\n                            });","tipoJustificativa: \"\",\n                                justificativaRecusada: false\n                            });")
+          s=s.replace("const lista=cacheHistorico.filter(h=>h.justificativaAtraso || h.justificativaRecusada)","const lista=cacheHistorico.filter(h=>h.justificativaAtraso)")
+          s=s.replace("<span>${h.justificativaRecusada?'Usuário não quis justificar.':escaparHtml(h.justificativaAtraso)}</span> ${h.justificativaRecusada?'':`<button class=\"btn\" style=\"padding:4px 8px;margin-left:6px\" onclick=\"editarJustificativa('${h.id}')\">Editar</button>`}","<span>${escaparHtml(h.justificativaAtraso)}</span> <button class=\"btn\" style=\"padding:4px 8px;margin-left:6px\" onclick=\"editarJustificativa('${h.id}')\">Editar</button>")
+          p.write_text(s)
+          PY
+      - name: Syntax check and commit
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('index-CLIENTE-v6.html').read_text()
+          scripts=re.findall(r'<script type="module">(.*?)</script>',s,re.S)
+          assert scripts
+          Path('/tmp/client.js').write_text(scripts[0])
+          PY
+          node --check /tmp/client.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html
+          git commit -m "Finalize optional justification client flow"
+          git pull --rebase origin main
+          git push
