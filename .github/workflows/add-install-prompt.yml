@@ -10,52 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch Cliente install prompt
+      - name: Patch Cliente
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import base64
           p=Path('index-CLIENTE-v6.html')
           s=p.read_text()
-          marker='</body>'
-          assert marker in s
+          payload='PGRpdiBpZD0icHdhSW5zdGFsbEJhbm5lciIgc3R5bGU9ImRpc3BsYXk6bm9uZTtwb3NpdGlvbjpmaXhlZDtsZWZ0OjE2cHg7cmlnaHQ6MTZweDtib3R0b206MThweDt6LWluZGV4Ojk5OTk7YmFja2dyb3VuZDojZmZmO2JvcmRlcjoxcHggc29saWQgI2ZmZDNkYztib3JkZXItcmFkaXVzOjE2cHg7Ym94LXNoYWRvdzowIDhweCAyOHB4IHJnYmEoMCwwLDAsLjE4KTtwYWRkaW5nOjE0cHggMTZweDttYXgtd2lkdGg6NTIwcHg7bWFyZ2luOmF1dG87Zm9udC1mYW1pbHk6aW5oZXJpdCI+CiAgPGRpdiBzdHlsZT0iZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmNlbnRlcjtnYXA6MTJweCI+CiAgICA8aW1nIHNyYz0iaWNvbi1jbGllbnRlLTE5Mi5wbmciIGFsdD0iw41jb25lIiB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHN0eWxlPSJib3JkZXItcmFkaXVzOjEycHgiPgogICAgPGRpdiBzdHlsZT0iZmxleDoxIj48c3Ryb25nIHN0eWxlPSJkaXNwbGF5OmJsb2NrO2NvbG9yOiNhNDEzM2MiPkluc3RhbGFyIFJvdGluYSBGYW1pbHk8L3N0cm9uZz48c21hbGwgaWQ9InB3YUluc3RhbGxUZXh0byIgc3R5bGU9ImNvbG9yOiM2NjYiPkluc3RhbGUgcGFyYSBhY2Vzc2FyIG1haXMgcsOhcGlkbyBlIHVzYXIgcmVjdXJzb3Mgb2ZmbGluZS48L3NtYWxsPjwvZGl2PgogICAgPGJ1dHRvbiBpZD0icHdhSW5zdGFsbEJ0biIgc3R5bGU9ImJvcmRlcjowO2JhY2tncm91bmQ6I2ZmNGQ2ZDtjb2xvcjojZmZmO2JvcmRlci1yYWRpdXM6MTBweDtwYWRkaW5nOjlweCAxMnB4O2ZvbnQtd2VpZ2h0OjcwMDtjdXJzb3I6cG9pbnRlciI+SW5zdGFsYXI8L2J1dHRvbj4KICAgIDxidXR0b24gaWQ9InB3YUluc3RhbGxGZWNoYXIiIGFyaWEtbGFiZWw9IkZlY2hhciIgc3R5bGU9ImJvcmRlcjowO2JhY2tncm91bmQ6dHJhbnNwYXJlbnQ7Zm9udC1zaXplOjIwcHg7Y3Vyc29yOnBvaW50ZXI7Y29sb3I6Izc3NyI+w5c8L2J1dHRvbj4KICA8L2Rpdj4KPC9kaXY+CjxzY3JpcHQ+CigoKSA9PiB7CiAgbGV0IGRlZmVycmVkUHJvbXB0PW51bGw7CiAgY29uc3QgYmFubmVyPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdwd2FJbnN0YWxsQmFubmVyJyk7CiAgY29uc3QgYnRuPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdwd2FJbnN0YWxsQnRuJyk7CiAgY29uc3QgZmVjaGFyPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdwd2FJbnN0YWxsRmVjaGFyJyk7CiAgY29uc3QgdGV4dG89ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3B3YUluc3RhbGxUZXh0bycpOwogIGNvbnN0IHN0YW5kYWxvbmU9d2luZG93Lm1hdGNoTWVkaWEoJyhkaXNwbGF5LW1vZGU6IHN0YW5kYWxvbmUpJykubWF0Y2hlcyB8fCB3aW5kb3cubmF2aWdhdG9yLnN0YW5kYWxvbmU9PT10cnVlOwogIGNvbnN0IGRpc3BlbnNhZG89c2Vzc2lvblN0b3JhZ2UuZ2V0SXRlbSgncHdhSW5zdGFsbERpc21pc3NlZCcpPT09JzEnOwogIGlmKHN0YW5kYWxvbmUgfHwgZGlzcGVuc2FkbykgcmV0dXJuOwogIHdpbmRvdy5hZGRFdmVudExpc3RlbmVyKCdiZWZvcmVpbnN0YWxscHJvbXB0JywgZSA9PiB7CiAgICBlLnByZXZlbnREZWZhdWx0KCk7IGRlZmVycmVkUHJvbXB0PWU7IGJhbm5lci5zdHlsZS5kaXNwbGF5PSdibG9jayc7CiAgfSk7CiAgYnRuLmFkZEV2ZW50TGlzdGVuZXIoJ2NsaWNrJywgYXN5bmMgKCkgPT4gewogICAgaWYoZGVmZXJyZWRQcm9tcHQpeyBkZWZlcnJlZFByb21wdC5wcm9tcHQoKTsgYXdhaXQgZGVmZXJyZWRQcm9tcHQudXNlckNob2ljZTsgZGVmZXJyZWRQcm9tcHQ9bnVsbDsgYmFubmVyLnN0eWxlLmRpc3BsYXk9J25vbmUnOyByZXR1cm47IH0KICAgIGNvbnN0IGlvcz0vaXBob25lfGlwYWR8aXBvZC9pLnRlc3QobmF2aWdhdG9yLnVzZXJBZ2VudCk7CiAgICBpZihpb3MpeyB0ZXh0by50ZXh0Q29udGVudD0nTm8gU2FmYXJpOiB0b3F1ZSBlbSBDb21wYXJ0aWxoYXIgZSBkZXBvaXMgZW0gIkFkaWNpb25hciDDoCBUZWxhIGRlIEluw61jaW8iLic7IGJ0bi5zdHlsZS5kaXNwbGF5PSdub25lJzsgfQogIH0pOwogIGZlY2hhci5hZGRFdmVudExpc3RlbmVyKCdjbGljaycsKCk9PnsgYmFubmVyLnN0eWxlLmRpc3BsYXk9J25vbmUnOyBzZXNzaW9uU3RvcmFnZS5zZXRJdGVtKCdwd2FJbnN0YWxsRGlzbWlzc2VkJywnMScpOyB9KTsKICB3aW5kb3cuYWRkRXZlbnRMaXN0ZW5lcignYXBwaW5zdGFsbGVkJywoKT0+eyBiYW5uZXIuc3R5bGUuZGlzcGxheT0nbm9uZSc7IGRlZmVycmVkUHJvbXB0PW51bGw7IH0pOwogIGNvbnN0IGlvcz0vaXBob25lfGlwYWR8aXBvZC9pLnRlc3QobmF2aWdhdG9yLnVzZXJBZ2VudCk7CiAgaWYoaW9zKXsgYmFubmVyLnN0eWxlLmRpc3BsYXk9J2Jsb2NrJzsgdGV4dG8udGV4dENvbnRlbnQ9J0luc3RhbGUgbm8gaVBob25lL2lQYWQgcGFyYSBhY2Vzc28gcsOhcGlkby4nOyB9Cn0pKCk7Cjwvc2NyaXB0Pgo='
           if 'pwaInstallBanner' not in s:
-              block=r'''
-<div id="pwaInstallBanner" style="display:none;position:fixed;left:16px;right:16px;bottom:18px;z-index:9999;background:#fff;border:1px solid #ffd3dc;border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.18);padding:14px 16px;max-width:520px;margin:auto;font-family:inherit">
-  <div style="display:flex;align-items:center;gap:12px">
-    <img src="icon-cliente-192.png" alt="Ícone" width="48" height="48" style="border-radius:12px">
-    <div style="flex:1"><strong style="display:block;color:#a4133c">Instalar Rotina Family</strong><small id="pwaInstallTexto" style="color:#666">Instale para acessar mais rápido e usar recursos offline.</small></div>
-    <button id="pwaInstallBtn" style="border:0;background:#ff4d6d;color:#fff;border-radius:10px;padding:9px 12px;font-weight:700;cursor:pointer">Instalar</button>
-    <button id="pwaInstallFechar" aria-label="Fechar" style="border:0;background:transparent;font-size:20px;cursor:pointer;color:#777">×</button>
-  </div>
-</div>
-<script>
-(() => {
-  let deferredPrompt=null;
-  const banner=document.getElementById('pwaInstallBanner');
-  const btn=document.getElementById('pwaInstallBtn');
-  const fechar=document.getElementById('pwaInstallFechar');
-  const texto=document.getElementById('pwaInstallTexto');
-  const standalone=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
-  const dispensado=sessionStorage.getItem('pwaInstallDismissed')==='1';
-  if(standalone || dispensado) return;
-  window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault(); deferredPrompt=e; banner.style.display='block';
-  });
-  btn.addEventListener('click', async () => {
-    if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; banner.style.display='none'; return; }
-    const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
-    if(ios){ texto.textContent='No Safari: toque em Compartilhar e depois em “Adicionar à Tela de Início”.'; btn.style.display='none'; }
-  });
-  fechar.addEventListener('click',()=>{ banner.style.display='none'; sessionStorage.setItem('pwaInstallDismissed','1'); });
-  window.addEventListener('appinstalled',()=>{ banner.style.display='none'; deferredPrompt=null; });
-  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
-  if(ios){ banner.style.display='block'; texto.textContent='Instale no iPhone/iPad para acesso rápido.'; }
-})();
-</script>
-'''
-              s=s.replace(marker,block+marker)
-          p.write_text(s)
+              block=base64.b64decode(payload).decode()
+              s=s.replace('</body>',block+'</body>')
+              p.write_text(s)
           PY
       - name: Commit
         shell: bash
