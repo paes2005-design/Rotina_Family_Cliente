@@ -1,0 +1,63 @@
+name: Apply Client audit fixes
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-audit-fixes.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply exact audited fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text(encoding='utf-8')
+
+          old="doc(db,'execucoes',`${h.tarefaId}_${h.data}`)"
+          new="doc(db,'execucoes',`${h.data}__${h.tarefaId}`)"
+          if s.count(old)!=1:
+              raise SystemExit(f'Expected exactly 1 legacy execution id, found {s.count(old)}')
+          s=s.replace(old,new,1)
+
+          pattern=r'''        function textoRegraAtrasoCliente\(\)\{.*?        \}\n        window\.abrirInfoRegraAtraso'''
+          repl='''        function textoRegraAtrasoCliente(){
+            const r=regraAtrasoAtual;
+            return `<strong>Como funciona o saldo de tolerância</strong><br><br>`+
+            `Cada tarefa tem um saldo de tolerância. Se você começar depois do horário, usa uma parte. Se terminar depois do horário, usa mais uma parte do mesmo saldo.<br><br>`+
+            `✅ <strong>${r.dentroLimites}%</strong>: o atraso total consumiu até 100% do saldo de tolerância.<br>`+
+            `🟡 <strong>${r.atrasoLeve}%</strong>: o atraso total passou do saldo, mas ficou até 25% além dele.<br>`+
+            `🟠 <strong>${r.atrasoMaior}%</strong>: o atraso total passou mais, mas ficou até 50% além do saldo.<br>`+
+            `🔴 <strong>${r.estourado}%</strong>: o atraso total passou de 50% além do saldo de tolerância.<br><br>`+
+            `<small>O atraso total é a soma do atraso no início com o atraso no término. Os horários são avaliados em minutos completos.</small>`;
+        }
+        window.abrirInfoRegraAtraso'''
+          s2,n=re.subn(pattern,repl,s,flags=re.S)
+          if n!=1:
+              raise SystemExit(f'Expected exactly 1 scoring explanation function, found {n}')
+          s=s2
+
+          old_filter='                if(!h.status || !h.status.includes("Prazo")) return;\n                const pts = h.pontosGanhos || 0;'
+          new_filter='                const pts = Number(h.pontosGanhos) || 0;'
+          if s.count(old_filter)!=1:
+              raise SystemExit(f'Expected exactly 1 legacy points filter, found {s.count(old_filter)}')
+          s=s.replace(old_filter,new_filter,1)
+
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Verify replacements
+        run: |
+          grep -F '${h.data}__${h.tarefaId}' index-CLIENTE-v6.html
+          grep -F 'Como funciona o saldo de tolerância' index-CLIENTE-v6.html
+          ! grep -F 'if(!h.status || !h.status.includes("Prazo")) return;' index-CLIENTE-v6.html
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html
+          git commit -m "Fix Client audit consistency issues"
+          git push
