@@ -1,0 +1,27 @@
+name: Apply Client manual icon test patch
+on:
+  push:
+    branches:
+      - test/manual-icons
+    paths:
+      - tools/apply_manual_icons_test.py
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/manual-icons
+      - name: Apply exact manual icon patch
+        run: python tools/apply_manual_icons_test.py
+      - name: Verify and commit
+        run: |
+          node --check client-ui-pro.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html client-ui-pro.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Test Client explicit task icons"
+          git push origin test/manual-icons
