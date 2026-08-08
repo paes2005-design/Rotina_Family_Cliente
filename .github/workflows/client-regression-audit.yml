@@ -41,7 +41,8 @@ jobs:
           assert(!sw.includes("client-rules-v2.js")&&!sw.includes("client-compat-v2.js"),'known freezing modules stay outside app shell');
           assert(sw.includes("cache:'no-store'"),'HTML/JS/CSS refresh network-first');
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
-          assert(guard.includes('__rotinaTimeGuardReady=true'),'startup block is released only after new guard installs');
+          assert(ui.includes("addEventListener('rotina-time-guard-ready'"),'Client listens for guard readiness');
+          assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard releases startup block only after installation');
 
           // Shared tolerance scoring core
           const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?audit='+Date.now());
@@ -54,7 +55,6 @@ jobs:
           assert(pct(10,13)===75,'tol 10: 13 minutes = 75%');
           assert(pct(10,15)===50,'tol 10: 15 minutes = 50%');
           assert(pct(10,16)===0,'tol 10: 16 minutes = 0%');
-          const base=new Date('2026-08-08T03:00:00');
           const calc=core.calcularConsumoAtraso({inicioPrevisto:new Date('2026-08-08T02:55:00'),inicioReal:new Date('2026-08-08T02:56:59'),fimPrevisto:new Date('2026-08-08T03:00:00'),fimReal:new Date('2026-08-08T03:02:59')});
           assert(calc.atrasoInicio===1&&calc.atrasoFim===2&&calc.consumoTotal===3,'seconds do not change visible HH:mm scoring');
           const midnight=core.calcularConsumoAtraso({inicioPrevisto:new Date('2026-08-07T21:35:00'),inicioReal:new Date('2026-08-08T00:49:00'),fimPrevisto:new Date('2026-08-07T21:36:00'),fimReal:new Date('2026-08-08T00:49:00')});
@@ -79,7 +79,7 @@ jobs:
           assert(review.includes('pontosDevolvidos'),'Client can display returned points');
           assert(review.includes('somarPeriodo'),'reviewed effective points recalculate day/week/month');
           assert(review.includes('pontuação automática mantida'),'maintained review message exists');
-          assert(review.includes('ponto${devolvidos===1'), 'returned-points message exists');
+          assert(review.includes('ponto${devolvidos===1'),'returned-points message exists');
           assert(ui.includes('aplicarPontosRevisadosCliente'),'review display is reapplied after task rows rerender');
 
           // Current client UI / session / PWA
