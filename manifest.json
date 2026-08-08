@@ -2,7 +2,7 @@
   "name": "Meu Espaço de Metas",
   "short_name": "Metas",
   "description": "Acompanhe suas tarefas e metas diárias",
-  "start_url": "index.html",
+  "start_url": "./index-CLIENTE-v6.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
