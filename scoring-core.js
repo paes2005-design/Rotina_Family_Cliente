@@ -3,8 +3,7 @@ export const REGRA_PADRAO={dentroLimites:100,atrasoLeve:75,atrasoMaior:50,estour
 export function limitesTolerancia(valor){
   const tolerancia=Math.max(0,Number(valor)||0);
   if(tolerancia===0)return {tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0};
-  // Para tolerâncias pequenas, preserva ao menos 1 minuto útil na faixa de 75%
-  // e mais 1 minuto útil na faixa de 50%.
+  // Compatibilidade com registros/relatórios antigos baseados em minutos inteiros.
   const extra75=Math.max(1,Math.ceil(tolerancia*0.25));
   const extra50=Math.max(extra75+1,Math.ceil(tolerancia*0.50));
   return {
@@ -26,15 +25,59 @@ export function classificarConsumoTolerancia(tolerancia,consumo,regra=REGRA_PADR
   return {percentual:0,faixa:'estourado',consumo:c,...l};
 }
 
-// A rotina é apresentada e operada em HH:mm. Por isso, segundos não mudam a
-// faixa de pontuação: contabilizamos apenas minutos completos de atraso.
-// O timestamp ISO continua sendo salvo separadamente para auditoria.
+// Regra exata usada pelo cronômetro e pelo fechamento da ocorrência.
+// A tolerância configurada é toda a janela de 100%. Ao chegar exatamente a zero,
+// entra em 75%. Depois do zero existe somente mais 25% da tolerância como janela
+// de recuperação, dividida igualmente entre 75% e 50%.
+export function limitesToleranciaExata(valor){
+  const tolerancia=Math.max(0,Number(valor)||0);
+  const limite100Seg=tolerancia*60;
+  const janelaParcialSeg=limite100Seg*0.25;
+  const faixa75Seg=janelaParcialSeg/2;
+  const faixa50Seg=janelaParcialSeg-faixa75Seg;
+  const limite75Seg=limite100Seg+faixa75Seg;
+  const limite50Seg=limite100Seg+janelaParcialSeg;
+  return {
+    tolerancia,
+    limite100Seg,
+    limite75Seg,
+    limite50Seg,
+    faixa75Seg,
+    faixa50Seg,
+    janelaParcialSeg,
+    limite100:tolerancia,
+    limite75:limite75Seg/60,
+    limite50:limite50Seg/60,
+    extra75:faixa75Seg/60,
+    extra50:janelaParcialSeg/60
+  };
+}
+
+export function classificarConsumoToleranciaSegundos(tolerancia,consumoSeg,regra=REGRA_PADRAO){
+  const c=Math.max(0,Number(consumoSeg)||0);
+  const l=limitesToleranciaExata(tolerancia);
+  if(l.tolerancia===0){
+    if(c===0)return {percentual:Number(regra.dentroLimites??100),faixa:'dentro-limites',consumoSeg:c,...l};
+    return {percentual:0,faixa:'estourado',consumoSeg:c,...l};
+  }
+  if(c<l.limite100Seg)return {percentual:Number(regra.dentroLimites??100),faixa:'dentro-limites',consumoSeg:c,...l};
+  if(c<l.limite75Seg)return {percentual:Number(regra.atrasoLeve??75),faixa:'atraso-leve',consumoSeg:c,...l};
+  if(c<l.limite50Seg)return {percentual:Number(regra.atrasoMaior??50),faixa:'atraso-maior',consumoSeg:c,...l};
+  return {percentual:0,faixa:'estourado',consumoSeg:c,...l};
+}
+
+// Mantém os campos históricos em minutos completos, mas também entrega o consumo
+// exato em segundos para a nova classificação do cronômetro.
 export function minutosCompletosAtraso(real,previsto){
   return Math.max(0,Math.floor((real-previsto)/60000));
 }
 
 export function calcularConsumoAtraso({inicioPrevisto,inicioReal,fimPrevisto,fimReal}){
-  const atrasoInicio=minutosCompletosAtraso(inicioReal,inicioPrevisto);
-  const atrasoFim=minutosCompletosAtraso(fimReal,fimPrevisto);
-  return {atrasoInicio,atrasoFim,consumoTotal:atrasoInicio+atrasoFim};
+  const atrasoInicioMs=Math.max(0,inicioReal-inicioPrevisto);
+  const atrasoFimMs=Math.max(0,fimReal-fimPrevisto);
+  const atrasoInicio=Math.floor(atrasoInicioMs/60000);
+  const atrasoFim=Math.floor(atrasoFimMs/60000);
+  const consumoTotal=atrasoInicio+atrasoFim;
+  const consumoTotalSeg=Math.floor((atrasoInicioMs+atrasoFimMs)/1000);
+  return {atrasoInicio,atrasoFim,consumoTotal,consumoTotalSeg};
 }
