@@ -17,6 +17,7 @@ jobs:
           node --check client-ui-pro.js
           node --check client-time-guard-v2.js
           node --check client-reviewed-points.js
+          node --check client-early-start-ui.js
           node --check scoring-core.js
           node --check sw.js
           node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest OK')"
@@ -26,17 +27,20 @@ jobs:
           import fs from 'fs';
           import {pathToFileURL} from 'url';
           const read=f=>fs.readFileSync(f,'utf8');
-          const html=read('index-CLIENTE-v6.html'),ui=read('client-ui-pro.js'),guard=read('client-time-guard-v2.js'),review=read('client-reviewed-points.js'),sw=read('sw.js'),manifest=JSON.parse(read('manifest.json'));
+          const html=read('index-CLIENTE-v6.html'),ui=read('client-ui-pro.js'),guard=read('client-time-guard-v2.js'),review=read('client-reviewed-points.js'),early=read('client-early-start-ui.js'),sw=read('sw.js'),manifest=JSON.parse(read('manifest.json'));
           const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
 
           // Stability / loading
           assert(!guard.includes('setInterval('),'temporal guard has no continuous interval');
           assert(!review.includes('setInterval('),'reviewed-points module has no continuous interval');
+          assert(!early.includes('setInterval('),'early-start Client display has no continuous interval');
           assert(!guard.includes('MutationObserver'),'temporal guard has no mutation observer');
           assert(!review.includes('MutationObserver'),'reviewed-points module has no mutation observer');
+          assert(!early.includes('MutationObserver'),'early-start Client display reuses the existing row observer');
           assert(ui.includes("subtree:false"),'existing task observer is restricted to direct row changes');
           assert(ui.includes("import('./client-time-guard-v2.js')"),'new temporal guard is loaded');
           assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points module is loaded');
+          assert(ui.includes("import('./client-early-start-ui.js')"),'early-start blue status module is loaded');
           assert(!ui.includes("client-rules-v2.js")&&!ui.includes("client-compat-v2.js"),'known freezing modules stay disabled');
           assert(!sw.includes("client-rules-v2.js")&&!sw.includes("client-compat-v2.js"),'known freezing modules stay outside app shell');
           assert(sw.includes("cache:'no-store'"),'HTML/JS/CSS refresh network-first');
@@ -74,6 +78,15 @@ jobs:
           assert(guard.includes('Não foi possível enviar a justificativa'),'send failure is recoverable and explained');
           assert(guard.includes("revisaoStatus:temJustificativa?'aguardando':'sem-revisao'"),'submitted justification awaits adult review');
           assert(guard.includes('pontosOriginais:pontos')&&guard.includes('percentualOriginal:faixa.percentual'),'automatic result is preserved for later review');
+
+          // Early start: educational marker, exact date, no scoring side effects
+          for(const campo of ['inicioAntecipado','antecipacaoMin','motivoInicioAntecipado','tipoMotivoInicioAntecipado']) assert(guard.includes(campo),`early-start guard persists ${campo}`);
+          assert(early.includes("badge.textContent='🔵 Início antecipado'"),'Client shows blue early-start status');
+          assert(early.includes("t?.inicioAntecipado===true&&t?.dataExecucao===hoje"),'Client blue status is limited to the current occurrence date');
+          assert(early.includes("where('grupoId','==',s.grupo)"),'Client early display reads only the active group');
+          assert(!early.includes('updateDoc(')&&!early.includes('setDoc(')&&!early.includes('writeBatch('),'Client early display never writes points/data');
+          assert(ui.includes('aplicarInicioAntecipadoCliente'),'existing row decorator reapplies early-start status');
+          assert(sw.includes('client-early-start-ui.js')&&sw.includes('rotina-family-cliente-v21'),'Client PWA caches early-start module in v21');
 
           // Reviewed points consistency
           assert(review.includes('pontosDevolvidos'),'Client can display returned points');
