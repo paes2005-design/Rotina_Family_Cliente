@@ -1,5 +1,5 @@
-const CACHE_NAME = 'rotina-family-cliente-v6';
-const APP_SHELL = ['./','./index.html','./index-CLIENTE-v6.html','./manifest.json','./icon-cliente-192.png','./icon-cliente-512.png','./client-ui-pro.css','./client-ui-pro.js'];
+const CACHE_NAME = 'rotina-family-cliente-v7';
+const APP_SHELL = ['./','./index.html','./index-CLIENTE-v6.html','./manifest.json','./icon-cliente-192.png','./icon-cliente-512.png','./client-ui-pro.css','./client-ui-pro.js','./client-rules-v2.js'];
 const MODULE_ROOTS = [
   'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js',
   'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js'
