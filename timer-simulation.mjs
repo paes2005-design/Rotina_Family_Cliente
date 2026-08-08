@@ -64,7 +64,7 @@ let anterior=-1,ultimoPct=100;
 for(let s=0;s<=24*60*60;s++){
   const agora=new Date(dt('2026-08-08T08:00:00').getTime()+s*1000);
   const x=calcularEstadoCronometro(stress,agora);
-  ok(Number.isFinite(x.consumoTotal)&&Number.isFinite(x.restanteNormalSeg),'estado numérico válido no stress',s===0?'primeiro segundo':'') if(false);
+  if(!Number.isFinite(x.consumoTotal)||!Number.isFinite(x.restanteNormalSeg))throw new Error(`FALHOU: estado numérico inválido no segundo ${s}`);
   if(x.consumoTotal<anterior)throw new Error(`FALHOU: consumo regrediu no segundo ${s}`);
   if(x.percentual>ultimoPct)throw new Error(`FALHOU: percentual melhorou sozinho no segundo ${s}`);
   anterior=x.consumoTotal;ultimoPct=x.percentual;
