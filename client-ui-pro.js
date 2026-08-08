@@ -1,4 +1,6 @@
 (()=>{
+  import('./client-rules-v2.js').catch(e=>console.error('Regras de tolerância v2:',e));
+  import('./client-compat-v2.js').catch(e=>console.error('Compatibilidade de pontos v2:',e));
   const iconeTarefa=(nome='')=>{
     const n=String(nome).toLowerCase();
     const regras=[
