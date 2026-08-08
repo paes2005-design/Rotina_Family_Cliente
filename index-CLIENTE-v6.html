@@ -202,7 +202,7 @@
         function normalizarRegraAtraso(valor={}) {
             const r=valor.regraAtraso || valor || {};
             const n=(v,p)=>Number.isFinite(Number(v))?Math.max(0,Math.min(100,Number(v))):p;
-            return {dentroLimites:n(r.dentroLimites,100),atrasoLeve:n(r.atrasoLeve,75),atrasoMaior:n(r.atrasoMaior,50),estourado:n(r.estourado,0)};
+            return {dentroLimites:n(r.dentroLimites,100),atrasoLeve:n(r.atrasoLeve,75),atrasoMaior:n(r.atrasoMaior,50),estourado:0};
         }
         function textoRegraAtrasoCliente(){
             const r=regraAtrasoAtual;
@@ -328,6 +328,9 @@
                                 horarioTermino: "",
                                 pontosGanhos: 0,
                                 iniciouComAtraso: false,
+                                iniciouAposLimiteFinal: false,
+                                percentualAplicado: null,
+                                faixaAtraso: "",
                                 justificativaAtraso: "",
                                 tipoJustificativa: "",
                                 justificativaRecusada: false
