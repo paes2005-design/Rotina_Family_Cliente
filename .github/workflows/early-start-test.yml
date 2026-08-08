@@ -1,0 +1,82 @@
+name: Early start rule test
+on:
+  push:
+    branches:
+      - test/early-start-rule
+    paths:
+      - tools/apply_early_start_patch.py
+permissions:
+  contents: write
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/early-start-rule
+      - name: Apply exact patch
+        run: python tools/apply_early_start_patch.py
+      - name: Validate early-start rule and regressions
+        run: |
+          node --check client-time-guard-v2.js
+          node --check client-ui-pro.js
+          node --check client-reviewed-points.js
+          node --check scoring-core.js
+          node --check sw.js
+          node --input-type=module <<'NODE'
+          import fs from 'fs';
+          import vm from 'vm';
+          import {pathToFileURL} from 'url';
+          const guard=fs.readFileSync('client-time-guard-v2.js','utf8');
+          const ui=fs.readFileSync('client-ui-pro.js','utf8');
+          const sw=fs.readFileSync('sw.js','utf8');
+          const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
+
+          assert(guard.includes('pedirMotivoAntecipacao'),'early-start modal exists');
+          for(const x of ['Terminei a tarefa anterior mais cedo','Meu responsável autorizou','Mudança na rotina','Outro motivo']) assert(guard.includes(x),`preset reason exists: ${x}`);
+          assert(guard.includes("motivo.split(/\\s+/).filter(Boolean).length<3"),'custom reason requires meaningful text');
+          assert(guard.includes('inicioAntecipado:antecipado'),'early start is explicitly persisted');
+          assert(guard.includes('motivoInicioAntecipado'),'early-start reason is persisted');
+          assert(guard.includes('tipoMotivoInicioAntecipado'),'early-start reason type is persisted');
+          assert(guard.includes('antecipacaoMin'),'minutes early are persisted');
+          assert(guard.includes('agora2<j2.inicio?{tipo:selecionado,motivo}:null'),'if scheduled time arrives while modal is open, start becomes normal');
+          assert(!guard.includes('Ainda não chegou o horário desta tarefa.'),'old rigid early-start block is removed');
+          assert(!guard.includes('setInterval(')&&!guard.includes('MutationObserver'),'guard remains free of continuous timers/observers');
+          assert(sw.includes("rotina-family-cliente-v20"),'Client cache bumped to v20');
+          assert(!ui.includes('client-rules-v2.js')&&!ui.includes('client-compat-v2.js'),'known freezing modules remain disabled');
+
+          const match=guard.match(/function avaliarOrdemLista\(lista,t\)\{[\s\S]*?\n\}/);
+          assert(match,'order evaluator found');
+          const box={fn:null};vm.createContext(box);vm.runInContext(match[0]+';fn=avaliarOrdemLista;',box);
+          const base=[
+            {id:'a',nome:'Louça',horaSugeridaInicio:'18:00',status:'No Prazo (100%)'},
+            {id:'b',nome:'Quarto',horaSugeridaInicio:'18:30',status:'Pendente'},
+            {id:'c',nome:'Leitura',horaSugeridaInicio:'19:00',status:'Pendente'}
+          ];
+          assert(box.fn(base,base[1]).permitida===true,'completed prior task allows next task to start early');
+          const pend=structuredClone(base);pend[0].status='Pendente';
+          assert(box.fn(pend,pend[1]).motivo==='anterior-pendente','cannot skip a pending prior task');
+          const running=structuredClone(base);running[0].status='Em andamento';
+          assert(box.fn(running,running[1]).motivo==='outra-em-andamento','cannot start while another task is running');
+          const laterRunning=structuredClone(base);laterRunning[2].status='Em andamento';
+          assert(box.fn(laterRunning,laterRunning[1]).motivo==='outra-em-andamento','parallel execution is blocked even if the running task is later in schedule');
+
+          const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?early='+Date.now());
+          const earlyDelay=core.minutosCompletosAtraso(new Date('2026-08-08T18:30:00'),new Date('2026-08-08T18:10:00'));
+          assert(earlyDelay===0,'starting early never consumes delay tolerance');
+          assert(core.classificarConsumoTolerancia(10,0).percentual===100,'zero delay remains 100% band');
+
+          assert(guard.includes("const obrigatoria=t.justificativaObrigatoria!==false"),'late justification flow remains intact');
+          assert(guard.includes('SpeechRecognition')&&guard.includes("lang='pt-BR'"),'voice justification remains intact');
+          assert(guard.includes('toleranciaConsumidaMin'),'shared tolerance scoring remains intact');
+          assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'startup guard readiness remains intact');
+          console.log('ALL EARLY START TESTS PASSED');
+          NODE
+      - name: Commit tested patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-time-guard-v2.js sw.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Allow justified early task starts"
+          git push origin test/early-start-rule
