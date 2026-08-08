@@ -1,5 +1,6 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
+  window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
 
