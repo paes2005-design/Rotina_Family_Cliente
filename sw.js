@@ -1,5 +1,5 @@
-const CACHE_NAME='rotina-family-cliente-v12';
-const APP_SHELL=['./','./index.html','./index-CLIENTE-v6.html','./manifest.json','./icon-cliente-192.png','./icon-cliente-512.png','./client-ui-pro.css','./client-ui-pro.js','./reset-cache.html'];
+const CACHE_NAME='rotina-family-cliente-v13';
+const APP_SHELL=['./','./index.html','./index-CLIENTE-v6.html','./manifest.json','./icon-cliente-192.png','./icon-cliente-512.png','./client-ui-pro.css','./client-ui-pro.js','./client-time-guard.js','./reset-cache.html'];
 const MODULE_ROOTS=['https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js','https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js'];
 const STATIC_SCRIPTS=['https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js'];
 async function cacheModuleTree(url,cache,seen=new Set()){if(seen.has(url))return;seen.add(url);try{const response=await fetch(url,{mode:'cors'});if(!response.ok)return;await cache.put(url,response.clone());const text=await response.text();const specs=[...text.matchAll(/(?:from\s*|import\s*)["']([^"']+)["']/g)].map(m=>m[1]);await Promise.allSettled(specs.map(spec=>{const next=new URL(spec,url).href;return next.startsWith('https://www.gstatic.com/firebasejs/')?cacheModuleTree(next,cache,seen):Promise.resolve();}));}catch(e){console.warn('Cache de módulo indisponível:',url);}}
