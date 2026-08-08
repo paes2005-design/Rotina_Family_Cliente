@@ -1,6 +1,6 @@
 import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import {getFirestore,collection,query,where,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-import {calcularEstadoCronometro} from './tolerance-timer-core.js';
+import {calcularEstadoCronometro,formatarDuracaoCronometro} from './tolerance-timer-core.js';
 
 const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 let tarefas=[];
@@ -31,8 +31,25 @@ function tarefaDaLinha(row,agora=new Date()){
 function garantirEstilo(){
   if(document.getElementById('clientToleranceTimerStyle'))return;
   const s=document.createElement('style');s.id='clientToleranceTimerStyle';
-  s.textContent=`.client-tolerance-timer{display:inline-flex;align-items:center;margin-top:6px;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:800;line-height:1.15;white-space:nowrap;background:#e0f2fe;color:#075985;border:1px solid #7dd3fc}.client-tolerance-timer[data-band="limite"]{background:#f0f9ff;color:#0369a1;border-color:#38bdf8}.client-tolerance-timer[data-band="leve"]{background:#fef9c3;color:#854d0e;border-color:#fde047}.client-tolerance-timer[data-band="maior"]{background:#ffedd5;color:#9a3412;border-color:#fdba74}.client-tolerance-timer[data-band="estourado"]{background:#fee2e2;color:#991b1b;border-color:#fca5a5}`;
+  s.textContent=`.client-tolerance-timer{display:inline-flex;align-items:center;margin-top:6px;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:800;line-height:1.15;white-space:nowrap;background:#e0f2fe;color:#075985;border:1px solid #7dd3fc;cursor:pointer}.client-tolerance-timer:focus{outline:3px solid rgba(37,99,235,.25);outline-offset:2px}.client-tolerance-timer[data-band="leve"]{background:#fef9c3;color:#854d0e;border-color:#fde047}.client-tolerance-timer[data-band="maior"]{background:#ffedd5;color:#9a3412;border-color:#fdba74}.client-tolerance-timer[data-band="estourado"]{background:#fee2e2;color:#991b1b;border-color:#fca5a5}`;
   document.head.appendChild(s);
+}
+
+function abrirAjudaRegra(t){
+  document.getElementById('clientToleranceHelp')?.remove();
+  const e=calcularEstadoCronometro(t,new Date());
+  const normal=formatarDuracaoCronometro(e.limite100Seg);
+  const faixa75=formatarDuracaoCronometro(e.faixa75Seg);
+  const faixa50=formatarDuracaoCronometro(e.faixa50Seg);
+  const maximo=formatarDuracaoCronometro(e.limite50Seg);
+  const m=document.createElement('div');
+  m.id='clientToleranceHelp';
+  m.style.cssText='position:fixed;inset:0;z-index:21000;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML=`<div style="width:min(92vw,430px);background:#fff;border-radius:20px;padding:20px;box-shadow:0 18px 55px rgba(0,0,0,.25);color:#1f2937"><h2 style="margin:0 0 10px">⏱️ Como funciona sua tolerância?</h2><p style="margin:0 0 12px;line-height:1.45">Nesta tarefa você tem <strong>${normal}</strong> de tolerância valendo <strong>100%</strong>.</p><div style="display:grid;gap:8px"><div style="padding:10px 12px;border-radius:12px;background:#fef9c3">🟡 Quando chegar a <strong>00:00</strong>, começa a faixa de <strong>75%</strong> por mais <strong>${faixa75}</strong> (12,5%).</div><div style="padding:10px 12px;border-radius:12px;background:#ffedd5">🟠 Depois, a faixa de <strong>50%</strong> dura mais <strong>${faixa50}</strong> (12,5%).</div><div style="padding:10px 12px;border-radius:12px;background:#fee2e2">🔴 Depois de <strong>${maximo}</strong> de atraso total, a tarefa fica em <strong>0%</strong>.</div></div><p style="margin:12px 0 0;color:#64748b;font-size:13px;line-height:1.4">A tolerância é um saldo único: atraso no início + atraso no término. Começar antes não gasta esse saldo.</p><div style="display:flex;justify-content:flex-end;margin-top:14px"><button type="button" id="clientToleranceHelpClose" class="btn">Entendi</button></div></div>`;
+  document.body.appendChild(m);
+  const fechar=()=>m.remove();
+  m.querySelector('#clientToleranceHelpClose').onclick=fechar;
+  m.addEventListener('click',ev=>{if(ev.target===m)fechar();});
 }
 
 export function prepararLinhasCronometro(){
@@ -47,6 +64,11 @@ export function prepararLinhasCronometro(){
       el=document.createElement('span');
       el.className='client-tolerance-timer';
       el.hidden=true;
+      el.tabIndex=0;
+      el.setAttribute('role','button');
+      el.setAttribute('aria-label','Ver como funciona a tolerância desta tarefa');
+      el.addEventListener('click',()=>{const atual=tarefas.find(x=>x.id===el.dataset.taskTimerId);if(atual)abrirAjudaRegra(atual);});
+      el.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();el.click();}});
       const ancora=td.querySelector('.early-start-client-badge')||td.querySelector('.task-name-wrap')||td.querySelector('strong');
       ancora?.insertAdjacentElement('afterend',el);
     }
