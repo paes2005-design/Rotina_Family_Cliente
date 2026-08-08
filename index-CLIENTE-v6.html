@@ -13,6 +13,7 @@
     <meta name="apple-mobile-web-app-title" content="Metas">
     <link rel="apple-touch-icon" href="icon-cliente-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-cliente-192.png">
+    <link rel="stylesheet" href="./client-ui-pro.css">
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <style>
@@ -450,19 +451,21 @@
             const minTermino=converterHoraParaMinutos(hora);
             const minInicioReal=converterHoraParaMinutos(tarefa.horarioInicio||hora);
             const limiteInicio=converterHoraParaMinutos(tarefa.horaSugeridaInicio)+tolerancia;
-            const limiteAtrasoLeve=limiteInicio+Math.ceil(tolerancia/2);
             const limiteFinal=converterHoraParaMinutos(tarefa.horaSugeridaFim)+tolerancia;
+            // Mede o atraso REAL além da tolerância. Ex.: tolerância 2 min, 1 min além => faixa de 75%.
+            const minutosAlemTolerancia=Math.max(0,minInicioReal-limiteInicio);
+            const faixaLeveMinutos=tolerancia>0?Math.max(1,Math.ceil(tolerancia/2)):0;
             const estourouFinal=minTermino>limiteFinal || minInicioReal>limiteFinal || tarefa.iniciouAposLimiteFinal===true;
             if(!estourouFinal){
                 let percentual=regraAtrasoAtual.dentroLimites;
                 let faixa='dentro-limites';
-                if(minInicioReal>limiteInicio && minInicioReal<=limiteAtrasoLeve){ percentual=regraAtrasoAtual.atrasoLeve; faixa='atraso-leve'; }
-                else if(minInicioReal>limiteAtrasoLeve){ percentual=regraAtrasoAtual.atrasoMaior; faixa='atraso-maior'; }
+                if(minutosAlemTolerancia>0 && minutosAlemTolerancia<=faixaLeveMinutos){ percentual=regraAtrasoAtual.atrasoLeve; faixa='atraso-leve'; }
+                else if(minutosAlemTolerancia>faixaLeveMinutos){ percentual=regraAtrasoAtual.atrasoMaior; faixa='atraso-maior'; }
                 const pts=Math.round((Number(tarefa.pontosMaximos)||0)*(percentual/100));
                 const status=faixa==='dentro-limites'?`No Prazo (${percentual}%)`:faixa==='atraso-leve'?`No Prazo — pequeno atraso (${percentual}%)`:`No Prazo — início atrasado (${percentual}%)`;
                 confetti({particleCount:45,spread:60,origin:{y:.75}});
-                await updateDoc(doc(db,'tarefas',id),{horarioTermino:hora,status,pontosGanhos:pts,percentualAplicado:percentual,faixaAtraso:faixa});
-                const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,diaSemana:tarefa.diaSemana,data,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim,horarioInicio:tarefa.horarioInicio||'',horarioTermino:hora,tempoLimite:tolerancia,pontosMaximos:Number(tarefa.pontosMaximos)||0,pontosGanhos:pts,status,iniciouComAtraso:!!tarefa.iniciouComAtraso,percentualAplicado:percentual,faixaAtraso:faixa,regraAtrasoAplicada:{...regraAtrasoAtual}};
+                await updateDoc(doc(db,'tarefas',id),{horarioTermino:hora,status,pontosGanhos:pts,percentualAplicado:percentual,faixaAtraso:faixa,minutosAlemTolerancia,faixaLeveMinutos});
+                const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,diaSemana:tarefa.diaSemana,data,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim,horarioInicio:tarefa.horarioInicio||'',horarioTermino:hora,tempoLimite:tolerancia,pontosMaximos:Number(tarefa.pontosMaximos)||0,pontosGanhos:pts,status,iniciouComAtraso:!!tarefa.iniciouComAtraso,minutosAlemTolerancia,faixaLeveMinutos,percentualAplicado:percentual,faixaAtraso:faixa,regraAtrasoAplicada:{...regraAtrasoAtual}};
                 await setDoc(doc(db,'historico',`${clientePerfilId}_${id}_${data}`),hist,{merge:true}); await setDoc(doc(db,'execucoes',execucaoId(id,agora)),hist,{merge:true});
             }else{
                 pendenteJustificativaAtraso={id,horaFinalTexto:hora,dataHojeISO:data,tarefa};
@@ -635,7 +638,7 @@
         function renderizarJustificativasCliente(){
             const el=document.getElementById('justificativasCliente'); if(!el)return; const lista=cacheHistorico.filter(h=>h.justificativaAtraso).sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,10); el.innerHTML=lista.map(h=>`<div style="padding:9px 0;border-bottom:1px solid #eee"><strong>${escaparHtml(h.nomeTarefa||'Tarefa')}</strong> · ${escaparHtml(h.data||'')}<br><span>${escaparHtml(h.justificativaAtraso)}</span> <button class="btn" style="padding:4px 8px;margin-left:6px" onclick="editarJustificativa('${h.id}')">Editar</button></div>`).join('')||'<small>Nenhuma justificativa registrada.</small>';
         }
-        window.editarJustificativa=async id=>{ const h=cacheHistorico.find(x=>x.id===id); if(!h)return; const novo=prompt('Edite sua justificativa:',h.justificativaAtraso||''); if(novo===null)return; const texto=novo.trim(); if(texto.split(/\s+/).filter(Boolean).length<5)return alert('A justificativa precisa ter pelo menos 5 palavras.'); await updateDoc(doc(db,'historico',id),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); if(h.tarefaId){ const t=cacheTarefasTodas.find(x=>x.id===h.tarefaId); if(t&&t.status==='Atrasado') await updateDoc(doc(db,'tarefas',h.tarefaId),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); } if(h.tarefaId&&h.data) await setDoc(doc(db,'execucoes',`${h.tarefaId}_${h.data}`),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()},{merge:true}); };
+        window.editarJustificativa=async id=>{ const h=cacheHistorico.find(x=>x.id===id); if(!h)return; const novo=prompt('Edite sua justificativa:',h.justificativaAtraso||''); if(novo===null)return; const texto=novo.trim(); if(texto.split(/\s+/).filter(Boolean).length<5)return alert('A justificativa precisa ter pelo menos 5 palavras.'); await updateDoc(doc(db,'historico',id),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); if(h.tarefaId){ const t=cacheTarefasTodas.find(x=>x.id===h.tarefaId); if(t&&t.status?.includes('Atrasado')) await updateDoc(doc(db,'tarefas',h.tarefaId),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); } if(h.tarefaId&&h.data) await setDoc(doc(db,'execucoes',`${h.tarefaId}_${h.data}`),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()},{merge:true}); };
 
         function triggerCelebracao100() {
             sessionStorage.setItem("parabens_mostrado_" + diaAtualTexto, "true");
@@ -671,6 +674,7 @@
         }
         window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
     </script>
+    <script src="./client-ui-pro.js"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
