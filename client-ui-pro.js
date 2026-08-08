@@ -1,6 +1,5 @@
 (()=>{
-  import('./client-rules-v2.js').catch(e=>console.error('Regras de tolerância v2:',e));
-  import('./client-compat-v2.js').catch(e=>console.error('Compatibilidade de pontos v2:',e));
+  import('./client-time-guard.js').catch(e=>console.error('Validação temporal:',e));
   const iconeTarefa=(nome='')=>{
     const n=String(nome).toLowerCase();
     const regras=[
@@ -28,7 +27,20 @@
     return regras.find(([r])=>r.test(n))?.[1]||'✅';
   };
   window.iconeTarefaRotina=iconeTarefa;
-  function decorar(){const tabela=document.querySelector('#telaApp table');if(tabela)tabela.classList.add('cliente-task-table');document.querySelectorAll('#tabelaCorpo tr').forEach(row=>{const td=row.children?.[1];if(!td||td.querySelector('.task-icon-cliente'))return;const strong=td.querySelector('strong');if(!strong)return;const wrap=document.createElement('div');wrap.className='task-name-wrap';const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=iconeTarefa(strong.textContent||'');strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);});}
-  function iniciar(){decorar();const tbody=document.getElementById('tabelaCorpo');if(tbody)new MutationObserver(decorar).observe(tbody,{childList:true,subtree:true});}
+  function decorar(){
+    const tabela=document.querySelector('#telaApp table');if(tabela)tabela.classList.add('cliente-task-table');
+    document.querySelectorAll('#tabelaCorpo tr').forEach(row=>{
+      const td=row.children?.[1];if(!td||td.querySelector('.task-icon-cliente'))return;
+      const strong=td.querySelector('strong');if(!strong)return;
+      const wrap=document.createElement('div');wrap.className='task-name-wrap';
+      const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=iconeTarefa(strong.textContent||'');
+      strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);
+    });
+  }
+  function iniciar(){
+    decorar();
+    const tbody=document.getElementById('tabelaCorpo');
+    if(tbody)new MutationObserver(decorar).observe(tbody,{childList:true,subtree:false});
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciar);else iniciar();
 })();
