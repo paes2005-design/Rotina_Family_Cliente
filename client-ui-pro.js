@@ -1,6 +1,17 @@
 (()=>{
+  window.__rotinaTimeGuardReady=false;
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
+
+  // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
+  // muito rápido caia nas funções legadas do HTML.
+  document.addEventListener('click',e=>{
+    const btn=e.target.closest?.('.btn-iniciar,.btn-finalizar');
+    if(!btn||window.__rotinaTimeGuardReady===true)return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  },true);
+
   const iconeTarefa=(nome='')=>{
     const n=String(nome).toLowerCase();
     const regras=[
