@@ -4,6 +4,7 @@
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
+  import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
   // muito rápido caia nas funções legadas do HTML.
@@ -52,6 +53,7 @@
     });
     window.aplicarPontosRevisadosCliente?.();
     window.aplicarInicioAntecipadoCliente?.();
+    window.prepararCronometrosTolerancia?.();
   }
   function iniciar(){
     decorar();
