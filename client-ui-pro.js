@@ -3,6 +3,7 @@
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
+  import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
   // muito rápido caia nas funções legadas do HTML.
@@ -50,6 +51,7 @@
       strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);
     });
     window.aplicarPontosRevisadosCliente?.();
+    window.aplicarInicioAntecipadoCliente?.();
   }
   function iniciar(){
     decorar();
