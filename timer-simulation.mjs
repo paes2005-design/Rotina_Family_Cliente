@@ -57,4 +57,29 @@ ok(e.atrasoInicioMin===2&&e.atrasoFimMin===2&&e.consumoTotal===4&&e.texto==='⏱
 e=show('Tarefa concluída',tarefa({status:'No Prazo (100%)',dataExecucao:'2026-08-08',inicioExecutadoEm:'2026-08-08T08:02:00.000',terminoExecutadoEm:'2026-08-08T08:31:00.000',horarioInicio:'08:02',horarioTermino:'08:31'}),'2026-08-08T09:00:00');
 ok(e.visivel===false&&e.consumoTotal===3,'cronômetro some ao concluir, preservando cálculo final');
 
-console.log('\nTODAS AS SIMULAÇÕES DO CRONÔMETRO PASSARAM');
+console.log('\n=== STRESS / REGRESSÃO TEMPORAL ===');
+const stress=tarefa({tempoLimite:10});
+const snapshot=JSON.stringify(stress);
+let anterior=-1,ultimoPct=100;
+for(let s=0;s<=24*60*60;s++){
+  const agora=new Date(dt('2026-08-08T08:00:00').getTime()+s*1000);
+  const x=calcularEstadoCronometro(stress,agora);
+  ok(Number.isFinite(x.consumoTotal)&&Number.isFinite(x.restanteNormalSeg),'estado numérico válido no stress',s===0?'primeiro segundo':'') if(false);
+  if(x.consumoTotal<anterior)throw new Error(`FALHOU: consumo regrediu no segundo ${s}`);
+  if(x.percentual>ultimoPct)throw new Error(`FALHOU: percentual melhorou sozinho no segundo ${s}`);
+  anterior=x.consumoTotal;ultimoPct=x.percentual;
+}
+ok(JSON.stringify(stress)===snapshot,'86.401 cálculos não alteram o objeto da tarefa');
+ok(anterior===1440,'24 horas pendente calculam 1.440 minutos sem deriva');
+ok(ultimoPct===0,'stress de 24 horas termina corretamente em 0%');
+
+const matriz=[];
+for(let i=0;i<50;i++)matriz.push(tarefa({id:`M${i}`,nome:`T${i}`,horaSugeridaInicio:`${String(8+Math.floor(i/10)).padStart(2,'0')}:${String((i%10)*5).padStart(2,'0')}`,horaSugeridaFim:`${String(9+Math.floor(i/10)).padStart(2,'0')}:${String((i%10)*5).padStart(2,'0')}`,tempoLimite:(i%5)+1}));
+let checksum=0;
+for(let passo=0;passo<3600;passo+=5){
+  const agora=new Date(dt('2026-08-08T08:00:00').getTime()+passo*1000);
+  for(const t of matriz){const x=calcularEstadoCronometro(t,agora);checksum+=x.consumoTotal+x.percentual;}
+}
+ok(Number.isFinite(checksum)&&checksum>0,'36.000 estados de 50 tarefas são calculados sem erro/NaN');
+
+console.log('\nTODAS AS SIMULAÇÕES E O STRESS DO CRONÔMETRO PASSARAM');
