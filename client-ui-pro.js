@@ -1,5 +1,6 @@
 (()=>{
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
+  import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   const iconeTarefa=(nome='')=>{
     const n=String(nome).toLowerCase();
     const regras=[
@@ -36,6 +37,7 @@
       const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=iconeTarefa(strong.textContent||'');
       strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);
     });
+    window.aplicarPontosRevisadosCliente?.();
   }
   function iniciar(){
     decorar();
