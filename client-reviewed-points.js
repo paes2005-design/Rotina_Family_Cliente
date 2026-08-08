@@ -26,17 +26,18 @@ function garantirEstilo(){
   document.head.appendChild(style);
 }
 
+function encerrarEscuta(){
+  if(unsubscribeHistoricoRevisao){unsubscribeHistoricoRevisao();unsubscribeHistoricoRevisao=null;}
+  chaveSessao='';historicoPerfil=[];historicoCarregado=false;
+}
+
 function garantirEscuta(){
   const s=sessaoAtual();
   const novaChave=`${s.grupo}|${s.perfilId}|${s.nome}`;
-  if(!s.grupo||(!s.perfilId&&!s.nome)||!getApps().length){
-    if(unsubscribeHistoricoRevisao){unsubscribeHistoricoRevisao();unsubscribeHistoricoRevisao=null;}
-    chaveSessao='';historicoPerfil=[];historicoCarregado=false;
-    return;
-  }
+  if(!s.grupo||(!s.perfilId&&!s.nome)||!getApps().length){encerrarEscuta();return;}
   if(novaChave===chaveSessao&&unsubscribeHistoricoRevisao)return;
-  if(unsubscribeHistoricoRevisao)unsubscribeHistoricoRevisao();
-  chaveSessao=novaChave;historicoPerfil=[];historicoCarregado=false;
+  encerrarEscuta();
+  chaveSessao=novaChave;
   const db=getFirestore(getApp());
   unsubscribeHistoricoRevisao=onSnapshot(
     query(collection(db,'historico'),where('grupoId','==',s.grupo)),
@@ -44,6 +45,9 @@ function garantirEscuta(){
       historicoPerfil=snap.docs.map(d=>({id:d.id,...d.data()})).filter(h=>h.perfilId?h.perfilId===s.perfilId:h.perfilNome===s.nome);
       historicoCarregado=true;
       aplicarTudo(false);
+      // A tela principal também recebe este snapshot. Reaplica no próximo quadro
+      // para garantir que o total revisado seja o último valor exibido.
+      requestAnimationFrame(()=>aplicarTudo(false));
     },
     err=>console.error('Pontos revisados do Cliente:',err)
   );
@@ -108,7 +112,8 @@ function aplicarTudo(garantir=true){
 }
 
 window.aplicarPontosRevisadosCliente=()=>aplicarTudo(true);
-window.addEventListener('beforeunload',()=>unsubscribeHistoricoRevisao?.());
+document.addEventListener('click',e=>{if(e.target.closest?.('[onclick*="sairCliente"],.btn-sair-top'))queueMicrotask(()=>garantirEscuta());});
+window.addEventListener('beforeunload',encerrarEscuta);
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>aplicarTudo(true),{once:true});
 else aplicarTudo(true);
