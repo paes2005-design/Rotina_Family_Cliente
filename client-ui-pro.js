@@ -1,5 +1,5 @@
 (()=>{
-  import('./client-time-guard.js').catch(e=>console.error('Validação temporal:',e));
+  import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   const iconeTarefa=(nome='')=>{
     const n=String(nome).toLowerCase();
     const regras=[
@@ -42,5 +42,5 @@
     const tbody=document.getElementById('tabelaCorpo');
     if(tbody)new MutationObserver(decorar).observe(tbody,{childList:true,subtree:false});
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciar);else iniciar();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciar,{once:true});else iniciar();
 })();
