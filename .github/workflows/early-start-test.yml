@@ -5,6 +5,7 @@ on:
       - test/early-start-rule
     paths:
       - tools/apply_early_start_patch.py
+      - tools/apply_early_start_fix.py
       - .github/workflows/early-start-test.yml
 permissions:
   contents: write
@@ -16,7 +17,9 @@ jobs:
         with:
           ref: test/early-start-rule
       - name: Apply exact patch
-        run: python tools/apply_early_start_patch.py
+        run: |
+          python tools/apply_early_start_patch.py
+          python tools/apply_early_start_fix.py
       - name: Validate early-start rule and regressions
         run: |
           node --check client-time-guard-v2.js
@@ -63,7 +66,7 @@ jobs:
           assert(box.fn(laterRunning,laterRunning[1]).motivo==='outra-em-andamento','parallel execution is blocked even if the running task is later in schedule');
 
           const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?early='+Date.now());
-          const earlyDelay=core.minutosCompletosAtraso(new Date('2026-08-08T18:30:00'),new Date('2026-08-08T18:10:00'));
+          const earlyDelay=core.minutosCompletosAtraso(new Date('2026-08-08T18:10:00'),new Date('2026-08-08T18:30:00'));
           assert(earlyDelay===0,'starting early never consumes delay tolerance');
           assert(core.classificarConsumoTolerancia(10,0).percentual===100,'zero delay remains 100% band');
 
