@@ -1,0 +1,35 @@
+name: Final Client audit fixes
+on:
+  push:
+    paths: ['.github/workflows/final-client-audit.yml']
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix punctuality semantics and reset fields
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('index-CLIENTE-v6.html'); s=p.read_text()
+          def rep(old,new,label):
+            global s
+            if old not in s: raise SystemExit('Missing marker: '+label)
+            s=s.replace(old,new,1)
+          rep('                                percentualAplicado: null,\n                                faixaAtraso: "",',
+              '                                percentualAplicado: null,\n                                faixaAtraso: "",\n                                minutosAlemTolerancia: null,\n                                faixaLeveMinutos: null,', 'reset audit fields')
+          old="        function atualizarConquistas(){ const el=document.getElementById('conquistasCliente');if(!el)return; const datas=[...new Set(cacheHistorico.filter(h=>h.status?.includes('Prazo')).map(h=>h.data))].sort().reverse(); let seq=0,d=new Date();for(let i=0;i<60;i++){const iso=formatarDataISO(d);if(datas.includes(iso))seq++;else if(i>0)break;d.setDate(d.getDate()-1);} const total=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0); const conquistas=[];if(seq>=3)conquistas.push('🔥 3 dias seguidos');if(seq>=7)conquistas.push('🏅 Persistente: 7 dias');if(total>=1000)conquistas.push('⭐ Mil pontos');if(cacheHistorico.filter(h=>h.status?.includes('Prazo')).length>=10)conquistas.push('⏱️ Pontual: 10 tarefas'); el.innerHTML=`<strong>🔥 ${seq} dia(s)</strong><br>${conquistas.map(escaparHtml).join('<br>')||'Continue cumprindo metas para desbloquear conquistas.'}`; }"
+          new="        function ehExecucaoPontual(h){ return h.faixaAtraso ? h.faixaAtraso==='dentro-limites' : (h.status?.includes('Prazo') && !h.iniciouComAtraso); }\n        function atualizarConquistas(){ const el=document.getElementById('conquistasCliente');if(!el)return; const datas=[...new Set(cacheHistorico.filter(ehExecucaoPontual).map(h=>h.data))].sort().reverse(); let seq=0,d=new Date();for(let i=0;i<60;i++){const iso=formatarDataISO(d);if(datas.includes(iso))seq++;else if(i>0)break;d.setDate(d.getDate()-1);} const total=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0); const conquistas=[];if(seq>=3)conquistas.push('🔥 3 dias seguidos');if(seq>=7)conquistas.push('🏅 Persistente: 7 dias');if(total>=1000)conquistas.push('⭐ Mil pontos');if(cacheHistorico.filter(ehExecucaoPontual).length>=10)conquistas.push('⏱️ Pontual: 10 tarefas'); el.innerHTML=`<strong>🔥 ${seq} dia(s)</strong><br>${conquistas.map(escaparHtml).join('<br>')||'Continue cumprindo metas para desbloquear conquistas.'}`; }"
+          rep(old,new,'achievements punctuality')
+          rep("            const todas=concluidas===cacheTarefasHoje.length, atraso=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado')); if(todas&&!atraso&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();",
+              "            const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();", '100 percent celebration')
+          p.write_text(s)
+          PY
+          rm .github/workflows/final-client-audit.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html .github/workflows/final-client-audit.yml
+          git commit -m "Align punctuality metrics with scoring bands"
+          git push
