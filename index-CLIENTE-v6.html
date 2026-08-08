@@ -116,10 +116,23 @@
         <div class="modal-box"><div id="iconeRecompensaStatus" style="font-size:4rem">🎁</div><h2 id="tituloRecompensaStatus"></h2><p id="textoRecompensaStatus" style="font-size:1.1rem"></p><button class="btn" onclick="fecharModal('modalRecompensaStatus')" style="background:var(--cor-primaria);color:white">Entendi</button></div>
     </div>
 
+    <div id="modalInfoRegraAtraso" class="overlay" onclick="if(event.target===this) fecharModal('modalInfoRegraAtraso')">
+        <div class="modal-box" style="text-align:left;max-width:520px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                <h2 style="margin:0;color:var(--cor-primaria)">ℹ️ Regra de pontuação</h2>
+                <button class="btn" onclick="fecharModal('modalInfoRegraAtraso')" style="padding:5px 10px">✕</button>
+            </div>
+            <div id="textoRegraAtrasoCliente" style="margin-top:15px;color:#444;line-height:1.55"></div>
+        </div>
+    </div>
+
     <div id="telaApp" class="app-container">
         <button class="btn-sair-top" onclick="sairCliente()">Sair 🚪</button>
         <h1 id="tituloSaudacao">Carregando...</h1>
         <p class="subtitulo" id="txtDiaSemana">Hoje</p>
+        <div style="display:flex;justify-content:flex-end;margin:-6px 0 10px">
+            <button class="btn" onclick="abrirInfoRegraAtraso()" style="padding:7px 12px;background:#eef2ff;color:#334155;border:1px solid #c7d2fe">ℹ️ Como funciona a pontuação</button>
+        </div>
         <div class="dash-cards">
             <div class="card"><span>Hoje</span><strong><span id="ptsHoje">0</span><small id="possivelHoje"> / 0 pts</small></strong></div>
             <div class="card"><span>Semana</span><strong><span id="ptsSemana">0</span><small id="possivelSemana"> / 0 pts</small></strong></div>
@@ -182,6 +195,26 @@
         let resgatesCache = [];
         let unsubscribeRecompensas = null;
         let unsubscribeResgates = null;
+        let unsubscribeConfigGrupo = null;
+        const REGRA_ATRASO_PADRAO = { dentroLimites:100, atrasoLeve:75, atrasoMaior:50, estourado:0 };
+        let regraAtrasoAtual = { ...REGRA_ATRASO_PADRAO };
+
+        function normalizarRegraAtraso(valor={}) {
+            const r=valor.regraAtraso || valor || {};
+            const n=(v,p)=>Number.isFinite(Number(v))?Math.max(0,Math.min(100,Number(v))):p;
+            return {dentroLimites:n(r.dentroLimites,100),atrasoLeve:n(r.atrasoLeve,75),atrasoMaior:n(r.atrasoMaior,50),estourado:n(r.estourado,0)};
+        }
+        function textoRegraAtrasoCliente(){
+            const r=regraAtrasoAtual;
+            return `<strong>Regra atual: ${r.dentroLimites}% / ${r.atrasoLeve}% / ${r.atrasoMaior}% / ${r.estourado}%.</strong><br><br>`+
+            `✅ <strong>${r.dentroLimites}%</strong>: começou dentro da tolerância e terminou até o limite final.<br>`+
+            `🟡 <strong>${r.atrasoLeve}%</strong>: começou um pouco depois da tolerância, até metade de uma tolerância extra, mas terminou até o limite final.<br>`+
+            `🟠 <strong>${r.atrasoMaior}%</strong>: começou ainda mais tarde, mas antes do limite final, e conseguiu terminar dentro dele.<br>`+
+            `🔴 <strong>${r.estourado}%</strong>: começou depois do limite final ou terminou depois dele.<br><br>`+
+            `<small>Exemplo: com tolerância de 10 minutos, a faixa intermediária vai do 11º ao 15º minuto após o horário inicial permitido. A regra pode ser ajustada pelos seus pais/responsáveis.</small>`;
+        }
+        window.abrirInfoRegraAtraso=()=>{ const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); document.getElementById('modalInfoRegraAtraso').style.display='flex'; };
+
 
         const diasSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
         const diaAtualTexto = diasSemana[new Date().getDay()];
@@ -357,7 +390,7 @@
             await verificarEExecutarResetSemanal(codigoGrupo); inicializarEscutasFirebase();
         }
 
-        window.sairCliente=()=>{ [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates].forEach(u=>u&&u()); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
+        window.sairCliente=()=>{ [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u()); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
 
         window.addEventListener('DOMContentLoaded',()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g) iniciarSessaoCliente(n,g,s,p||''); });
 
@@ -374,6 +407,8 @@
             });
             unsubscribeRecompensas=onSnapshot(query(collection(db,'recompensas'),where('grupoId','==',codigoGrupo)),s=>{recompensasCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>r.ativa!==false);renderizarRecompensasCliente();});
             unsubscribeResgates=onSnapshot(query(collection(db,'resgates'),where('grupoId','==',codigoGrupo)),s=>{resgatesCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente(); verificarRetornosResgates();});
+            if(unsubscribeConfigGrupo) unsubscribeConfigGrupo();
+            unsubscribeConfigGrupo=onSnapshot(doc(db,'configGrupos',codigoGrupo),snap=>{ regraAtrasoAtual=normalizarRegraAtraso(snap.exists()?snap.data():{}); const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); });
         }
 
         function renderizarTarefasHoje(){
@@ -384,7 +419,7 @@
                 const status=dados.status||'Pendente'; if(status.includes('Prazo')||status.includes('Atrasado')) concluidas++;
                 let cls='status-pendente',acao=''; if(status==='Pendente')acao=`<button class="btn btn-iniciar" onclick="iniciarTarefa('${dados.id}')">Iniciar</button>`; else if(status==='Em andamento'){cls='status-andamento';acao=`<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}')">Finalizar</button>`;} else if(status.includes('Prazo')){cls='status-prazo';acao='🎉';} else {cls='status-atrasado';acao='⏰';}
                 let horario=`<div class="horario-container"><span class="horario-sugerido">⏰ ${escaparHtml(dados.horaSugeridaInicio)} - ${escaparHtml(dados.horaSugeridaFim)}</span>`; if(dados.horarioInicio) horario+=`<span class="horario-real">▶️ ${escaparHtml(dados.horarioInicio)}${dados.horarioTermino?` / ⏹️ ${escaparHtml(dados.horarioTermino)}`:''}</span>`; horario+='</div>';
-                tbody.insertAdjacentHTML('beforeend',`<tr><td>${horario}</td><td><strong>${escaparHtml(dados.nome)}</strong>${dados.iniciouComAtraso?'<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso (-50% pts)</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
+                tbody.insertAdjacentHTML('beforeend',`<tr><td>${horario}</td><td><strong>${escaparHtml(dados.nome)}</strong>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
             });
             const todas=concluidas===cacheTarefasHoje.length, atraso=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado')); if(todas&&!atraso&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
         }
@@ -394,21 +429,37 @@
             const idx=cacheTarefasHoje.findIndex(t=>t.id===id);
             if(cacheTarefasHoje.some(t=>t.status==='Em andamento') || cacheTarefasHoje.slice(0,idx).some(t=>['Pendente','Em andamento'].includes(t.status))){ somErroQuak.play().catch(()=>{}); document.getElementById('modalTrava').style.display='flex'; return; }
             const agora=new Date(),hora=agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-            const atraso=converterHoraParaMinutos(hora) > converterHoraParaMinutos(tarefa.horaSugeridaInicio)+(Number(tarefa.tempoLimite)||0);
-            const dadosExec={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,data:formatarDataISO(agora),status:'Em andamento',horarioInicio:hora,iniciouComAtraso:atraso};
-            await updateDoc(doc(db,'tarefas',id),{horarioInicio:hora,iniciouComAtraso:atraso,status:'Em andamento'});
+            const minInicio=converterHoraParaMinutos(hora);
+            const tolerancia=Number(tarefa.tempoLimite)||0;
+            const limiteInicio=converterHoraParaMinutos(tarefa.horaSugeridaInicio)+tolerancia;
+            const limiteFinal=converterHoraParaMinutos(tarefa.horaSugeridaFim)+tolerancia;
+            const atraso=minInicio > limiteInicio;
+            const iniciouAposLimiteFinal=minInicio > limiteFinal;
+            const dadosExec={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,data:formatarDataISO(agora),status:'Em andamento',horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,percentualMaximoPrevisto:iniciouAposLimiteFinal?regraAtrasoAtual.estourado:null};
+            await updateDoc(doc(db,'tarefas',id),{horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,status:'Em andamento'});
             await setDoc(doc(db,'execucoes',execucaoId(id,agora)),dadosExec,{merge:true});
         };
 
         window.finalizarTarefa = async (id) => {
             const tarefa=cacheTarefasHoje.find(t=>t.id===id); if(!tarefa)return;
             const agora=new Date(), hora=agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}), data=formatarDataISO(agora);
-            const limite=converterHoraParaMinutos(tarefa.horaSugeridaFim)+(Number(tarefa.tempoLimite)||0);
-            if(converterHoraParaMinutos(hora)<=limite){
-                const pts=tarefa.iniciouComAtraso?Math.floor((Number(tarefa.pontosMaximos)||0)/2):(Number(tarefa.pontosMaximos)||0); const status=tarefa.iniciouComAtraso?'No Prazo (-50%)':'No Prazo';
+            const tolerancia=Number(tarefa.tempoLimite)||0;
+            const minTermino=converterHoraParaMinutos(hora);
+            const minInicioReal=converterHoraParaMinutos(tarefa.horarioInicio||hora);
+            const limiteInicio=converterHoraParaMinutos(tarefa.horaSugeridaInicio)+tolerancia;
+            const limiteAtrasoLeve=limiteInicio+Math.ceil(tolerancia/2);
+            const limiteFinal=converterHoraParaMinutos(tarefa.horaSugeridaFim)+tolerancia;
+            const estourouFinal=minTermino>limiteFinal || minInicioReal>limiteFinal || tarefa.iniciouAposLimiteFinal===true;
+            if(!estourouFinal){
+                let percentual=regraAtrasoAtual.dentroLimites;
+                let faixa='dentro-limites';
+                if(minInicioReal>limiteInicio && minInicioReal<=limiteAtrasoLeve){ percentual=regraAtrasoAtual.atrasoLeve; faixa='atraso-leve'; }
+                else if(minInicioReal>limiteAtrasoLeve){ percentual=regraAtrasoAtual.atrasoMaior; faixa='atraso-maior'; }
+                const pts=Math.round((Number(tarefa.pontosMaximos)||0)*(percentual/100));
+                const status=faixa==='dentro-limites'?`No Prazo (${percentual}%)`:faixa==='atraso-leve'?`No Prazo — pequeno atraso (${percentual}%)`:`No Prazo — início atrasado (${percentual}%)`;
                 confetti({particleCount:45,spread:60,origin:{y:.75}});
-                await updateDoc(doc(db,'tarefas',id),{horarioTermino:hora,status,pontosGanhos:pts});
-                const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,diaSemana:tarefa.diaSemana,data,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim,horarioInicio:tarefa.horarioInicio||'',horarioTermino:hora,tempoLimite:Number(tarefa.tempoLimite)||0,pontosMaximos:Number(tarefa.pontosMaximos)||0,pontosGanhos:pts,status,iniciouComAtraso:!!tarefa.iniciouComAtraso};
+                await updateDoc(doc(db,'tarefas',id),{horarioTermino:hora,status,pontosGanhos:pts,percentualAplicado:percentual,faixaAtraso:faixa});
+                const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,diaSemana:tarefa.diaSemana,data,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim,horarioInicio:tarefa.horarioInicio||'',horarioTermino:hora,tempoLimite:tolerancia,pontosMaximos:Number(tarefa.pontosMaximos)||0,pontosGanhos:pts,status,iniciouComAtraso:!!tarefa.iniciouComAtraso,percentualAplicado:percentual,faixaAtraso:faixa,regraAtrasoAplicada:{...regraAtrasoAtual}};
                 await setDoc(doc(db,'historico',`${clientePerfilId}_${id}_${data}`),hist,{merge:true}); await setDoc(doc(db,'execucoes',execucaoId(id,agora)),hist,{merge:true});
             }else{
                 pendenteJustificativaAtraso={id,horaFinalTexto:hora,dataHojeISO:data,tarefa};
@@ -493,7 +544,7 @@
         async function concluirAtrasoSemJustificativa() {
             if(!pendenteJustificativaAtraso) return;
             const p=pendenteJustificativaAtraso, t=p.tarefa;
-            const base={horarioTermino:p.horaFinalTexto,status:'Atrasado',pontosGanhos:0,justificativaAtraso:'',tipoJustificativa:'nao-informada',justificativaRecusada:true};
+            const percentual=regraAtrasoAtual.estourado; const base={horarioTermino:p.horaFinalTexto,status:`Atrasado (${percentual}%)`,pontosGanhos:Math.round((Number(t.pontosMaximos)||0)*(percentual/100)),percentualAplicado:percentual,faixaAtraso:'estourado',regraAtrasoAplicada:{...regraAtrasoAtual},justificativaAtraso:'',tipoJustificativa:'nao-informada',justificativaRecusada:true};
             await updateDoc(doc(db,'tarefas',p.id),base);
             const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:p.id,tarefaGrupoId:t.tarefaGrupoId||'',nomeTarefa:t.nome,diaSemana:t.diaSemana,data:p.dataHojeISO,horaSugeridaInicio:t.horaSugeridaInicio,horaSugeridaFim:t.horaSugeridaFim,horarioInicio:t.horarioInicio||'',tempoLimite:Number(t.tempoLimite)||0,pontosMaximos:Number(t.pontosMaximos)||0,iniciouComAtraso:!!t.iniciouComAtraso,...base};
             await setDoc(doc(db,'historico',`${clientePerfilId}_${p.id}_${p.dataHojeISO}`),hist,{merge:true});
@@ -521,10 +572,14 @@
 
             const p = pendenteJustificativaAtraso;
             const t = p.tarefa;
+            const percentual=regraAtrasoAtual.estourado;
             const base = {
                 horarioTermino: p.horaFinalTexto,
-                status: 'Atrasado',
-                pontosGanhos: 0,
+                status: `Atrasado (${percentual}%)`,
+                pontosGanhos: Math.round((Number(t.pontosMaximos)||0)*(percentual/100)),
+                percentualAplicado: percentual,
+                faixaAtraso: 'estourado',
+                regraAtrasoAplicada: {...regraAtrasoAtual},
                 justificativaAtraso: texto,
                 tipoJustificativa: justificativaFoiDitada ? 'voz-transcrita' : 'texto',
                 justificativaRecusada: false
