@@ -1,0 +1,94 @@
+name: Rotina Family Cliente regression audit
+on:
+  push:
+    paths:
+      - '.github/workflows/client-regression-audit.yml'
+      - '*.js'
+      - '*.css'
+      - '*.html'
+      - 'manifest.json'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and JSON
+        run: |
+          node --check client-ui-pro.js
+          node --check client-time-guard-v2.js
+          node --check client-reviewed-points.js
+          node --check scoring-core.js
+          node --check sw.js
+          node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest OK')"
+      - name: Full Client regression audit
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'fs';
+          import {pathToFileURL} from 'url';
+          const read=f=>fs.readFileSync(f,'utf8');
+          const html=read('index-CLIENTE-v6.html'),ui=read('client-ui-pro.js'),guard=read('client-time-guard-v2.js'),review=read('client-reviewed-points.js'),sw=read('sw.js'),manifest=JSON.parse(read('manifest.json'));
+          const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
+
+          // Stability / loading
+          assert(!guard.includes('setInterval('),'temporal guard has no continuous interval');
+          assert(!review.includes('setInterval('),'reviewed-points module has no continuous interval');
+          assert(!guard.includes('MutationObserver'),'temporal guard has no mutation observer');
+          assert(!review.includes('MutationObserver'),'reviewed-points module has no mutation observer');
+          assert(ui.includes("subtree:false"),'existing task observer is restricted to direct row changes');
+          assert(ui.includes("import('./client-time-guard-v2.js')"),'new temporal guard is loaded');
+          assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points module is loaded');
+          assert(!ui.includes("client-rules-v2.js")&&!ui.includes("client-compat-v2.js"),'known freezing modules stay disabled');
+          assert(!sw.includes("client-rules-v2.js")&&!sw.includes("client-compat-v2.js"),'known freezing modules stay outside app shell');
+          assert(sw.includes("cache:'no-store'"),'HTML/JS/CSS refresh network-first');
+          assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
+          assert(guard.includes('__rotinaTimeGuardReady=true'),'startup block is released only after new guard installs');
+
+          // Shared tolerance scoring core
+          const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?audit='+Date.now());
+          const pct=(tol,cons)=>core.classificarConsumoTolerancia(tol,cons).percentual;
+          assert(pct(2,0)===100&&pct(2,2)===100,'tol 2: through 2 minutes = 100%');
+          assert(pct(2,3)===75,'tol 2: 3 minutes = 75%');
+          assert(pct(2,4)===50,'tol 2: 4 minutes = 50%');
+          assert(pct(2,5)===0,'tol 2: 5 minutes = 0%');
+          assert(pct(10,10)===100,'tol 10: 10 minutes = 100%');
+          assert(pct(10,13)===75,'tol 10: 13 minutes = 75%');
+          assert(pct(10,15)===50,'tol 10: 15 minutes = 50%');
+          assert(pct(10,16)===0,'tol 10: 16 minutes = 0%');
+          const base=new Date('2026-08-08T03:00:00');
+          const calc=core.calcularConsumoAtraso({inicioPrevisto:new Date('2026-08-08T02:55:00'),inicioReal:new Date('2026-08-08T02:56:59'),fimPrevisto:new Date('2026-08-08T03:00:00'),fimReal:new Date('2026-08-08T03:02:59')});
+          assert(calc.atrasoInicio===1&&calc.atrasoFim===2&&calc.consumoTotal===3,'seconds do not change visible HH:mm scoring');
+          const midnight=core.calcularConsumoAtraso({inicioPrevisto:new Date('2026-08-07T21:35:00'),inicioReal:new Date('2026-08-08T00:49:00'),fimPrevisto:new Date('2026-08-07T21:36:00'),fimReal:new Date('2026-08-08T00:49:00')});
+          assert(midnight.atrasoInicio===194&&midnight.atrasoFim===193&&midnight.consumoTotal===387,'midnight crossing uses full dates, not HH:mm only');
+
+          // Guard writes and justification
+          assert(guard.includes('inicioExecutadoEm'),'start timestamp is persisted');
+          assert(guard.includes('terminoExecutadoEm'),'finish timestamp is persisted');
+          assert(guard.includes('dataExecucao'),'execution date is persisted');
+          assert(guard.includes('toleranciaConsumidaMin'),'shared consumed tolerance is persisted');
+          assert(guard.includes('atrasoInicioMin')&&guard.includes('atrasoFimMin'),'start and finish delays are individually audited');
+          assert(guard.includes("const obrigatoria=t.justificativaObrigatoria!==false"),'mandatory justification defaults safely to true');
+          assert(guard.includes("const botaoSem=obrigatoria?'':"),'mandatory justification has no skip button');
+          assert(guard.includes('SpeechRecognition')&&guard.includes("lang='pt-BR'"),'voice dictation is restored in pt-BR');
+          assert(guard.includes("palavras.length<5"),'justification minimum length is validated');
+          assert(guard.includes("Enviando..."),'send button has progress state');
+          assert(guard.includes('Não foi possível enviar a justificativa'),'send failure is recoverable and explained');
+          assert(guard.includes("revisaoStatus:temJustificativa?'aguardando':'sem-revisao'"),'submitted justification awaits adult review');
+          assert(guard.includes('pontosOriginais:pontos')&&guard.includes('percentualOriginal:faixa.percentual'),'automatic result is preserved for later review');
+
+          // Reviewed points consistency
+          assert(review.includes('pontosDevolvidos'),'Client can display returned points');
+          assert(review.includes('somarPeriodo'),'reviewed effective points recalculate day/week/month');
+          assert(review.includes('pontuação automática mantida'),'maintained review message exists');
+          assert(review.includes('ponto${devolvidos===1'), 'returned-points message exists');
+          assert(ui.includes('aplicarPontosRevisadosCliente'),'review display is reapplied after task rows rerender');
+
+          // Current client UI / session / PWA
+          for(const s of ['conectarCliente','sairCliente','renderizarTarefasHoje','resgatarRecompensa']) assert(html.includes(s),`core flow ${s} remains present`);
+          assert(html.includes("localStorage.getItem('cliente_nome')"),'saved Client session restoration remains present');
+          assert(sw.includes('client-reviewed-points.js')&&sw.includes('client-time-guard-v2.js')&&sw.includes('scoring-core.js'),'active modules are cached for fallback');
+          assert(manifest.start_url,'manifest has start URL');
+
+          // Known consistency checks that must never regress
+          assert(html.includes("`${h.data}__${h.tarefaId}`"),'editing a justification updates the canonical execution document');
+          console.log('ALL CLIENT REGRESSION CHECKS PASSED');
+          NODE
