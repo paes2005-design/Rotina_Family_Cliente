@@ -135,6 +135,7 @@ function instalar(tentativa=0){
   window.iniciarTarefa=id=>iniciar(id).catch(e=>{console.error('Validação de início:',e);alert('Não foi possível iniciar a tarefa agora. Tente novamente.');});
   window.finalizarTarefa=id=>finalizar(id).catch(e=>{console.error('Validação de término:',e);alert('Não foi possível finalizar a tarefa agora. Tente novamente.');});
   instalado=true;
+  window.__rotinaTimeGuardReady=true;
   const diaBoot=dataISO(new Date());
   const checarVirada=()=>{if(dataISO(new Date())!==diaBoot)location.reload();};
   window.addEventListener('focus',checarVirada);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checarVirada();});
