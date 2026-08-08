@@ -1,0 +1,90 @@
+name: Add configurable delay scoring rule
+on:
+  push:
+    paths:
+      - .github/workflows/add-configurable-delay-rule.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Cliente delay rule
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text()
+
+          # Add information button near greeting.
+          marker='''        <p class="subtitulo" id="txtDiaSemana">Hoje</p>\n'''
+          info='''        <p class="subtitulo" id="txtDiaSemana">Hoje</p>\n        <div style="display:flex;justify-content:flex-end;margin:-6px 0 10px">\n            <button class="btn" onclick="abrirInfoRegraAtraso()" style="padding:7px 12px;background:#eef2ff;color:#334155;border:1px solid #c7d2fe">ℹ️ Como funciona a pontuação</button>\n        </div>\n'''
+          assert marker in s
+          s=s.replace(marker,info,1)
+
+          # Add info modal before app container.
+          app_marker='''    <div id="telaApp" class="app-container">'''
+          modal='''    <div id="modalInfoRegraAtraso" class="overlay" onclick="if(event.target===this) fecharModal('modalInfoRegraAtraso')">\n        <div class="modal-box" style="text-align:left;max-width:520px">\n            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">\n                <h2 style="margin:0;color:var(--cor-primaria)">ℹ️ Regra de pontuação</h2>\n                <button class="btn" onclick="fecharModal('modalInfoRegraAtraso')" style="padding:5px 10px">✕</button>\n            </div>\n            <div id="textoRegraAtrasoCliente" style="margin-top:15px;color:#444;line-height:1.55"></div>\n        </div>\n    </div>\n\n'''
+          assert app_marker in s
+          s=s.replace(app_marker,modal+app_marker,1)
+
+          # Add config unsubscribe and rule state.
+          marker_vars='''        let unsubscribeResgates = null;\n'''
+          jsvars='''        let unsubscribeResgates = null;\n        let unsubscribeConfigGrupo = null;\n        const REGRA_ATRASO_PADRAO = { dentroLimites:100, atrasoLeve:75, atrasoMaior:50, estourado:0 };\n        let regraAtrasoAtual = { ...REGRA_ATRASO_PADRAO };\n\n        function normalizarRegraAtraso(valor={}) {\n            const r=valor.regraAtraso || valor || {};\n            const n=(v,p)=>Number.isFinite(Number(v))?Math.max(0,Math.min(100,Number(v))):p;\n            return {dentroLimites:n(r.dentroLimites,100),atrasoLeve:n(r.atrasoLeve,75),atrasoMaior:n(r.atrasoMaior,50),estourado:n(r.estourado,0)};\n        }\n        function textoRegraAtrasoCliente(){\n            const r=regraAtrasoAtual;\n            return `<strong>Regra atual: ${r.dentroLimites}% / ${r.atrasoLeve}% / ${r.atrasoMaior}% / ${r.estourado}%.</strong><br><br>`+\n            `✅ <strong>${r.dentroLimites}%</strong>: começou dentro da tolerância e terminou até o limite final.<br>`+\n            `🟡 <strong>${r.atrasoLeve}%</strong>: começou um pouco depois da tolerância, até metade de uma tolerância extra, mas terminou até o limite final.<br>`+\n            `🟠 <strong>${r.atrasoMaior}%</strong>: começou ainda mais tarde, mas antes do limite final, e conseguiu terminar dentro dele.<br>`+\n            `🔴 <strong>${r.estourado}%</strong>: começou depois do limite final ou terminou depois dele.<br><br>`+\n            `<small>Exemplo: com tolerância de 10 minutos, a faixa intermediária vai do 11º ao 15º minuto após o horário inicial permitido. A regra pode ser ajustada pelos seus pais/responsáveis.</small>`;\n        }\n        window.abrirInfoRegraAtraso=()=>{ const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); document.getElementById('modalInfoRegraAtraso').style.display='flex'; };\n\n'''
+          assert marker_vars in s
+          s=s.replace(marker_vars,jsvars,1)
+
+          # Include config listener in session subscriptions.
+          old='''            unsubscribeResgates=onSnapshot(query(collection(db,'resgates'),where('grupoId','==',codigoGrupo)),s=>{resgatesCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente(); verificarRetornosResgates();});\n'''
+          new=old+'''            if(unsubscribeConfigGrupo) unsubscribeConfigGrupo();\n            unsubscribeConfigGrupo=onSnapshot(doc(db,'configGrupos',codigoGrupo),snap=>{ regraAtrasoAtual=normalizarRegraAtraso(snap.exists()?snap.data():{}); const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); });\n'''
+          assert old in s
+          s=s.replace(old,new,1)
+
+          # Logout includes config listener.
+          old_logout="[unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates].forEach(u=>u&&u())"
+          new_logout="[unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u())"
+          assert old_logout in s
+          s=s.replace(old_logout,new_logout,1)
+
+          # Mark start after final limit as guaranteed zero, while keeping task in progress.
+          old_start="""            const atraso=converterHoraParaMinutos(hora) > converterHoraParaMinutos(tarefa.horaSugeridaInicio)+(Number(tarefa.tempoLimite)||0);\n            const dadosExec={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,data:formatarDataISO(agora),status:'Em andamento',horarioInicio:hora,iniciouComAtraso:atraso};\n            await updateDoc(doc(db,'tarefas',id),{horarioInicio:hora,iniciouComAtraso:atraso,status:'Em andamento'});\n"""
+          new_start="""            const minInicio=converterHoraParaMinutos(hora);\n            const tolerancia=Number(tarefa.tempoLimite)||0;\n            const limiteInicio=converterHoraParaMinutos(tarefa.horaSugeridaInicio)+tolerancia;\n            const limiteFinal=converterHoraParaMinutos(tarefa.horaSugeridaFim)+tolerancia;\n            const atraso=minInicio > limiteInicio;\n            const iniciouAposLimiteFinal=minInicio > limiteFinal;\n            const dadosExec={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,data:formatarDataISO(agora),status:'Em andamento',horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,percentualMaximoPrevisto:iniciouAposLimiteFinal?regraAtrasoAtual.estourado:null};\n            await updateDoc(doc(db,'tarefas',id),{horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,status:'Em andamento'});\n"""
+          assert old_start in s
+          s=s.replace(old_start,new_start,1)
+
+          # Replace finalization scoring branch.
+          old_branch="""            const limite=converterHoraParaMinutos(tarefa.horaSugeridaFim)+(Number(tarefa.tempoLimite)||0);\n            if(converterHoraParaMinutos(hora)<=limite){\n                const pts=tarefa.iniciouComAtraso?Math.floor((Number(tarefa.pontosMaximos)||0)/2):(Number(tarefa.pontosMaximos)||0); const status=tarefa.iniciouComAtraso?'No Prazo (-50%)':'No Prazo';\n                confetti({particleCount:45,spread:60,origin:{y:.75}});\n                await updateDoc(doc(db,'tarefas',id),{horarioTermino:hora,status,pontosGanhos:pts});\n                const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,diaSemana:tarefa.diaSemana,data,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim,horarioInicio:tarefa.horarioInicio||'',horarioTermino:hora,tempoLimite:Number(tarefa.tempoLimite)||0,pontosMaximos:Number(tarefa.pontosMaximos)||0,pontosGanhos:pts,status,iniciouComAtraso:!!tarefa.iniciouComAtraso};\n                await setDoc(doc(db,'historico',`${clientePerfilId}_${id}_${data}`),hist,{merge:true}); await setDoc(doc(db,'execucoes',execucaoId(id,agora)),hist,{merge:true});\n            }else{\n"""
+          new_branch="""            const tolerancia=Number(tarefa.tempoLimite)||0;\n            const minTermino=converterHoraParaMinutos(hora);\n            const minInicioReal=converterHoraParaMinutos(tarefa.horarioInicio||hora);\n            const limiteInicio=converterHoraParaMinutos(tarefa.horaSugeridaInicio)+tolerancia;\n            const limiteAtrasoLeve=limiteInicio+Math.ceil(tolerancia/2);\n            const limiteFinal=converterHoraParaMinutos(tarefa.horaSugeridaFim)+tolerancia;\n            const estourouFinal=minTermino>limiteFinal || minInicioReal>limiteFinal || tarefa.iniciouAposLimiteFinal===true;\n            if(!estourouFinal){\n                let percentual=regraAtrasoAtual.dentroLimites;\n                let faixa='dentro-limites';\n                if(minInicioReal>limiteInicio && minInicioReal<=limiteAtrasoLeve){ percentual=regraAtrasoAtual.atrasoLeve; faixa='atraso-leve'; }\n                else if(minInicioReal>limiteAtrasoLeve){ percentual=regraAtrasoAtual.atrasoMaior; faixa='atraso-maior'; }\n                const pts=Math.round((Number(tarefa.pontosMaximos)||0)*(percentual/100));\n                const status=faixa==='dentro-limites'?`No Prazo (${percentual}%)`:faixa==='atraso-leve'?`No Prazo — pequeno atraso (${percentual}%)`:`No Prazo — início atrasado (${percentual}%)`;\n                confetti({particleCount:45,spread:60,origin:{y:.75}});\n                await updateDoc(doc(db,'tarefas',id),{horarioTermino:hora,status,pontosGanhos:pts,percentualAplicado:percentual,faixaAtraso:faixa});\n                const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,diaSemana:tarefa.diaSemana,data,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim,horarioInicio:tarefa.horarioInicio||'',horarioTermino:hora,tempoLimite:tolerancia,pontosMaximos:Number(tarefa.pontosMaximos)||0,pontosGanhos:pts,status,iniciouComAtraso:!!tarefa.iniciouComAtraso,percentualAplicado:percentual,faixaAtraso:faixa,regraAtrasoAplicada:{...regraAtrasoAtual}};\n                await setDoc(doc(db,'historico',`${clientePerfilId}_${id}_${data}`),hist,{merge:true}); await setDoc(doc(db,'execucoes',execucaoId(id,agora)),hist,{merge:true});\n            }else{\n"""
+          assert old_branch in s
+          s=s.replace(old_branch,new_branch,1)
+
+          # Ensure overdue base stores configured 0-band percentage and rule snapshot in both with/without justification.
+          s=s.replace("""const base={horarioTermino:p.horaFinalTexto,status:'Atrasado',pontosGanhos:0,justificativaAtraso:'',tipoJustificativa:'nao-informada',justificativaRecusada:true};""","""const percentual=regraAtrasoAtual.estourado; const base={horarioTermino:p.horaFinalTexto,status:`Atrasado (${percentual}%)`,pontosGanhos:Math.round((Number(t.pontosMaximos)||0)*(percentual/100)),percentualAplicado:percentual,faixaAtraso:'estourado',regraAtrasoAplicada:{...regraAtrasoAtual},justificativaAtraso:'',tipoJustificativa:'nao-informada',justificativaRecusada:true};""",1)
+          old_base="""            const base = {\n                horarioTermino: p.horaFinalTexto,\n                status: 'Atrasado',\n                pontosGanhos: 0,\n                justificativaAtraso: texto,\n                tipoJustificativa: justificativaFoiDitada ? 'voz-transcrita' : 'texto',\n                justificativaRecusada: false\n            };"""
+          new_base="""            const percentual=regraAtrasoAtual.estourado;\n            const base = {\n                horarioTermino: p.horaFinalTexto,\n                status: `Atrasado (${percentual}%)`,\n                pontosGanhos: Math.round((Number(t.pontosMaximos)||0)*(percentual/100)),\n                percentualAplicado: percentual,\n                faixaAtraso: 'estourado',\n                regraAtrasoAplicada: {...regraAtrasoAtual},\n                justificativaAtraso: texto,\n                tipoJustificativa: justificativaFoiDitada ? 'voz-transcrita' : 'texto',\n                justificativaRecusada: false\n            };"""
+          assert old_base in s
+          s=s.replace(old_base,new_base,1)
+
+          # Show guaranteed-zero note in task row when applicable.
+          needle="${dados.iniciouComAtraso?'<br><span style=\"color:#d90429;font-weight:bold;font-size:.85rem\">⚠️ Iniciado com atraso (-50% pts)</span>':''}"
+          repl="${dados.iniciouAposLimiteFinal?`<br><span style=\"color:#d90429;font-weight:bold;font-size:.85rem\">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style=\"color:#d97706;font-weight:bold;font-size:.85rem\">⚠️ Iniciado com atraso</span>':''}"
+          assert needle in s
+          s=s.replace(needle,repl,1)
+
+          p.write_text(s)
+          PY
+          node - <<'NODE'
+          const fs=require('fs'); const s=fs.readFileSync('index-CLIENTE-v6.html','utf8');
+          for(const m of s.matchAll(/<script(?: type="module")?>([\s\S]*?)<\/script>/g)){ try{ new Function(m[1].replace(/^\s*import .*$/mg,'')); }catch(e){ console.error(e.message); process.exit(1); } }
+          NODE
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html
+          git commit -m "Apply configurable 100-75-50-0 delay scoring"
+          git pull --rebase origin main
+          git push
