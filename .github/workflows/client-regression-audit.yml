@@ -57,7 +57,7 @@ jobs:
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard releases startup block only after installation');
 
           // Timer anti-freeze invariants
-          const updateBody=timer.match(/export function atualizarSomenteTextoCronometro\([^)]*\)\{([\s\S]*?)\n\}/)?.[1]||'';
+          const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
           assert(updateBody.length>0,'timer text-only update function found');
           assert(!/(createElement|appendChild|insertAdjacent|innerHTML|\.remove\()/.test(updateBody),'1-second update never creates/removes DOM');
           assert(updateBody.includes('textContent')&&updateBody.includes('hidden'),'1-second update only refreshes existing timer presentation');
