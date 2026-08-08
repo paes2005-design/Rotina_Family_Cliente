@@ -26,8 +26,15 @@ export function classificarConsumoTolerancia(tolerancia,consumo,regra=REGRA_PADR
   return {percentual:0,faixa:'estourado',consumo:c,...l};
 }
 
+// A rotina é apresentada e operada em HH:mm. Por isso, segundos não mudam a
+// faixa de pontuação: contabilizamos apenas minutos completos de atraso.
+// O timestamp ISO continua sendo salvo separadamente para auditoria.
+export function minutosCompletosAtraso(real,previsto){
+  return Math.max(0,Math.floor((real-previsto)/60000));
+}
+
 export function calcularConsumoAtraso({inicioPrevisto,inicioReal,fimPrevisto,fimReal}){
-  const atrasoInicio=Math.max(0,(inicioReal-inicioPrevisto)/60000);
-  const atrasoFim=Math.max(0,(fimReal-fimPrevisto)/60000);
+  const atrasoInicio=minutosCompletosAtraso(inicioReal,inicioPrevisto);
+  const atrasoFim=minutosCompletosAtraso(fimReal,fimPrevisto);
   return {atrasoInicio,atrasoFim,consumoTotal:atrasoInicio+atrasoFim};
 }
