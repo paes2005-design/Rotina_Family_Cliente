@@ -64,7 +64,7 @@ function instalarExplicacao(){
 function garantirEstilo(){
   if(document.getElementById('clientRulesV2Style'))return;
   const s=document.createElement('style');s.id='clientRulesV2Style';s.textContent=`
-  .tol-badge{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:5px 8px;border-radius:999px;font-size:.72rem;font-weight:800;background:#eef2ff;color:#334155;border:1px solid #c7d2fe}.tol-badge.warn{background:#fff7ed;color:#b45309;border-color:#fed7aa}.tol-badge.danger{background:#fef2f2;color:#b91c1c;border-color:#fecaca}.review-client-card{margin:0 0 18px;padding:14px;border:1px solid var(--cor-clara);background:linear-gradient(135deg,#fff,#fff8fa);border-radius:16px;text-align:left}.review-client-item{padding:10px 0;border-bottom:1px solid #eee}.review-client-item:last-child{border-bottom:0}.review-client-pill{display:inline-block;margin-top:5px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#4338ca;font-size:.75rem;font-weight:800}.just-modal-v2{position:fixed;inset:0;z-index:15000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px}.just-modal-v2>div{width:min(92vw,460px);background:white;border-radius:20px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.25)}.just-modal-v2 textarea{width:100%;min-height:100px;box-sizing:border-box;padding:12px;border:2px solid #ddd;border-radius:12px;font:inherit}.just-actions-v2{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}.just-actions-v2 button{border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}.task-icon-cliente{font-size:20px}`;document.head.appendChild(s);
+  .tol-slot{display:block;min-height:0;margin-top:0}.tol-slot:empty{display:none}.tol-badge{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:5px 8px;border-radius:999px;font-size:.72rem;font-weight:800;background:#eef2ff;color:#334155;border:1px solid #c7d2fe}.tol-badge.warn{background:#fff7ed;color:#b45309;border-color:#fed7aa}.tol-badge.danger{background:#fef2f2;color:#b91c1c;border-color:#fecaca}.review-client-card{margin:0 0 18px;padding:14px;border:1px solid var(--cor-clara);background:linear-gradient(135deg,#fff,#fff8fa);border-radius:16px;text-align:left}.review-client-item{padding:10px 0;border-bottom:1px solid #eee}.review-client-item:last-child{border-bottom:0}.review-client-pill{display:inline-block;margin-top:5px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#4338ca;font-size:.75rem;font-weight:800}.just-modal-v2{position:fixed;inset:0;z-index:15000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px}.just-modal-v2>div{width:min(92vw,460px);background:white;border-radius:20px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.25)}.just-modal-v2 textarea{width:100%;min-height:100px;box-sizing:border-box;padding:12px;border:2px solid #ddd;border-radius:12px;font:inherit}.just-actions-v2{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}.just-actions-v2 button{border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}.task-icon-cliente{font-size:20px}`;document.head.appendChild(s);
 }
 function garantirPainelRevisoes(){
   if(document.getElementById('revisoesClienteV2'))return;
@@ -82,19 +82,26 @@ function renderRevisoes(){
 function decorarIconesEscolhidos(){
   document.querySelectorAll('#tabelaCorpo tr').forEach(row=>{const nome=row.children?.[1]?.querySelector('strong')?.textContent?.trim();if(!nome)return;const t=tarefas.find(x=>x.nome===nome);const ic=t?.icone;if(!ic)return;const span=row.querySelector('.task-icon-cliente');if(span)span.textContent=ic;});
 }
+function obterTolSlot(row){
+  const host=row.children?.[1];if(!host)return null;
+  let slot=host.querySelector(':scope > .tol-slot');
+  if(!slot){slot=document.createElement('div');slot.className='tol-slot';host.appendChild(slot);}
+  return slot;
+}
 function atualizarTimers(){
   const now=agoraMin();
   document.querySelectorAll('#tabelaCorpo tr').forEach(row=>{
     const nome=row.children?.[1]?.querySelector('strong')?.textContent?.trim();if(!nome)return;
     const t=tarefas.find(x=>x.nome===nome);if(!t)return;
-    row.querySelectorAll('.tol-badge').forEach(x=>x.remove());
+    const slot=obterTolSlot(row);if(!slot)return;
+    slot.replaceChildren();
     if((t.status||'Pendente').includes('Prazo')||(t.status||'').includes('Atrasado'))return;
     const c=consumo(t,now),tol=Number(t.tempoLimite)||0;
     if(c<=0)return;
     const rest=tol-c;const badge=document.createElement('span');badge.className='tol-badge';
     if(rest>0){const sec=Math.max(0,Math.round(rest*60));badge.textContent=`⏱️ Tolerância: ${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')} restante`;}
     else{const extra=Math.abs(rest);const f=faixaPorConsumo(t,c);badge.classList.add(f.pct===0?'danger':'warn');badge.textContent=f.pct===0?`🔴 Tolerância estourada · +${Math.ceil(extra)} min · 0%`:`⚠️ Tolerância estourada · +${Math.ceil(extra)} min · faixa ${f.pct}%`;}
-    const host=row.children?.[1];host?.appendChild(document.createElement('br'));host?.appendChild(badge);
+    slot.appendChild(badge);
   });
 }
 async function salvarResultado(t,hora,data,c,pct,faixa,justificativa='',tipo=''){
