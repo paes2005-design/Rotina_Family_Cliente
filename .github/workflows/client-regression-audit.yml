@@ -4,6 +4,7 @@ on:
     paths:
       - '.github/workflows/client-regression-audit.yml'
       - '*.js'
+      - '*.mjs'
       - '*.css'
       - '*.html'
       - 'manifest.json'
@@ -18,6 +19,9 @@ jobs:
           node --check client-time-guard-v2.js
           node --check client-reviewed-points.js
           node --check client-early-start-ui.js
+          node --check client-tolerance-timer.js
+          node --check tolerance-timer-core.js
+          node --check timer-simulation.mjs
           node --check scoring-core.js
           node --check sw.js
           node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest OK')"
@@ -27,26 +31,43 @@ jobs:
           import fs from 'fs';
           import {pathToFileURL} from 'url';
           const read=f=>fs.readFileSync(f,'utf8');
-          const html=read('index-CLIENTE-v6.html'),ui=read('client-ui-pro.js'),guard=read('client-time-guard-v2.js'),review=read('client-reviewed-points.js'),early=read('client-early-start-ui.js'),sw=read('sw.js'),manifest=JSON.parse(read('manifest.json'));
+          const html=read('index-CLIENTE-v6.html'),ui=read('client-ui-pro.js'),guard=read('client-time-guard-v2.js'),review=read('client-reviewed-points.js'),early=read('client-early-start-ui.js'),timer=read('client-tolerance-timer.js'),timerCoreSrc=read('tolerance-timer-core.js'),sw=read('sw.js'),manifest=JSON.parse(read('manifest.json'));
           const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
 
           // Stability / loading
           assert(!guard.includes('setInterval('),'temporal guard has no continuous interval');
           assert(!review.includes('setInterval('),'reviewed-points module has no continuous interval');
           assert(!early.includes('setInterval('),'early-start Client display has no continuous interval');
+          assert((timer.match(/setInterval\(/g)||[]).length===1,'timer has exactly one global interval');
           assert(!guard.includes('MutationObserver'),'temporal guard has no mutation observer');
           assert(!review.includes('MutationObserver'),'reviewed-points module has no mutation observer');
           assert(!early.includes('MutationObserver'),'early-start Client display reuses the existing row observer');
+          assert(!timer.includes('MutationObserver'),'timer adds no mutation observer');
           assert(ui.includes("subtree:false"),'existing task observer is restricted to direct row changes');
           assert(ui.includes("import('./client-time-guard-v2.js')"),'new temporal guard is loaded');
           assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points module is loaded');
           assert(ui.includes("import('./client-early-start-ui.js')"),'early-start blue status module is loaded');
+          assert(ui.includes("import('./client-tolerance-timer.js')"),'tolerance timer lab module is loaded');
+          assert(ui.includes('prepararCronometrosTolerancia'),'existing row decorator prepares timer nodes');
           assert(!ui.includes("client-rules-v2.js")&&!ui.includes("client-compat-v2.js"),'known freezing modules stay disabled');
           assert(!sw.includes("client-rules-v2.js")&&!sw.includes("client-compat-v2.js"),'known freezing modules stay outside app shell');
           assert(sw.includes("cache:'no-store'"),'HTML/JS/CSS refresh network-first');
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
           assert(ui.includes("addEventListener('rotina-time-guard-ready'"),'Client listens for guard readiness');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard releases startup block only after installation');
+
+          // Timer anti-freeze invariants
+          const updateBody=timer.match(/export function atualizarSomenteTextoCronometro\([^)]*\)\{([\s\S]*?)\n\}/)?.[1]||'';
+          assert(updateBody.length>0,'timer text-only update function found');
+          assert(!/(createElement|appendChild|insertAdjacent|innerHTML|\.remove\()/.test(updateBody),'1-second update never creates/removes DOM');
+          assert(updateBody.includes('textContent')&&updateBody.includes('hidden'),'1-second update only refreshes existing timer presentation');
+          assert(timer.includes('function iniciarTimerUnico()')&&timer.includes('if(timerId!==null)return'),'global timer cannot be started twice');
+          assert(timer.includes("addEventListener('visibilitychange'"),'timer recalculates immediately when app returns from background');
+          assert(!/(authNome|authPin|telaAuth)/.test(timer),'timer never touches login fields');
+          assert(timerCoreSrc.includes("from './scoring-core.js'"),'timer classification reuses scoring-core');
+          assert(timerCoreSrc.includes('inicioExecutadoEm')&&timerCoreSrc.includes('terminoExecutadoEm'),'timer uses persisted absolute timestamps');
+          assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer lab modules are cached for offline fallback');
+          assert(sw.includes('rotina-family-cliente-v22-timer-lab'),'lab cache is isolated from official v21');
 
           // Shared tolerance scoring core
           const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?audit='+Date.now());
@@ -86,7 +107,7 @@ jobs:
           assert(early.includes("where('grupoId','==',s.grupo)"),'Client early display reads only the active group');
           assert(!early.includes('updateDoc(')&&!early.includes('setDoc(')&&!early.includes('writeBatch('),'Client early display never writes points/data');
           assert(ui.includes('aplicarInicioAntecipadoCliente'),'existing row decorator reapplies early-start status');
-          assert(sw.includes('client-early-start-ui.js')&&sw.includes('rotina-family-cliente-v21'),'Client PWA caches early-start module in v21');
+          assert(sw.includes('client-early-start-ui.js'),'Client PWA still caches early-start module');
 
           // Reviewed points consistency
           assert(review.includes('pontosDevolvidos'),'Client can display returned points');
@@ -103,5 +124,7 @@ jobs:
 
           // Known consistency checks that must never regress
           assert(html.includes("`${h.data}__${h.tarefaId}`"),'editing a justification updates the canonical execution document');
-          console.log('ALL CLIENT REGRESSION CHECKS PASSED');
+          console.log('ALL CLIENT + TIMER LAB REGRESSION CHECKS PASSED');
           NODE
+      - name: Deterministic timer simulation
+        run: node timer-simulation.mjs
