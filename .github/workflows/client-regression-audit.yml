@@ -47,7 +47,7 @@ jobs:
           assert(ui.includes("import('./client-time-guard-v2.js')"),'new temporal guard is loaded');
           assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points module is loaded');
           assert(ui.includes("import('./client-early-start-ui.js')"),'early-start blue status module is loaded');
-          assert(ui.includes("import('./client-tolerance-timer.js')"),'tolerance timer lab module is loaded');
+          assert(ui.includes("import('./client-tolerance-timer.js')"),'tolerance timer production module is loaded');
           assert(ui.includes('prepararCronometrosTolerancia'),'existing row decorator prepares timer nodes');
           assert(!ui.includes("client-rules-v2.js")&&!ui.includes("client-compat-v2.js"),'known freezing modules stay disabled');
           assert(!sw.includes("client-rules-v2.js")&&!sw.includes("client-compat-v2.js"),'known freezing modules stay outside app shell');
@@ -56,18 +56,22 @@ jobs:
           assert(ui.includes("addEventListener('rotina-time-guard-ready'"),'Client listens for guard readiness');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard releases startup block only after installation');
 
-          // Timer anti-freeze invariants
+          // Timer anti-freeze / read-only invariants
           const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
+          const tickBody=timer.match(/function tick\(\)\{([\s\S]*?)\n\}/)?.[1]||'';
           assert(updateBody.length>0,'timer text-only update function found');
           assert(!/(createElement|appendChild|insertAdjacent|innerHTML|\.remove\()/.test(updateBody),'1-second update never creates/removes DOM');
           assert(updateBody.includes('textContent')&&updateBody.includes('hidden'),'1-second update only refreshes existing timer presentation');
+          assert(tickBody&&!tickBody.includes('prepararLinhasCronometro'),'1-second tick never prepares/rebuilds timer DOM');
           assert(timer.includes('function iniciarTimerUnico()')&&timer.includes('if(timerId!==null)return'),'global timer cannot be started twice');
           assert(timer.includes("addEventListener('visibilitychange'"),'timer recalculates immediately when app returns from background');
           assert(!/(authNome|authPin|telaAuth)/.test(timer),'timer never touches login fields');
+          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(timer),'timer module is Firestore read-only');
+          assert(timer.includes('onSnapshot(')&&timer.includes("where('grupoId','==',s.grupo)"),'timer uses one scoped Firestore listener for active group');
           assert(timerCoreSrc.includes("from './scoring-core.js'"),'timer classification reuses scoring-core');
           assert(timerCoreSrc.includes('inicioExecutadoEm')&&timerCoreSrc.includes('terminoExecutadoEm'),'timer uses persisted absolute timestamps');
-          assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer lab modules are cached for offline fallback');
-          assert(sw.includes('rotina-family-cliente-v22-timer-lab'),'lab cache is isolated from official v21');
+          assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer production modules are cached for offline fallback');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v22'"),'production cache is v22');
 
           // Shared tolerance scoring core
           const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?audit='+Date.now());
@@ -124,7 +128,7 @@ jobs:
 
           // Known consistency checks that must never regress
           assert(html.includes("`${h.data}__${h.tarefaId}`"),'editing a justification updates the canonical execution document');
-          console.log('ALL CLIENT + TIMER LAB REGRESSION CHECKS PASSED');
+          console.log('ALL CLIENT + TIMER PRODUCTION REGRESSION CHECKS PASSED');
           NODE
-      - name: Deterministic timer simulation
+      - name: Deterministic timer simulation and stress
         run: node timer-simulation.mjs
