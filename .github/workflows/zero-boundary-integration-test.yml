@@ -1,0 +1,51 @@
+name: Exact tolerance boundary integration audit
+on:
+  push:
+    branches: [test/tolerance-zero-boundary-v1]
+    paths:
+      - '.github/workflows/zero-boundary-integration-test.yml'
+      - 'scoring-core.js'
+      - 'tolerance-timer-core.js'
+      - 'client-tolerance-timer.js'
+      - 'client-time-guard-v2.js'
+      - 'timer-simulation.mjs'
+jobs:
+  exact-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact rule integration invariants
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'fs';
+          import {pathToFileURL} from 'url';
+          const read=f=>fs.readFileSync(f,'utf8');
+          const guard=read('client-time-guard-v2.js');
+          const timer=read('client-tolerance-timer.js');
+          const timerCore=read('tolerance-timer-core.js');
+          const scoring=read('scoring-core.js');
+          const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
+          const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?exact='+Date.now());
+          const pct=(tol,s)=>core.classificarConsumoToleranciaSegundos(tol,s).percentual;
+          assert(pct(10,599)===100&&pct(10,600)===75,'10m: zero boundary is immediate 100 -> 75');
+          assert(pct(10,674)===75&&pct(10,675)===50,'10m: first 12.5% boundary is immediate 75 -> 50');
+          assert(pct(10,749)===50&&pct(10,750)===0,'10m: total 25% recovery boundary is immediate 50 -> 0');
+          assert(pct(2,119)===100&&pct(2,120)===75&&pct(2,135)===50&&pct(2,150)===0,'2m exact second boundaries');
+          assert(pct(6,359)===100&&pct(6,360)===75&&pct(6,405)===50&&pct(6,450)===0,'6m exact second boundaries');
+          assert(scoring.includes('janelaParcialSeg=limite100Seg*0.25'),'recovery window is exactly 25% total');
+          assert(scoring.includes('faixa75Seg=janelaParcialSeg/2'),'75% receives exactly half of recovery window');
+          assert(guard.includes('classificarConsumoToleranciaSegundos(t.tempoLimite,calc.consumoTotalSeg,regra)'),'final task scoring uses the same exact-second classifier');
+          assert(guard.includes('toleranciaConsumidaSeg:calc.consumoTotalSeg'),'final history persists exact consumed seconds');
+          assert(timerCore.includes('classificarConsumoToleranciaSegundos(tolerancia,consumoTotalSeg)'),'live timer uses exact-second classifier');
+          assert(timer.includes('🟡 75%')||timerCore.includes('🟡 75%'),'75% phase is visible');
+          assert(timerCore.includes('extra ${formatarDuracaoCronometro(restanteFaixaSeg)}'),'live 75/50 phases show their remaining time');
+          assert(timer.includes('Como funciona sua tolerância?')&&timer.includes('12,5%'),'Client explanation is youth-readable and states 12.5% phases');
+          assert((timer.match(/setInterval\(/g)||[]).length===1,'still exactly one global timer');
+          const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
+          assert(updateBody&&!/(createElement|appendChild|insertAdjacent|innerHTML|\.remove\()/.test(updateBody),'one-second update remains DOM-structure-free');
+          assert(!timer.includes('MutationObserver'),'timer still adds no MutationObserver');
+          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(timer),'timer remains Firestore read-only');
+          console.log('ALL EXACT TOLERANCE INTEGRATION CHECKS PASSED');
+          NODE
+      - name: Deterministic simulation and stress
+        run: node timer-simulation.mjs
