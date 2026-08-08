@@ -46,7 +46,7 @@
       const td=row.children?.[1];if(!td||td.querySelector('.task-icon-cliente'))return;
       const strong=td.querySelector('strong');if(!strong)return;
       const wrap=document.createElement('div');wrap.className='task-name-wrap';
-      const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=iconeTarefa(strong.textContent||'');
+      const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=(strong.dataset.taskIcon||'').trim()||iconeTarefa(strong.textContent||'');
       strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);
     });
     window.aplicarPontosRevisadosCliente?.();
