@@ -1,0 +1,36 @@
+name: Lock final delay at zero
+on:
+  push:
+    paths:
+      - .github/workflows/lock-final-delay-zero.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lock zero band and reset flags
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index-CLIENTE-v6.html'); s=p.read_text()
+          s=s.replace("estourado:n(r.estourado,0)","estourado:0",1)
+          reset='''                                iniciouComAtraso: false,\n                                justificativaAtraso: "",'''
+          reset_new='''                                iniciouComAtraso: false,\n                                iniciouAposLimiteFinal: false,\n                                percentualAplicado: null,\n                                faixaAtraso: "",\n                                justificativaAtraso: "",'''
+          assert reset in s
+          s=s.replace(reset,reset_new,1)
+          p.write_text(s)
+          PY
+          node - <<'NODE'
+          const fs=require('fs'),s=fs.readFileSync('index-CLIENTE-v6.html','utf8'); for(const m of s.matchAll(/<script(?: type="module")?>([\s\S]*?)<\/script>/g)){new Function(m[1].replace(/^\s*import .*$/mg,''));}
+          NODE
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html
+          git commit -m "Keep final delay penalty fixed at zero"
+          git pull --rebase origin main
+          git push
