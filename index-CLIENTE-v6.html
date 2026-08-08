@@ -332,6 +332,8 @@
                                 iniciouAposLimiteFinal: false,
                                 percentualAplicado: null,
                                 faixaAtraso: "",
+                                minutosAlemTolerancia: null,
+                                faixaLeveMinutos: null,
                                 justificativaAtraso: "",
                                 tipoJustificativa: "",
                                 justificativaRecusada: false
@@ -425,7 +427,7 @@
                 let horario=`<div class="horario-container"><span class="horario-sugerido">⏰ ${escaparHtml(dados.horaSugeridaInicio)} - ${escaparHtml(dados.horaSugeridaFim)}</span>`; if(dados.horarioInicio) horario+=`<span class="horario-real">▶️ ${escaparHtml(dados.horarioInicio)}${dados.horarioTermino?` / ⏹️ ${escaparHtml(dados.horarioTermino)}`:''}</span>`; horario+='</div>';
                 tbody.insertAdjacentHTML('beforeend',`<tr><td>${horario}</td><td><strong>${escaparHtml(dados.nome)}</strong>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
             });
-            const todas=concluidas===cacheTarefasHoje.length, atraso=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado')); if(todas&&!atraso&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
+            const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
         }
 
         window.iniciarTarefa = async (id) => {
@@ -618,7 +620,8 @@
             document.getElementById('modalFeedback').style.display = 'none';
         };
 
-        function atualizarConquistas(){ const el=document.getElementById('conquistasCliente');if(!el)return; const datas=[...new Set(cacheHistorico.filter(h=>h.status?.includes('Prazo')).map(h=>h.data))].sort().reverse(); let seq=0,d=new Date();for(let i=0;i<60;i++){const iso=formatarDataISO(d);if(datas.includes(iso))seq++;else if(i>0)break;d.setDate(d.getDate()-1);} const total=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0); const conquistas=[];if(seq>=3)conquistas.push('🔥 3 dias seguidos');if(seq>=7)conquistas.push('🏅 Persistente: 7 dias');if(total>=1000)conquistas.push('⭐ Mil pontos');if(cacheHistorico.filter(h=>h.status?.includes('Prazo')).length>=10)conquistas.push('⏱️ Pontual: 10 tarefas'); el.innerHTML=`<strong>🔥 ${seq} dia(s)</strong><br>${conquistas.map(escaparHtml).join('<br>')||'Continue cumprindo metas para desbloquear conquistas.'}`; }
+        function ehExecucaoPontual(h){ return h.faixaAtraso ? h.faixaAtraso==='dentro-limites' : (h.status?.includes('Prazo') && !h.iniciouComAtraso); }
+        function atualizarConquistas(){ const el=document.getElementById('conquistasCliente');if(!el)return; const datas=[...new Set(cacheHistorico.filter(ehExecucaoPontual).map(h=>h.data))].sort().reverse(); let seq=0,d=new Date();for(let i=0;i<60;i++){const iso=formatarDataISO(d);if(datas.includes(iso))seq++;else if(i>0)break;d.setDate(d.getDate()-1);} const total=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0); const conquistas=[];if(seq>=3)conquistas.push('🔥 3 dias seguidos');if(seq>=7)conquistas.push('🏅 Persistente: 7 dias');if(total>=1000)conquistas.push('⭐ Mil pontos');if(cacheHistorico.filter(ehExecucaoPontual).length>=10)conquistas.push('⏱️ Pontual: 10 tarefas'); el.innerHTML=`<strong>🔥 ${seq} dia(s)</strong><br>${conquistas.map(escaparHtml).join('<br>')||'Continue cumprindo metas para desbloquear conquistas.'}`; }
         function saldoPontos(){
             const ganho=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0);
             const comprometido=resgatesCache.filter(r=>r.status==='Aprovado'||r.status==='Pendente').reduce((s,r)=>s+(Number(r.pontos)||0),0);
