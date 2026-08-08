@@ -5,6 +5,7 @@ on:
       - test/early-start-rule
     paths:
       - tools/apply_early_start_patch.py
+      - .github/workflows/early-start-test.yml
 permissions:
   contents: write
 jobs:
