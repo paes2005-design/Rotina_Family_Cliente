@@ -1,0 +1,39 @@
+name: Promote audited Client v23
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/promote-integrated-client-v23.yml']
+permissions:
+  contents: write
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Copy audited production files
+        run: |
+          set -e
+          git fetch origin test/client-integrated-v1 --depth=1
+          for f in scoring-core.js tolerance-timer-core.js client-tolerance-timer.js client-time-guard-v2.js index-CLIENTE-v6.html timer-simulation.mjs; do
+            git show FETCH_HEAD:$f > $f
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('sw.js')
+          s=p.read_text()
+          old="const CACHE_NAME='rotina-family-cliente-v22';"
+          new="const CACHE_NAME='rotina-family-cliente-v23';"
+          if old not in s:
+              raise SystemExit('CACHE_NAME esperado v22 não encontrado')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Commit exact audited build
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scoring-core.js tolerance-timer-core.js client-tolerance-timer.js client-time-guard-v2.js index-CLIENTE-v6.html timer-simulation.mjs sw.js
+          git diff --cached --quiet && exit 0
+          git commit -m 'Officialize exact tolerance rule and daily Client panels'
+          git push origin main
