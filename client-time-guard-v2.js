@@ -1,6 +1,6 @@
 import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import {getFirestore,doc,getDoc,updateDoc,setDoc,collection,query,where,getDocs} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-import {REGRA_PADRAO,classificarConsumoTolerancia,calcularConsumoAtraso,minutosCompletosAtraso} from './scoring-core.js';
+import {REGRA_PADRAO,classificarConsumoToleranciaSegundos,calcularConsumoAtraso,minutosCompletosAtraso} from './scoring-core.js';
 
 const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const pad=n=>String(n).padStart(2,'0');
@@ -111,7 +111,7 @@ async function salvarResultado(t,agora,j,ini,calc,faixa,justificativa='',opcoes=
   const banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(faixa.percentual/100));
   const status=faixa.faixa==='dentro-limites'?`No Prazo (${faixa.percentual}%)`:faixa.faixa==='atraso-leve'?`No Prazo — atraso leve (${faixa.percentual}%)`:faixa.faixa==='atraso-maior'?`No Prazo — atraso maior (${faixa.percentual}%)`:'Atrasado (0%)';
   const temJustificativa=Boolean(justificativa.trim());
-  const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,toleranciaConsumidaMin:calc.consumoTotal,atrasoInicioMin:calc.atrasoInicio,atrasoFimMin:calc.atrasoFim,limite75Min:faixa.limite75,limite50Min:faixa.limite50,justificativaAtraso:justificativa,revisaoStatus:temJustificativa?'aguardando':'sem-revisao',iniciouComAtraso:calc.atrasoInicio>0,tipoJustificativa:temJustificativa?(opcoes.vozUsada?'voz-transcrita':'texto'):'',justificativaRecusada:!temJustificativa&&opcoes.recusou===true};
+  const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,toleranciaConsumidaMin:calc.consumoTotal,toleranciaConsumidaSeg:calc.consumoTotalSeg,atrasoInicioMin:calc.atrasoInicio,atrasoFimMin:calc.atrasoFim,limite75Min:faixa.limite75,limite50Min:faixa.limite50,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,justificativaAtraso:justificativa,revisaoStatus:temJustificativa?'aguardando':'sem-revisao',iniciouComAtraso:calc.atrasoInicio>0,tipoJustificativa:temJustificativa?(opcoes.vozUsada?'voz-transcrita':'texto'):'',justificativaRecusada:!temJustificativa&&opcoes.recusou===true};
   await updateDoc(doc(banco,'tarefas',t.id),base);
   const hist={grupoId:grupo(),perfilId:perfil(),perfilNome:nome(),tarefaId:t.id,tarefaGrupoId:t.tarefaGrupoId||'',nomeTarefa:t.nome,diaSemana:t.diaSemana,data:dataISO(j.ocorr),dataExecucao:dataISO(j.ocorr),horaSugeridaInicio:t.horaSugeridaInicio,horaSugeridaFim:t.horaSugeridaFim,horarioInicio:t.horarioInicio||horaHM(ini),inicioExecutadoEm:t.inicioExecutadoEm||ini.toISOString(),tempoLimite:Number(t.tempoLimite)||0,pontosMaximos:Number(t.pontosMaximos)||0,icone:t.icone||'',inicioAntecipado:t.inicioAntecipado===true,antecipacaoMin:Number(t.antecipacaoMin)||0,motivoInicioAntecipado:t.motivoInicioAntecipado||'',tipoMotivoInicioAntecipado:t.tipoMotivoInicioAntecipado||'',...base};
   await setDoc(doc(banco,'historico',`${perfil()}_${t.id}_${dataISO(j.ocorr)}`),hist,{merge:true});
@@ -151,7 +151,7 @@ function pedirJustificativa(t,agora,j,ini,calc,faixa){
 async function finalizar(id){
   const t=await buscarTarefa(id);if(!t)return;
   if(t.status!=='Em andamento')return;
-  const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora),calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora}),regra=await regraAtual(),faixa=classificarConsumoTolerancia(t.tempoLimite,calc.consumoTotal,regra);
+  const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora),calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora}),regra=await regraAtual(),faixa=classificarConsumoToleranciaSegundos(t.tempoLimite,calc.consumoTotalSeg,regra);
   if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}
   await salvarResultado(t,agora,j,ini,calc,faixa,'');
   try{window.confetti?.({particleCount:45,spread:60,origin:{y:.75}});}catch{}

@@ -1,4 +1,4 @@
-import {classificarConsumoTolerancia} from './scoring-core.js';
+import {classificarConsumoToleranciaSegundos} from './scoring-core.js';
 
 const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const MINUTO=60000;
@@ -61,7 +61,6 @@ function terminoReal(t,j,agora){
 
 const atrasoMs=(real,previsto)=>Math.max(0,real-previsto);
 const minutosCompletos=ms=>Math.max(0,Math.floor(ms/MINUTO));
-const segundosDaFracao=ms=>Math.max(0,Math.floor((ms%MINUTO)/1000));
 
 export function formatarDuracaoCronometro(segundos){
   const s=Math.max(0,Math.floor(Number(segundos)||0));
@@ -97,18 +96,23 @@ export function calcularEstadoCronometro(t,agora=new Date()){
   const atrasoInicioMin=minutosCompletos(atrasoInicioMs);
   const atrasoFimMin=minutosCompletos(atrasoFimMs);
   const consumoTotal=atrasoInicioMin+atrasoFimMin;
-  const faixa=classificarConsumoTolerancia(tolerancia,consumoTotal);
-  const fracaoAtiva=relogioAtivo==='inicio'?segundosDaFracao(atrasoInicioMs):relogioAtivo==='fim'?segundosDaFracao(atrasoFimMs):0;
-  const restanteNormalSeg=Math.max(0,((tolerancia-consumoTotal)*60)-fracaoAtiva);
+  const consumoTotalSeg=Math.max(0,Math.floor((atrasoInicioMs+atrasoFimMs)/1000));
+  const faixa=classificarConsumoToleranciaSegundos(tolerancia,consumoTotalSeg);
+  const restanteNormalSeg=Math.max(0,Math.ceil(faixa.limite100Seg-consumoTotalSeg));
+  const restanteFaixaSeg=faixa.faixa==='atraso-leve'
+    ?Math.max(0,Math.ceil(faixa.limite75Seg-consumoTotalSeg))
+    :faixa.faixa==='atraso-maior'
+      ?Math.max(0,Math.ceil(faixa.limite50Seg-consumoTotalSeg))
+      :0;
 
   let texto='',tom='normal';
   if(faixa.percentual===100){
     texto=`⏱️ Tolerância ${formatarDuracaoCronometro(restanteNormalSeg)}`;
-    tom=restanteNormalSeg>0?'normal':'limite';
+    tom='normal';
   }else if(faixa.percentual===75){
-    texto='🟡 75% · atraso leve';tom='leve';
+    texto=`🟡 75% · extra ${formatarDuracaoCronometro(restanteFaixaSeg)}`;tom='leve';
   }else if(faixa.percentual===50){
-    texto='🟠 50% · atraso maior';tom='maior';
+    texto=`🟠 50% · extra ${formatarDuracaoCronometro(restanteFaixaSeg)}`;tom='maior';
   }else{
     texto='🔴 Tolerância estourada · 0%';tom='estourado';
   }
@@ -116,8 +120,11 @@ export function calcularEstadoCronometro(t,agora=new Date()){
   const visivel=!concluida&&(andamento||(pendente&&agora>=j.inicio));
   return {
     visivel,texto,tom,status,relogioAtivo,tolerancia,
-    atrasoInicioMin,atrasoFimMin,consumoTotal,
+    atrasoInicioMin,atrasoFimMin,consumoTotal,consumoTotalSeg,
     percentual:faixa.percentual,faixa:faixa.faixa,
-    restanteNormalSeg,inicioPrevisto:j.inicio,fimPrevisto:j.fim
+    restanteNormalSeg,restanteFaixaSeg,
+    limite100Seg:faixa.limite100Seg,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,
+    faixa75Seg:faixa.faixa75Seg,faixa50Seg:faixa.faixa50Seg,
+    inicioPrevisto:j.inicio,fimPrevisto:j.fim
   };
 }
