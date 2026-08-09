@@ -1,0 +1,23 @@
+name: Apply integrated Client test patch
+on:
+  push:
+    branches: ['test/client-integrated-v1']
+    paths: ['patch-daily-client-panels.mjs']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/client-integrated-v1
+      - name: Apply daily panel patch
+        run: node patch-daily-client-panels.mjs
+      - name: Commit patched app
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index-CLIENTE-v6.html
+          git commit -m 'Combine exact tolerance rule with daily Client panels'
+          git push origin HEAD:test/client-integrated-v1
