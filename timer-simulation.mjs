@@ -115,3 +115,4 @@ ok(Number.isFinite(checksum)&&checksum>0,'36.000 estados de 50 tarefas são calc
 
 console.log('\nTODAS AS SIMULAÇÕES DA REGRA 25% E O STRESS PASSARAM');
 // integrated full-regression trigger v1
+// official v23 regression trigger
