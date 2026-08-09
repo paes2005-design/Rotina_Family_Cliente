@@ -1,0 +1,136 @@
+name: Rotina Family Cliente regression audit
+on:
+  push:
+    paths:
+      - '.github/workflows/client-regression-audit.yml'
+      - '*.js'
+      - '*.mjs'
+      - '*.css'
+      - '*.html'
+      - 'manifest.json'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and JSON
+        run: |
+          node --check client-ui-pro.js
+          node --check client-time-guard-v2.js
+          node --check client-reviewed-points.js
+          node --check client-early-start-ui.js
+          node --check client-tolerance-timer.js
+          node --check tolerance-timer-core.js
+          node --check timer-simulation.mjs
+          node --check scoring-core.js
+          node --check sw.js
+          node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest OK')"
+      - name: Full Client regression audit
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'fs';
+          import {pathToFileURL} from 'url';
+          const read=f=>fs.readFileSync(f,'utf8');
+          const html=read('index-CLIENTE-v6.html');
+          const ui=read('client-ui-pro.js');
+          const guard=read('client-time-guard-v2.js');
+          const review=read('client-reviewed-points.js');
+          const early=read('client-early-start-ui.js');
+          const timer=read('client-tolerance-timer.js');
+          const timerCore=read('tolerance-timer-core.js');
+          const sw=read('sw.js');
+          const manifest=JSON.parse(read('manifest.json'));
+          const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
+
+          // Stability and anti-freeze invariants
+          assert(!guard.includes('setInterval('),'guard has no continuous interval');
+          assert(!review.includes('setInterval('),'reviewed-points has no continuous interval');
+          assert(!early.includes('setInterval('),'early-start display has no continuous interval');
+          assert((timer.match(/setInterval\(/g)||[]).length===1,'timer has exactly one global interval');
+          assert(!guard.includes('MutationObserver'),'guard adds no MutationObserver');
+          assert(!review.includes('MutationObserver'),'review module adds no MutationObserver');
+          assert(!early.includes('MutationObserver'),'early-start display adds no MutationObserver');
+          assert(!timer.includes('MutationObserver'),'timer adds no MutationObserver');
+          assert(ui.includes('subtree:false'),'existing task observer is limited to direct row changes');
+          assert(!ui.includes('client-rules-v2.js')&&!ui.includes('client-compat-v2.js'),'known freeze modules remain disabled');
+          assert(!sw.includes('client-rules-v2.js')&&!sw.includes('client-compat-v2.js'),'known freeze modules remain outside app shell');
+
+          const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
+          const tickBody=timer.match(/function tick\(\)\{([\s\S]*?)\n\}/)?.[1]||'';
+          assert(updateBody.length>0,'timer text-only updater exists');
+          assert(!/(createElement|appendChild|insertAdjacent|innerHTML|\.remove\()/.test(updateBody),'1-second updater never rebuilds DOM');
+          assert(updateBody.includes('textContent')&&updateBody.includes('hidden'),'1-second updater only changes presentation');
+          assert(tickBody&&!tickBody.includes('prepararLinhasCronometro'),'tick never prepares rows');
+          assert(timer.includes('if(timerId!==null)return'),'timer cannot be started twice');
+          assert(timer.includes("addEventListener('visibilitychange'"),'background return forces recalculation');
+          assert(!/(authNome|authPin|telaAuth)/.test(timer),'timer never touches login fields');
+          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(timer),'timer is Firestore read-only');
+          assert(timer.includes('onSnapshot(')&&timer.includes("where('grupoId','==',s.grupo)"),'timer listener is group-scoped');
+
+          // Loading / PWA
+          assert(ui.includes("import('./client-time-guard-v2.js')"),'temporal guard is loaded');
+          assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points is loaded');
+          assert(ui.includes("import('./client-early-start-ui.js')"),'early-start display is loaded');
+          assert(ui.includes("import('./client-tolerance-timer.js')"),'timer is loaded');
+          assert(ui.includes('prepararCronometrosTolerancia'),'task renderer prepares timer nodes');
+          assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
+          assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
+          assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v23'"),'Client cache is v23');
+          assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer modules are cached offline');
+          assert(sw.includes('client-reviewed-points.js')&&sw.includes('client-time-guard-v2.js')&&sw.includes('scoring-core.js'),'active core modules are cached offline');
+          assert(manifest.start_url,'manifest has start URL');
+
+          // Exact scoring rule
+          assert(timerCore.includes("from './scoring-core.js'"),'timer reuses scoring-core');
+          const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?audit='+Date.now());
+          assert(core.classificarConsumoToleranciaSegundos(10,599).percentual===100,'10 min: 09:59 = 100%');
+          assert(core.classificarConsumoToleranciaSegundos(10,600).percentual===75,'10 min: 10:00 = 75%');
+          assert(core.classificarConsumoToleranciaSegundos(10,674).percentual===75,'10 min: 11:14 = 75%');
+          assert(core.classificarConsumoToleranciaSegundos(10,675).percentual===50,'10 min: 11:15 = 50%');
+          assert(core.classificarConsumoToleranciaSegundos(10,749).percentual===50,'10 min: 12:29 = 50%');
+          assert(core.classificarConsumoToleranciaSegundos(10,750).percentual===0,'10 min: 12:30 = 0%');
+          assert(core.classificarConsumoToleranciaSegundos(6,360).percentual===75,'6 min: zero = 75%');
+          assert(core.classificarConsumoToleranciaSegundos(6,405).percentual===50,'6 min: +45s = 50%');
+          assert(core.classificarConsumoToleranciaSegundos(6,450).percentual===0,'6 min: +90s = 0%');
+          assert(core.classificarConsumoToleranciaSegundos(2,120).percentual===75,'2 min: zero = 75%');
+          assert(core.classificarConsumoToleranciaSegundos(2,135).percentual===50,'2 min: +15s = 50%');
+          assert(core.classificarConsumoToleranciaSegundos(2,150).percentual===0,'2 min: +30s = 0%');
+          const calc=core.calcularConsumoAtraso({inicioPrevisto:new Date('2026-08-08T02:55:00'),inicioReal:new Date('2026-08-08T02:56:59'),fimPrevisto:new Date('2026-08-08T03:00:00'),fimReal:new Date('2026-08-08T03:02:59')});
+          assert(calc.atrasoInicio===1&&calc.atrasoFim===2&&calc.consumoTotal===3,'legacy whole-minute audit fields remain compatible');
+          assert(calc.consumoTotalSeg===298,'exact seconds are preserved for scoring');
+
+          // Finish result and justification
+          assert(guard.includes('classificarConsumoToleranciaSegundos'),'finish uses exact-second classifier');
+          assert(guard.includes('toleranciaConsumidaSeg'),'exact consumed seconds are persisted');
+          assert(guard.includes('inicioExecutadoEm')&&guard.includes('terminoExecutadoEm'),'absolute start/end timestamps are persisted');
+          assert(guard.includes("const obrigatoria=t.justificativaObrigatoria!==false"),'mandatory justification defaults to true');
+          assert(guard.includes("const botaoSem=obrigatoria?'':"),'mandatory justification has no skip button');
+          assert(guard.includes('SpeechRecognition')&&guard.includes("lang='pt-BR'"),'voice justification is pt-BR');
+          assert(guard.includes("palavras.length<5"),'justification minimum length is enforced');
+          assert(guard.includes('pontosOriginais:pontos')&&guard.includes('percentualOriginal:faixa.percentual'),'automatic result is preserved for review');
+
+          // Daily-only visual panels, cumulative balance preserved
+          assert(html.includes('Meus resgates de hoje'),'redemptions list is daily');
+          assert(html.includes("formatarDataISO(d)===hojeISO"),'redemptions use device-local day');
+          assert(html.includes("h.justificativaAtraso&&h.data===hojeISO"),'justifications list is daily');
+          assert(html.includes("r.status==='Aprovado'||r.status==='Pendente'"),'old approved/pending redemptions still reserve points');
+          assert(html.includes("cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0)"),'point balance remains cumulative');
+
+          // Early start and returned points
+          for(const campo of ['inicioAntecipado','antecipacaoMin','motivoInicioAntecipado','tipoMotivoInicioAntecipado']) assert(guard.includes(campo),'early-start field '+campo+' remains');
+          assert(early.includes("badge.textContent='🔵 Início antecipado'"),'Client early-start badge remains blue');
+          assert(early.includes("t?.inicioAntecipado===true&&t?.dataExecucao===hoje"),'early-start badge is date-scoped');
+          assert(!early.includes('updateDoc(')&&!early.includes('setDoc(')&&!early.includes('writeBatch('),'early-start display is read-only');
+          assert(review.includes('pontosDevolvidos'),'returned points remain supported');
+          assert(review.includes('somarPeriodo'),'returned points recalculate day/week/month displays');
+          assert(ui.includes('aplicarPontosRevisadosCliente'),'returned-point display is reapplied after rerender');
+
+          // Core flows
+          for(const s of ['conectarCliente','sairCliente','renderizarTarefasHoje','resgatarRecompensa']) assert(html.includes(s),'core flow '+s+' remains');
+          assert(html.includes("localStorage.getItem('cliente_nome')"),'saved session restoration remains');
+          assert(html.includes("`${h.data}__${h.tarefaId}`"),'justification edit updates canonical execution');
+          console.log('ALL CLIENT PRODUCTION REGRESSION CHECKS PASSED');
+          NODE
+      - name: Deterministic timer simulation and stress
+        run: node timer-simulation.mjs
