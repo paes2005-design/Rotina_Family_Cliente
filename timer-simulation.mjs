@@ -114,3 +114,4 @@ for(let passo=0;passo<3600;passo+=5){
 ok(Number.isFinite(checksum)&&checksum>0,'36.000 estados de 50 tarefas são calculados sem erro/NaN');
 
 console.log('\nTODAS AS SIMULAÇÕES DA REGRA 25% E O STRESS PASSARAM');
+// integrated full-regression trigger v1
