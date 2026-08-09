@@ -1,0 +1,101 @@
+name: Integrated Client timer and daily panels audit
+on:
+  push:
+    branches: ['test/client-integrated-v1']
+    paths:
+      - '.github/workflows/integrated-client-test-audit.yml'
+      - 'index-CLIENTE-v6.html'
+      - 'scoring-core.js'
+      - 'tolerance-timer-core.js'
+      - 'client-tolerance-timer.js'
+      - 'client-time-guard-v2.js'
+      - 'client-ui-pro.js'
+      - 'timer-simulation.mjs'
+      - 'sw.js'
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax checks
+        run: |
+          node --check scoring-core.js
+          node --check tolerance-timer-core.js
+          node --check client-tolerance-timer.js
+          node --check client-time-guard-v2.js
+          node --check client-ui-pro.js
+          node --check timer-simulation.mjs
+          node --check sw.js
+      - name: Exact tolerance and daily panel invariants
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'fs';
+          import {pathToFileURL} from 'url';
+          const read=f=>fs.readFileSync(f,'utf8');
+          const html=read('index-CLIENTE-v6.html');
+          const timer=read('client-tolerance-timer.js');
+          const timerCore=read('tolerance-timer-core.js');
+          const guard=read('client-time-guard-v2.js');
+          const ui=read('client-ui-pro.js');
+          const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
+          const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?integrated='+Date.now());
+          const pct=(tol,seg)=>core.classificarConsumoToleranciaSegundos(tol,seg).percentual;
+
+          // Exact boundary: positive balance = 100, zero = 75.
+          assert(pct(10,599)===100,'10 min: 00:01 remaining is still 100%');
+          assert(pct(10,600)===75,'10 min: exact zero changes immediately to 75%');
+          assert(pct(10,674)===75,'10 min: last whole second before 11:15 remains 75%');
+          assert(pct(10,675)===50,'10 min: 12.5% extra changes to 50%');
+          assert(pct(10,749)===50,'10 min: last whole second before 12:30 remains 50%');
+          assert(pct(10,750)===0,'10 min: 25% total extra changes to 0%');
+          assert(pct(6,359)===100&&pct(6,360)===75&&pct(6,405)===50&&pct(6,450)===0,'6 min boundaries are 6:00 / 6:45 / 7:30');
+          assert(pct(2,119)===100&&pct(2,120)===75&&pct(2,135)===50&&pct(2,150)===0,'2 min boundaries are 2:00 / 2:15 / 2:30');
+          assert(pct(5,299)===100&&pct(5,300)===75&&pct(5,338)===50&&pct(5,375)===0,'5 min removes the old extra minute and ends at 6:15');
+          const l5=core.limitesToleranciaExata(5);
+          assert(l5.faixa75Seg===37.5&&l5.faixa50Seg===37.5&&l5.limite50Seg===375,'5 min uses 37.5 s + 37.5 s recovery windows');
+
+          // Timer and persisted scoring must share the exact rule.
+          assert(timerCore.includes('classificarConsumoToleranciaSegundos'),'timer core uses exact seconds classifier');
+          assert(guard.includes('classificarConsumoToleranciaSegundos'),'finalization uses the same exact seconds classifier');
+          assert(guard.includes('consumoTotalSeg'),'finalization passes exact combined delay in seconds');
+          assert(guard.includes('toleranciaConsumidaSeg'),'exact consumed seconds are persisted for audit');
+
+          // Anti-freeze invariants.
+          assert((timer.match(/setInterval\(/g)||[]).length===1,'only one global timer interval exists');
+          assert(!timer.includes('MutationObserver'),'timer adds no MutationObserver');
+          const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
+          assert(updateBody.length>0,'timer text-only update function found');
+          assert(!/(createElement|appendChild|insertAdjacent|innerHTML|\.remove\()/.test(updateBody),'one-second update never rebuilds DOM');
+          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(timer),'timer remains Firestore read-only');
+          assert(ui.includes("subtree:false"),'existing task observer remains direct-row only');
+
+          // Daily UI: justification and redemption lists only show today.
+          assert(html.includes("h.justificativaAtraso&&h.data===hojeISO"),'justifications are filtered to current local day');
+          assert(html.includes("<strong>Meus resgates de hoje</strong>"),'redemption panel is explicitly daily');
+          assert(html.includes("formatarDataISO(d)===hojeISO"),'redemptions compare created timestamp using local calendar date');
+          assert(html.includes("Nenhuma justificativa registrada hoje."),'empty daily justification state exists');
+          assert(html.includes("Nenhum resgate solicitado hoje."),'empty daily redemption state exists');
+
+          // Historical accounting is intentionally NOT reset/filtered.
+          const saldoBody=html.match(/function saldoPontos\(\)\{[\s\S]*?\n        \}/)?.[0]||'';
+          assert(saldoBody.includes('cacheHistorico.reduce'),'point balance still sums full history');
+          assert(saldoBody.includes("resgatesCache.filter(r=>r.status==='Aprovado'||r.status==='Pendente')"),'old approved/pending redemptions still reserve/deduct points');
+          assert(!saldoBody.includes('hojeISO'),'balance is not restricted to today');
+          assert(html.includes("resgatesCache.some(x=>x.recompensaId===id&&x.status==='Pendente')"),'older pending redemption still blocks duplicate request');
+          assert(html.includes('function verificarRetornosResgates()'),'approval/refusal notification flow remains present');
+
+          // Deterministic local-day simulation, including UTC-near-midnight timestamps.
+          const localISO=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          const base=new Date(2026,7,8,23,50,0);
+          const today=localISO(base);
+          const just=[{data:today,justificativaAtraso:'hoje'},{data:'2026-08-07',justificativaAtraso:'ontem'}];
+          assert(just.filter(h=>h.justificativaAtraso&&h.data===today).length===1,'daily justification simulation hides yesterday');
+          const sameLocalDay=new Date(2026,7,8,23,55,0).toISOString();
+          const yesterdayLocal=new Date(2026,7,7,23,55,0).toISOString();
+          const red=[{criadoEm:sameLocalDay},{criadoEm:yesterdayLocal}];
+          assert(red.filter(r=>{const d=new Date(r.criadoEm);return Number.isFinite(d.getTime())&&localISO(d)===today}).length===1,'daily redemption simulation uses local day, not UTC date substring');
+
+          console.log('ALL INTEGRATED CLIENT INVARIANTS PASSED');
+          NODE
+      - name: Deterministic timer simulation and stress
+        run: node timer-simulation.mjs
