@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>TESTE · Regra 12,5% + 12,5%</title>
+    <title>TESTE · Cronômetro + painéis diários</title>
 
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#ff4d6d">
@@ -65,7 +65,7 @@
         }
     </style>
 </head>
-<body><div style="position:sticky;top:0;z-index:30000;width:100%;box-sizing:border-box;background:#312e81;color:white;text-align:center;padding:8px;font-weight:800">🧪 AMBIENTE DE TESTE · 100% até 00:01 · zerou = 75% · +12,5% = 50% · +25% = 0%</div>
+<body><div style="position:sticky;top:0;z-index:30000;width:100%;box-sizing:border-box;background:#312e81;color:white;text-align:center;padding:8px;font-weight:800">🧪 TESTE · zerou = 75% · +12,5% = 50% · +25% = 0% · justificativas e resgates visíveis só no dia</div>
     <div id="telaAuth" class="auth-container">
         <h2>Bem-vindo(a) ao Metas!</h2>
         <input type="text" id="authNome" placeholder="Seu Nome Cadastrado">
@@ -629,9 +629,10 @@
         }
         function renderizarRecompensasCliente(){
             const el=document.getElementById('recompensasCliente');if(!el)return; const saldo=saldoPontos();
+            const hojeISO=formatarDataISO(new Date());
             const catalogo=recompensasCache.map(r=>`<div style="margin-top:7px">🎁 ${escaparHtml(r.nome)} — ${Number(r.pontos)||0} pts <button class="btn" style="padding:5px 9px" onclick="resgatarRecompensa('${r.id}')" ${saldo<(Number(r.pontos)||0)?'disabled':''}>Resgatar</button></div>`).join('')||'<div style="margin-top:7px">Nenhuma recompensa disponível.</div>';
-            const hist=[...resgatesCache].sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||'')).slice(0,8).map(r=>{const ic=r.status==='Aprovado'?'✅':r.status==='Recusado'?'❌':'⏳'; const msg=r.status==='Aprovado'?'Resgate autorizado':r.status==='Recusado'?'Não autorizado':'Aguardando autorização'; return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">${ic} <strong>${escaparHtml(r.recompensaNome||'Recompensa')}</strong><br><small>${msg} · ${Number(r.pontos)||0} pts</small></div>`}).join('');
-            el.innerHTML=`<strong>Saldo disponível: ${saldo} pts</strong><br>${catalogo}<div style="margin-top:12px"><strong>Meus resgates</strong>${hist||'<br><small>Nenhum resgate solicitado.</small>'}</div>`;
+            const hist=[...resgatesCache].filter(r=>{const d=new Date(r.criadoEm||'');return Number.isFinite(d.getTime())&&formatarDataISO(d)===hojeISO;}).sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||'')).map(r=>{const ic=r.status==='Aprovado'?'✅':r.status==='Recusado'?'❌':'⏳'; const msg=r.status==='Aprovado'?'Resgate autorizado':r.status==='Recusado'?'Não autorizado':'Aguardando autorização'; return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">${ic} <strong>${escaparHtml(r.recompensaNome||'Recompensa')}</strong><br><small>${msg} · ${Number(r.pontos)||0} pts</small></div>`}).join('');
+            el.innerHTML=`<strong>Saldo disponível: ${saldo} pts</strong><br>${catalogo}<div style="margin-top:12px"><strong>Meus resgates de hoje</strong>${hist||'<br><small>Nenhum resgate solicitado hoje.</small>'}</div>`;
         }
         const resgatesEmEnvio=new Set();
         window.resgatarRecompensa=async id=>{ const r=recompensasCache.find(x=>x.id===id);if(!r||resgatesEmEnvio.has(id))return; const custo=Number(r.pontos)||0;if(saldoPontos()<custo)return alert('Pontos insuficientes ou já reservados em pedidos pendentes.'); if(resgatesCache.some(x=>x.recompensaId===id&&x.status==='Pendente'))return alert('Você já tem um pedido pendente para esta recompensa.'); resgatesEmEnvio.add(id); try{ const pedidoId=`${clientePerfilId}_${id}_${Date.now()}`; await setDoc(doc(db,'resgates',pedidoId),{grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,recompensaId:id,recompensaNome:r.nome,pontos:custo,status:'Pendente',criadoEm:new Date().toISOString()});alert('Pedido enviado aos seus pais! Os pontos ficam reservados enquanto aguardam a decisão.'); } finally { resgatesEmEnvio.delete(id); } };
@@ -639,7 +640,7 @@
             resgatesCache.forEach(r=>{ if(r.status!=='Aprovado'&&r.status!=='Recusado') return; const chave=`resgate_visto_${r.id}_${r.status}`; if(localStorage.getItem(chave)) return; localStorage.setItem(chave,'1'); const aprovado=r.status==='Aprovado'; document.getElementById('iconeRecompensaStatus').innerText=aprovado?'🎉':'💬'; document.getElementById('tituloRecompensaStatus').innerText=aprovado?'Resgate autorizado!':'Resgate não autorizado'; document.getElementById('textoRecompensaStatus').innerText=aprovado?`${r.recompensaNome} foi autorizado. Aproveite sua conquista!`:`Converse com seus pais para compreender por que ${r.recompensaNome} não foi autorizado.`; document.getElementById('modalRecompensaStatus').style.display='flex'; if(aprovado) confetti({particleCount:180,spread:110,origin:{y:.65}}); });
         }
         function renderizarJustificativasCliente(){
-            const el=document.getElementById('justificativasCliente'); if(!el)return; const lista=cacheHistorico.filter(h=>h.justificativaAtraso).sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,10); el.innerHTML=lista.map(h=>`<div style="padding:9px 0;border-bottom:1px solid #eee"><strong>${escaparHtml(h.nomeTarefa||'Tarefa')}</strong> · ${escaparHtml(h.data||'')}<br><span>${escaparHtml(h.justificativaAtraso)}</span> <button class="btn" style="padding:4px 8px;margin-left:6px" onclick="editarJustificativa('${h.id}')">Editar</button></div>`).join('')||'<small>Nenhuma justificativa registrada.</small>';
+            const el=document.getElementById('justificativasCliente'); if(!el)return; const hojeISO=formatarDataISO(new Date()); const lista=cacheHistorico.filter(h=>h.justificativaAtraso&&h.data===hojeISO).sort((a,b)=>(b.horarioTermino||b.horarioInicio||'').localeCompare(a.horarioTermino||a.horarioInicio||'')); el.innerHTML=lista.map(h=>`<div style="padding:9px 0;border-bottom:1px solid #eee"><strong>${escaparHtml(h.nomeTarefa||'Tarefa')}</strong><br><span>${escaparHtml(h.justificativaAtraso)}</span> <button class="btn" style="padding:4px 8px;margin-left:6px" onclick="editarJustificativa('${h.id}')">Editar</button></div>`).join('')||'<small>Nenhuma justificativa registrada hoje.</small>';
         }
         window.editarJustificativa=async id=>{ const h=cacheHistorico.find(x=>x.id===id); if(!h)return; const novo=prompt('Edite sua justificativa:',h.justificativaAtraso||''); if(novo===null)return; const texto=novo.trim(); if(texto.split(/\s+/).filter(Boolean).length<5)return alert('A justificativa precisa ter pelo menos 5 palavras.'); await updateDoc(doc(db,'historico',id),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); if(h.tarefaId){ const t=cacheTarefasTodas.find(x=>x.id===h.tarefaId); if(t&&t.status?.includes('Atrasado')) await updateDoc(doc(db,'tarefas',h.tarefaId),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); } if(h.tarefaId&&h.data) await setDoc(doc(db,'execucoes',`${h.data}__${h.tarefaId}`),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()},{merge:true}); };
 
@@ -678,7 +679,7 @@
         window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
     </script>
     <script src="./client-ui-pro.js"></script>
-    <script>console.log('Ambiente de teste: Service Worker desativado para não interferir no PWA oficial.');</script>
+    <script>console.log('Ambiente de teste: Service Worker próprio desativado para não substituir o PWA oficial.');</script>
 <div id="pwaInstallBanner" style="display:none;position:fixed;left:16px;right:16px;bottom:18px;z-index:9999;background:#fff;border:1px solid #ffd3dc;border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.18);padding:14px 16px;max-width:520px;margin:auto;font-family:inherit">
   <div style="display:flex;align-items:center;gap:12px">
     <img src="icon-cliente-192.png" alt="Ícone" width="48" height="48" style="border-radius:12px">
