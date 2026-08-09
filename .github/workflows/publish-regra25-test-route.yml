@@ -1,0 +1,44 @@
+name: Publish isolated 25 percent tolerance test route
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-regra25-test-route.yml']
+permissions:
+  contents: write
+jobs:
+  publish-test-route:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Copy audited test branch into isolated route
+        run: |
+          set -e
+          rm -rf teste-regra-25
+          mkdir -p teste-regra-25
+          git fetch origin test/tolerance-zero-boundary-v1 --depth=1
+          git archive FETCH_HEAD | tar -x -C teste-regra-25
+          rm -rf teste-regra-25/.github
+          rm -f teste-regra-25/patch-zero-boundary.mjs teste-regra-25/timer-simulation.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('teste-regra-25/index-CLIENTE-v6.html')
+          s=p.read_text()
+          s=s.replace('<title>Meu Espaço de Metas</title>','<title>TESTE · Regra 12,5% + 12,5%</title>')
+          s=s.replace('<body>','<body><div style="position:sticky;top:0;z-index:30000;width:100%;box-sizing:border-box;background:#312e81;color:white;text-align:center;padding:8px;font-weight:800">🧪 AMBIENTE DE TESTE · 100% até 00:01 · zerou = 75% · +12,5% = 50% · +25% = 0%</div>',1)
+          old="""    <script>\n      if ('serviceWorker' in navigator) {\n        window.addEventListener('load', () => {\n          navigator.serviceWorker.register('./sw.js')\n            .then(reg => console.log('Service Worker registrado com sucesso!', reg))\n            .catch(err => console.error('Erro ao registrar Service Worker:', err));\n        });\n      }\n    </script>"""
+          new="""    <script>console.log('Ambiente de teste: Service Worker desativado para não interferir no PWA oficial.');</script>"""
+          if old not in s:
+              raise SystemExit('Bloco de Service Worker não encontrado')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          # index.html da rota continua redirecionando para a cópia local.
+          PY
+      - name: Commit isolated route only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add teste-regra-25
+          git commit -m 'Publish isolated tolerance rule test route'
+          git push origin main
