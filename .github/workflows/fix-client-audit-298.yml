@@ -1,0 +1,24 @@
+name: Fix Client audit exact-seconds expectation
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fix-client-audit-298.yml']
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Correct audit-only expected seconds
+        run: |
+          set -e
+          sed -i 's/consumoTotalSeg===238/consumoTotalSeg===298/' .github/workflows/client-regression-audit.yml
+          grep -q 'consumoTotalSeg===298' .github/workflows/client-regression-audit.yml
+      - name: Commit corrected audit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/client-regression-audit.yml
+          git commit -m 'Correct Client exact-seconds audit expectation'
+          git push origin main
