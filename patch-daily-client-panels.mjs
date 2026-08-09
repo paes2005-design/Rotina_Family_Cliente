@@ -34,3 +34,4 @@ replaceOnce(
 
 fs.writeFileSync(file,s);
 console.log('Daily Client panels patch applied.');
+// integrated trigger v1
