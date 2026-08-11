@@ -1,4 +1,5 @@
 name: Rotina Family Cliente regression audit
+# audit trigger: suggested-time tolerance independence 2026-08-11
 on:
   push:
     paths:
