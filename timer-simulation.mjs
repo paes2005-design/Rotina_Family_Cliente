@@ -1,5 +1,5 @@
 import {calcularEstadoCronometro,formatarDuracaoCronometro} from './tolerance-timer-core.js';
-import {classificarConsumoToleranciaSegundos,limitesToleranciaExata} from './scoring-core.js';
+import {classificarConsumoToleranciaSegundos,limitesToleranciaExata,horarioSugeridoEstourado,minutosCompletosAtrasoHorarioSugerido} from './scoring-core.js';
 
 const ok=(cond,msg,extra='')=>{if(!cond)throw new Error(`FALHOU: ${msg}${extra?` | ${extra}`:''}`);console.log(`OK - ${msg}${extra?` | ${extra}`:''}`);};
 const dt=s=>new Date(s);
@@ -23,11 +23,22 @@ ok(l6.faixa75Seg===45&&l6.faixa50Seg===45&&l6.limite50Seg===450,'6 min: 45 s em 
 const l2=limitesToleranciaExata(2);
 ok(l2.faixa75Seg===15&&l2.faixa50Seg===15&&l2.limite50Seg===150,'2 min: 15 s em 75%, 15 s em 50%, 0% em 2:30');
 
+console.log('\n=== HORÁRIO SUGERIDO EDUCATIVO ===');
+const hsPrev=dt('2026-08-08T07:00:00');
+ok(!horarioSugeridoEstourado(dt('2026-08-08T07:01:59'),hsPrev),'07:01:59 ainda pertence à janela educativa de 07:00');
+ok(horarioSugeridoEstourado(dt('2026-08-08T07:02:00'),hsPrev),'07:02:00 estoura o horário sugerido de 07:00');
+ok(minutosCompletosAtrasoHorarioSugerido(dt('2026-08-08T07:01:59'),hsPrev)===0,'antes de 07:02 não registra atraso educativo');
+ok(minutosCompletosAtrasoHorarioSugerido(dt('2026-08-08T07:02:00'),hsPrev)===1,'em 07:02 registra o primeiro minuto de atraso educativo');
+
 console.log('\n=== SIMULAÇÃO DO CRONÔMETRO ===');
 ok(formatarDuracaoCronometro(462)==='07:42','formata 462 segundos como 07:42');
 
 let e=show('Antes do horário',tarefa(),'2026-08-08T07:59:59');
 ok(e.visivel===false,'cronômetro fica oculto antes do início previsto');
+
+const semTolerancia=tarefa({tempoLimite:0});
+e=show('Tolerância zero',semTolerancia,'2026-08-08T08:01:30');
+ok(e.visivel===false,'tolerância 0 nunca exibe cronômetro nem estado de tolerância estourada');
 
 e=show('Pendente +2m18s',tarefa(),'2026-08-08T08:02:18');
 ok(e.visivel&&e.percentual===100&&e.consumoTotalSeg===138&&e.texto==='⏱️ Tolerância 07:42','pendente consome a tolerância em segundos reais');

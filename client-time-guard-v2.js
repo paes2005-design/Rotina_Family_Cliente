@@ -1,6 +1,6 @@
 import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import {getFirestore,doc,getDoc,updateDoc,setDoc,collection,query,where,getDocs} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-import {REGRA_PADRAO,classificarConsumoToleranciaSegundos,calcularConsumoAtraso,minutosCompletosAtraso} from './scoring-core.js';
+import {REGRA_PADRAO,classificarConsumoToleranciaSegundos,calcularConsumoAtraso,minutosCompletosAtrasoHorarioSugerido,horarioSugeridoEstourado} from './scoring-core.js';
 
 const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const pad=n=>String(n).padStart(2,'0');
@@ -58,7 +58,7 @@ function avisarBloqueioOrdem(r){
   else avisar(`<strong>Não é permitido pular uma tarefa.</strong><br><br>Conclua primeiro “${r?.tarefa?.nome||'a tarefa anterior'}”.`);
 }
 async function registrarInicio(t,agora,j,antecipacao=null){
-  const atrasoInicio=minutosCompletosAtraso(agora,j.inicio),banco=await db();
+  const atrasoInicio=minutosCompletosAtrasoHorarioSugerido(agora,j.inicio),banco=await db();
   const antecipado=Boolean(antecipacao);
   const antecipacaoMin=antecipado?Math.max(0,Math.floor((j.inicio-agora)/60000)):0;
   const dados={status:'Em andamento',horarioInicio:horaHM(agora),inicioExecutadoEm:agora.toISOString(),dataExecucao:dataISO(j.ocorr),iniciouComAtraso:atrasoInicio>0,atrasoInicioMin:atrasoInicio,inicioAntecipado:antecipado,antecipacaoMin,motivoInicioAntecipado:antecipado?(antecipacao.motivo||''):'',tipoMotivoInicioAntecipado:antecipado?(antecipacao.tipo||''):''};
@@ -111,7 +111,7 @@ async function salvarResultado(t,agora,j,ini,calc,faixa,justificativa='',opcoes=
   const banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(faixa.percentual/100));
   const status=faixa.faixa==='dentro-limites'?`No Prazo (${faixa.percentual}%)`:faixa.faixa==='atraso-leve'?`No Prazo — atraso leve (${faixa.percentual}%)`:faixa.faixa==='atraso-maior'?`No Prazo — atraso maior (${faixa.percentual}%)`:'Atrasado (0%)';
   const temJustificativa=Boolean(justificativa.trim());
-  const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,toleranciaConsumidaMin:calc.consumoTotal,toleranciaConsumidaSeg:calc.consumoTotalSeg,atrasoInicioMin:calc.atrasoInicio,atrasoFimMin:calc.atrasoFim,limite75Min:faixa.limite75,limite50Min:faixa.limite50,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,justificativaAtraso:justificativa,revisaoStatus:temJustificativa?'aguardando':'sem-revisao',iniciouComAtraso:calc.atrasoInicio>0,tipoJustificativa:temJustificativa?(opcoes.vozUsada?'voz-transcrita':'texto'):'',justificativaRecusada:!temJustificativa&&opcoes.recusou===true};
+  const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,toleranciaConsumidaMin:calc.consumoTotal,toleranciaConsumidaSeg:calc.consumoTotalSeg,atrasoInicioMin:calc.atrasoInicio,atrasoFimMin:calc.atrasoFim,limite75Min:faixa.limite75,limite50Min:faixa.limite50,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,justificativaAtraso:justificativa,revisaoStatus:temJustificativa?'aguardando':'sem-revisao',iniciouComAtraso:t.iniciouComAtraso===true,tipoJustificativa:temJustificativa?(opcoes.vozUsada?'voz-transcrita':'texto'):'',justificativaRecusada:!temJustificativa&&opcoes.recusou===true};
   await updateDoc(doc(banco,'tarefas',t.id),base);
   const hist={grupoId:grupo(),perfilId:perfil(),perfilNome:nome(),tarefaId:t.id,tarefaGrupoId:t.tarefaGrupoId||'',nomeTarefa:t.nome,diaSemana:t.diaSemana,data:dataISO(j.ocorr),dataExecucao:dataISO(j.ocorr),horaSugeridaInicio:t.horaSugeridaInicio,horaSugeridaFim:t.horaSugeridaFim,horarioInicio:t.horarioInicio||horaHM(ini),inicioExecutadoEm:t.inicioExecutadoEm||ini.toISOString(),tempoLimite:Number(t.tempoLimite)||0,pontosMaximos:Number(t.pontosMaximos)||0,icone:t.icone||'',inicioAntecipado:t.inicioAntecipado===true,antecipacaoMin:Number(t.antecipacaoMin)||0,motivoInicioAntecipado:t.motivoInicioAntecipado||'',tipoMotivoInicioAntecipado:t.tipoMotivoInicioAntecipado||'',...base};
   await setDoc(doc(banco,'historico',`${perfil()}_${t.id}_${dataISO(j.ocorr)}`),hist,{merge:true});
@@ -151,7 +151,14 @@ function pedirJustificativa(t,agora,j,ini,calc,faixa){
 async function finalizar(id){
   const t=await buscarTarefa(id);if(!t)return;
   if(t.status!=='Em andamento')return;
-  const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora),calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora}),regra=await regraAtual(),faixa=classificarConsumoToleranciaSegundos(t.tempoLimite,calc.consumoTotalSeg,regra);
+  const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora);
+  const calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora});
+  const regra=await regraAtual(),tolerancia=Math.max(0,Number(t.tempoLimite)||0);
+  const semTolBase={tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0,limite100Seg:0,limite75Seg:0,limite50Seg:0,faixa75Seg:0,faixa50Seg:0,janelaParcialSeg:0};
+  const horarioEstourado=horarioSugeridoEstourado(ini,j.inicio)||horarioSugeridoEstourado(agora,j.fim);
+  const faixa=tolerancia===0
+    ?{percentual:horarioEstourado?0:Number(regra.dentroLimites??100),faixa:horarioEstourado?'estourado':'dentro-limites',consumoSeg:0,...semTolBase}
+    :classificarConsumoToleranciaSegundos(tolerancia,calc.consumoTotalSeg,regra);
   if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}
   await salvarResultado(t,agora,j,ini,calc,faixa,'');
   try{window.confetti?.({particleCount:45,spread:60,origin:{y:.75}});}catch{}

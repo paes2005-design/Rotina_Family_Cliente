@@ -3,6 +3,23 @@ import {getFirestore,collection,query,where,onSnapshot} from 'https://www.gstati
 import {calcularEstadoCronometro,formatarDuracaoCronometro} from './tolerance-timer-core.js';
 
 const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+const pad=n=>String(n).padStart(2,'0');
+const horaHMS=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+function campoHMS(valor){
+  const m=String(valor||'').match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||'00'}`:String(valor||'');
+}
+function dataValida(valor){if(!valor)return null;const d=new Date(valor);return Number.isNaN(d.getTime())?null:d;}
+function aplicarSegundosHorario(row,t){
+  const sugerido=row.children?.[0]?.querySelector('.horario-sugerido');
+  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio)} - ${campoHMS(t.horaSugeridaFim)}`;
+  const real=row.children?.[0]?.querySelector('.horario-real');
+  if(!real)return;
+  const inicio=dataValida(t.inicioExecutadoEm),fim=dataValida(t.terminoExecutadoEm);
+  const hi=inicio?horaHMS(inicio):campoHMS(t.horarioInicio);
+  const hf=fim?horaHMS(fim):campoHMS(t.horarioTermino);
+  real.textContent=`▶️ ${hi}${hf?` / ⏹️ ${hf}`:''}`;
+}
 let tarefas=[];
 let unsubscribe=null;
 let chaveSessao='';
@@ -60,6 +77,7 @@ export function prepararLinhasCronometro(){
     const t=tarefaDaLinha(row,agora);
     let el=td.querySelector('.client-tolerance-timer');
     if(!t){el?.remove();return;}
+    aplicarSegundosHorario(row,t);
     if(!el){
       el=document.createElement('span');
       el.className='client-tolerance-timer';

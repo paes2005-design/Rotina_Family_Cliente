@@ -117,7 +117,7 @@ export function calcularEstadoCronometro(t,agora=new Date()){
     texto='🔴 Tolerância estourada · 0%';tom='estourado';
   }
 
-  const visivel=!concluida&&(andamento||(pendente&&agora>=j.inicio));
+  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=j.inicio));
   return {
     visivel,texto,tom,status,relogioAtivo,tolerancia,
     atrasoInicioMin,atrasoFimMin,consumoTotal,consumoTotalSeg,
