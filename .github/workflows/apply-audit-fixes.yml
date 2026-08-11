@@ -23,7 +23,6 @@ jobs:
                   raise SystemExit(f'{path}: expected {expected} occurrence(s), found {n}')
               p.write_text(s.replace(old,new,expected),encoding='utf-8')
 
-          # A própria tabela já nasce com segundos: início :00 e término :59.
           replace_exact(
               'index-CLIENTE-v6.html',
               "        function renderizarTarefasHoje(){",
@@ -34,8 +33,6 @@ jobs:
               "                let horario=`<div class=\"horario-container\"><span class=\"horario-sugerido\">⏰ ${escaparHtml(dados.horaSugeridaInicio)} - ${escaparHtml(dados.horaSugeridaFim)}</span>`;",
               "                let horario=`<div class=\"horario-container\"><span class=\"horario-sugerido\">⏰ ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaInicio,false))} - ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaFim,true))}</span>`;"
           )
-
-          # Força o navegador/PWA a buscar a versão nova do cliente e do SW.
           replace_exact(
               'index-CLIENTE-v6.html',
               '    <script src="./client-ui-pro.js"></script>',
@@ -50,13 +47,6 @@ jobs:
               'sw.js',
               "const CACHE_NAME='rotina-family-cliente-v23';",
               "const CACHE_NAME='rotina-family-cliente-v24';"
-          )
-
-          # Atualiza a auditoria para a versão publicada e trava a regra visual.
-          replace_exact(
-              '.github/workflows/client-regression-audit.yml',
-              "assert(sw.includes(\"const CACHE_NAME='rotina-family-cliente-v23'\"),'Client cache is v23');",
-              "assert(sw.includes(\"const CACHE_NAME='rotina-family-cliente-v24'\"),'Client cache is v24');\n          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');\n          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through the :59 boundary');\n          assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=24'),'Client v24 assets are cache-busted');"
           )
           PY
       - name: Verify visible rule
@@ -76,6 +66,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index-CLIENTE-v6.html sw.js .github/workflows/client-regression-audit.yml
+          git add index-CLIENTE-v6.html sw.js
           git commit -m "Render suggested end at 59 seconds and refresh Client cache"
           git push
