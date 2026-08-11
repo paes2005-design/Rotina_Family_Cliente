@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply independent suggested-time and tolerance rules
+      - name: Apply full suggested-minute boundary
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -21,83 +21,170 @@ jobs:
               n=s.count(old)
               if n!=expected:
                   raise SystemExit(f'{path}: expected {expected} occurrence(s), found {n}')
-              s=s.replace(old,new,expected)
-              p.write_text(s,encoding='utf-8')
+              p.write_text(s.replace(old,new,expected),encoding='utf-8')
 
-          # 1) Regra educativa do horário sugerido: o minuto programado e o minuto
-          # seguinte ficam íntegros; 07:00 só estoura em 07:02:00.
+          # Horário sugerido HH:MM representa o minuto completo HH:MM:00..HH:MM:59.
+          # O primeiro instante fora do horário sugerido é o minuto seguinte, HH:(MM+1):00.
           replace_exact(
               'scoring-core.js',
-              "// Mantém os campos históricos em minutos completos, mas também entrega o consumo\n// exato em segundos para a nova classificação do cronômetro.\nexport function minutosCompletosAtraso(real,previsto){\n  return Math.max(0,Math.floor((real-previsto)/60000));\n}",
-              "const MINUTO_MS=60000;\n\n// Regra educativa do horário sugerido, independente do cronômetro de tolerância.\n// Como o cadastro informa HH:MM, o minuto programado inteiro e mais um minuto\n// completo são respeitados. Ex.: 07:00:00 até 07:01:59 = dentro do horário;\n// 07:02:00 = horário sugerido estourado.\nexport function horarioSugeridoEstourado(real,previsto){\n  const atraso=real-previsto;\n  return Number.isFinite(atraso)&&atraso>=2*MINUTO_MS;\n}\n\nexport function minutosCompletosAtrasoHorarioSugerido(real,previsto){\n  const atraso=real-previsto;\n  if(!Number.isFinite(atraso)||atraso<2*MINUTO_MS)return 0;\n  return Math.max(1,Math.floor(atraso/MINUTO_MS)-1);\n}\n\n// Mantém os campos históricos em minutos completos, mas também entrega o consumo\n// exato em segundos para a classificação rígida do cronômetro.\nexport function minutosCompletosAtraso(real,previsto){\n  return Math.max(0,Math.floor((real-previsto)/60000));\n}"
+              "// Regra educativa do horário sugerido, independente do cronômetro de tolerância.\n// Como o cadastro informa HH:MM, o minuto programado inteiro e mais um minuto\n// completo são respeitados. Ex.: 07:00:00 até 07:01:59 = dentro do horário;\n// 07:02:00 = horário sugerido estourado.\nexport function horarioSugeridoEstourado(real,previsto){\n  const atraso=real-previsto;\n  return Number.isFinite(atraso)&&atraso>=2*MINUTO_MS;\n}\n\nexport function minutosCompletosAtrasoHorarioSugerido(real,previsto){\n  const atraso=real-previsto;\n  if(!Number.isFinite(atraso)||atraso<2*MINUTO_MS)return 0;\n  return Math.max(1,Math.floor(atraso/MINUTO_MS)-1);\n}",
+              "// Regra educativa do horário sugerido, independente do cronômetro de tolerância.\n// O cadastro HH:MM representa o minuto inteiro: 07:00:00 até 07:00:59.\n// Às 07:01:00 termina o horário sugerido e, se houver tolerância, ela começa daí.\nexport function horarioSugeridoEstourado(real,previsto){\n  const atraso=real-previsto;\n  return Number.isFinite(atraso)&&atraso>=MINUTO_MS;\n}\n\nexport function minutosCompletosAtrasoHorarioSugerido(real,previsto){\n  const atraso=real-previsto;\n  if(!Number.isFinite(atraso)||atraso<MINUTO_MS)return 0;\n  return Math.max(1,Math.floor((atraso-MINUTO_MS)/MINUTO_MS)+1);\n}"
           )
 
-          # 2) Início usa a regra educativa; fechamento com tolerância > 0 continua
-          # rígido em segundos. Com tolerância 0, a pontuação usa apenas o horário
-          # sugerido e nunca a regra do cronômetro.
-          replace_exact(
-              'client-time-guard-v2.js',
-              "import {REGRA_PADRAO,classificarConsumoToleranciaSegundos,calcularConsumoAtraso,minutosCompletosAtraso} from './scoring-core.js';",
-              "import {REGRA_PADRAO,classificarConsumoToleranciaSegundos,calcularConsumoAtraso,minutosCompletosAtrasoHorarioSugerido,horarioSugeridoEstourado} from './scoring-core.js';"
-          )
-          replace_exact(
-              'client-time-guard-v2.js',
-              "  const atrasoInicio=minutosCompletosAtraso(agora,j.inicio),banco=await db();",
-              "  const atrasoInicio=minutosCompletosAtrasoHorarioSugerido(agora,j.inicio),banco=await db();"
-          )
-          replace_exact(
-              'client-time-guard-v2.js',
-              "iniciouComAtraso:calc.atrasoInicio>0,",
-              "iniciouComAtraso:t.iniciouComAtraso===true,"
-          )
-          replace_exact(
-              'client-time-guard-v2.js',
-              "  const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora),calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora}),regra=await regraAtual(),faixa=classificarConsumoToleranciaSegundos(t.tempoLimite,calc.consumoTotalSeg,regra);",
-              "  const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora);\n  const calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora});\n  const regra=await regraAtual(),tolerancia=Math.max(0,Number(t.tempoLimite)||0);\n  const semTolBase={tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0,limite100Seg:0,limite75Seg:0,limite50Seg:0,faixa75Seg:0,faixa50Seg:0,janelaParcialSeg:0};\n  const horarioEstourado=horarioSugeridoEstourado(ini,j.inicio)||horarioSugeridoEstourado(agora,j.fim);\n  const faixa=tolerancia===0\n    ?{percentual:horarioEstourado?0:Number(regra.dentroLimites??100),faixa:horarioEstourado?'estourado':'dentro-limites',consumoSeg:0,...semTolBase}\n    :classificarConsumoToleranciaSegundos(tolerancia,calc.consumoTotalSeg,regra);"
-          )
-
-          # 3) Tolerância 0 não cria estado visual de cronômetro/estourado.
+          # O cronômetro de tolerância começa somente depois do minuto sugerido completo.
           replace_exact(
               'tolerance-timer-core.js',
-              "  const visivel=!concluida&&(andamento||(pendente&&agora>=j.inicio));",
-              "  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=j.inicio));"
+              "const atrasoMs=(real,previsto)=>Math.max(0,real-previsto);\nconst minutosCompletos=ms=>Math.max(0,Math.floor(ms/MINUTO));",
+              "const atrasoMs=(real,previsto)=>Math.max(0,real-previsto);\nconst minutosCompletos=ms=>Math.max(0,Math.floor(ms/MINUTO));\nconst aposMinutoSugerido=previsto=>new Date(previsto.getTime()+MINUTO);"
+          )
+          replace_exact(
+              'tolerance-timer-core.js',
+              "  if(pendente){\n    atrasoInicioMs=atrasoMs(agora,j.inicio);\n    if(agora>=j.inicio)relogioAtivo='inicio';\n  }else{\n    const ini=inicioReal(t,j,agora);\n    atrasoInicioMs=atrasoMs(ini,j.inicio);\n    if(andamento){\n      atrasoFimMs=atrasoMs(agora,j.fim);\n      relogioAtivo=agora>=j.fim?'fim':'pausado';\n    }else{\n      const fim=terminoReal(t,j,agora);\n      atrasoFimMs=atrasoMs(fim,j.fim);\n      relogioAtivo='finalizado';\n    }\n  }",
+              "  const limiteInicio=aposMinutoSugerido(j.inicio),limiteFim=aposMinutoSugerido(j.fim);\n  if(pendente){\n    atrasoInicioMs=atrasoMs(agora,limiteInicio);\n    if(agora>=limiteInicio)relogioAtivo='inicio';\n  }else{\n    const ini=inicioReal(t,j,agora);\n    atrasoInicioMs=atrasoMs(ini,limiteInicio);\n    if(andamento){\n      atrasoFimMs=atrasoMs(agora,limiteFim);\n      relogioAtivo=agora>=limiteFim?'fim':'pausado';\n    }else{\n      const fim=terminoReal(t,j,agora);\n      atrasoFimMs=atrasoMs(fim,limiteFim);\n      relogioAtivo='finalizado';\n    }\n  }"
+          )
+          replace_exact(
+              'tolerance-timer-core.js',
+              "  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=j.inicio));",
+              "  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=limiteInicio));"
+          )
+          replace_exact(
+              'tolerance-timer-core.js',
+              "    inicioPrevisto:j.inicio,fimPrevisto:j.fim",
+              "    inicioPrevisto:j.inicio,fimPrevisto:j.fim,\n    inicioToleranciaPrevisto:limiteInicio,fimToleranciaPrevisto:limiteFim"
           )
 
-          # 4) Exibição educativa com segundos nos horários sugeridos e reais.
+          # O fechamento usa a mesma fronteira do cronômetro para tolerância positiva.
           replace_exact(
-              'client-tolerance-timer.js',
-              "const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];\nlet tarefas=[];",
-              "const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];\nconst pad=n=>String(n).padStart(2,'0');\nconst horaHMS=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;\nfunction campoHMS(valor){\n  const m=String(valor||'').match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?$/);\n  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||'00'}`:String(valor||'');\n}\nfunction dataValida(valor){if(!valor)return null;const d=new Date(valor);return Number.isNaN(d.getTime())?null:d;}\nfunction aplicarSegundosHorario(row,t){\n  const sugerido=row.children?.[0]?.querySelector('.horario-sugerido');\n  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio)} - ${campoHMS(t.horaSugeridaFim)}`;\n  const real=row.children?.[0]?.querySelector('.horario-real');\n  if(!real)return;\n  const inicio=dataValida(t.inicioExecutadoEm),fim=dataValida(t.terminoExecutadoEm);\n  const hi=inicio?horaHMS(inicio):campoHMS(t.horarioInicio);\n  const hf=fim?horaHMS(fim):campoHMS(t.horarioTermino);\n  real.textContent=`▶️ ${hi}${hf?` / ⏹️ ${hf}`:''}`;\n}\nlet tarefas=[];"
+              'client-time-guard-v2.js',
+              "function janela(t,agora=new Date()){\n  const ocorr=dataOcorrencia(t,agora),inicio=horarioNaData(ocorr,t.horaSugeridaInicio),fim=horarioNaData(ocorr,t.horaSugeridaFim);\n  if(fim<=inicio)fim.setDate(fim.getDate()+1);\n  return {ocorr,inicio,fim};\n}",
+              "function janela(t,agora=new Date()){\n  const ocorr=dataOcorrencia(t,agora),inicio=horarioNaData(ocorr,t.horaSugeridaInicio),fim=horarioNaData(ocorr,t.horaSugeridaFim);\n  if(fim<=inicio)fim.setDate(fim.getDate()+1);\n  return {ocorr,inicio,fim};\n}\nconst aposMinutoSugerido=d=>new Date(d.getTime()+60000);"
           )
           replace_exact(
-              'client-tolerance-timer.js',
-              "    if(!t){el?.remove();return;}\n    if(!el){",
-              "    if(!t){el?.remove();return;}\n    aplicarSegundosHorario(row,t);\n    if(!el){"
+              'client-time-guard-v2.js',
+              "  const calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora});\n  const regra=await regraAtual(),tolerancia=Math.max(0,Number(t.tempoLimite)||0);",
+              "  const regra=await regraAtual(),tolerancia=Math.max(0,Number(t.tempoLimite)||0);\n  const calc=tolerancia===0\n    ?calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora})\n    :calcularConsumoAtraso({inicioPrevisto:aposMinutoSugerido(j.inicio),inicioReal:ini,fimPrevisto:aposMinutoSugerido(j.fim),fimReal:agora});"
           )
 
-          # 5) Testes determinísticos para impedir regressão dessa regra.
+          # Visual: início sugerido em :00 e término sugerido em :59.
           replace_exact(
-              'timer-simulation.mjs',
-              "import {classificarConsumoToleranciaSegundos,limitesToleranciaExata} from './scoring-core.js';",
-              "import {classificarConsumoToleranciaSegundos,limitesToleranciaExata,horarioSugeridoEstourado,minutosCompletosAtrasoHorarioSugerido} from './scoring-core.js';"
+              'client-tolerance-timer.js',
+              "function campoHMS(valor){\n  const m=String(valor||'').match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?$/);\n  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||'00'}`:String(valor||'');\n}",
+              "function campoHMS(valor,segundoPadrao='00'){\n  const m=String(valor||'').match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?$/);\n  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||segundoPadrao}`:String(valor||'');\n}"
           )
           replace_exact(
-              'timer-simulation.mjs',
-              "console.log('\\n=== SIMULAÇÃO DO CRONÔMETRO ===');",
-              "console.log('\\n=== HORÁRIO SUGERIDO EDUCATIVO ===');\nconst hsPrev=dt('2026-08-08T07:00:00');\nok(!horarioSugeridoEstourado(dt('2026-08-08T07:01:59'),hsPrev),'07:01:59 ainda pertence à janela educativa de 07:00');\nok(horarioSugeridoEstourado(dt('2026-08-08T07:02:00'),hsPrev),'07:02:00 estoura o horário sugerido de 07:00');\nok(minutosCompletosAtrasoHorarioSugerido(dt('2026-08-08T07:01:59'),hsPrev)===0,'antes de 07:02 não registra atraso educativo');\nok(minutosCompletosAtrasoHorarioSugerido(dt('2026-08-08T07:02:00'),hsPrev)===1,'em 07:02 registra o primeiro minuto de atraso educativo');\n\nconsole.log('\\n=== SIMULAÇÃO DO CRONÔMETRO ===');"
+              'client-tolerance-timer.js',
+              "  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio)} - ${campoHMS(t.horaSugeridaFim)}`;",
+              "  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio,'00')} - ${campoHMS(t.horaSugeridaFim,'59')}`;"
           )
-          replace_exact(
-              'timer-simulation.mjs',
-              "let e=show('Antes do horário',tarefa(),'2026-08-08T07:59:59');\nok(e.visivel===false,'cronômetro fica oculto antes do início previsto');",
-              "let e=show('Antes do horário',tarefa(),'2026-08-08T07:59:59');\nok(e.visivel===false,'cronômetro fica oculto antes do início previsto');\n\nconst semTolerancia=tarefa({tempoLimite:0});\ne=show('Tolerância zero',semTolerancia,'2026-08-08T08:01:30');\nok(e.visivel===false,'tolerância 0 nunca exibe cronômetro nem estado de tolerância estourada');"
-          )
+
+          # Substitui a simulação por uma matriz alinhada à fronteira HH:MM:59 -> próximo minuto.
+          Path('timer-simulation.mjs').write_text(r'''import {calcularEstadoCronometro,formatarDuracaoCronometro} from './tolerance-timer-core.js';
+import {classificarConsumoToleranciaSegundos,limitesToleranciaExata,horarioSugeridoEstourado,minutosCompletosAtrasoHorarioSugerido} from './scoring-core.js';
+
+const ok=(cond,msg,extra='')=>{if(!cond)throw new Error(`FALHOU: ${msg}${extra?` | ${extra}`:''}`);console.log(`OK - ${msg}${extra?` | ${extra}`:''}`);};
+const dt=s=>new Date(s);
+const tarefa=(extra={})=>({id:'T1',nome:'Tarefa teste',diaSemana:'Sábado',horaSugeridaInicio:'08:00',horaSugeridaFim:'08:30',tempoLimite:10,status:'Pendente',...extra});
+const show=(nome,t,quando)=>{const e=calcularEstadoCronometro(t,dt(quando));console.log(`${nome.padEnd(34)} | ${quando.slice(11,19)} | ${String(e.percentual).padStart(3)}% | seg=${String(e.consumoTotalSeg).padStart(5)} | ${e.texto||'(oculto)'}`);return e;};
+
+console.log('\n=== CLASSIFICADOR RÍGIDO DO CRONÔMETRO ===');
+const l10=limitesToleranciaExata(10);
+ok(l10.limite100Seg===600,'10 min = 600 s de faixa 100%');
+ok(l10.faixa75Seg===75&&l10.faixa50Seg===75,'faixas 75% e 50% recebem 75 s cada');
+ok(classificarConsumoToleranciaSegundos(10,599).percentual===100,'09:59 = 100%');
+ok(classificarConsumoToleranciaSegundos(10,600).percentual===75,'10:00 = 75%');
+ok(classificarConsumoToleranciaSegundos(10,675).percentual===50,'11:15 = 50%');
+ok(classificarConsumoToleranciaSegundos(10,750).percentual===0,'12:30 = 0%');
+
+console.log('\n=== MINUTO SUGERIDO COMPLETO ===');
+const hs=dt('2026-08-08T07:00:00');
+ok(!horarioSugeridoEstourado(dt('2026-08-08T07:00:59'),hs),'07:00:59 ainda pertence ao horário 07:00');
+ok(horarioSugeridoEstourado(dt('2026-08-08T07:01:00'),hs),'07:01:00 é o primeiro instante fora do horário 07:00');
+ok(minutosCompletosAtrasoHorarioSugerido(dt('2026-08-08T07:00:59'),hs)===0,'até :59 não registra atraso');
+ok(minutosCompletosAtrasoHorarioSugerido(dt('2026-08-08T07:01:00'),hs)===1,'no minuto seguinte registra o primeiro atraso');
+
+console.log('\n=== INÍCIO: TOLERÂNCIA SÓ APÓS :59 ===');
+let e=show('08:00:59 ainda é horário sugerido',tarefa(),'2026-08-08T08:00:59');
+ok(e.visivel===false&&e.consumoTotalSeg===0,'cronômetro não roda em 08:00:59');
+e=show('08:01:00 inicia tolerância',tarefa(),'2026-08-08T08:01:00');
+ok(e.visivel&&e.consumoTotalSeg===0&&e.texto==='⏱️ Tolerância 10:00','cronômetro inicia cheio em 08:01:00');
+e=show('08:01:01 primeiro segundo',tarefa(),'2026-08-08T08:01:01');
+ok(e.consumoTotalSeg===1&&e.texto==='⏱️ Tolerância 09:59','primeiro segundo é consumido após 08:01:00');
+
+const t2=tarefa({tempoLimite:2});
+ok(show('Tol2 último segundo 100%',t2,'2026-08-08T08:02:59').texto==='⏱️ Tolerância 00:01','2 min: 08:02:59 ainda tem 1 s');
+ok(show('Tol2 zero exato',t2,'2026-08-08T08:03:00').percentual===75,'2 min: zero somente em 08:03:00');
+
+console.log('\n=== TÉRMINO: CENÁRIO 11:21 -> 11:21:59 -> 11:22 ===');
+const arrumar={id:'A',nome:'Arrumar casa',diaSemana:'Sábado',horaSugeridaInicio:'10:20',horaSugeridaFim:'11:21',tempoLimite:5,status:'Em andamento',dataExecucao:'2026-08-08',inicioExecutadoEm:'2026-08-08T10:20:02.000'};
+e=show('Fim 11:21:59',arrumar,'2026-08-08T11:21:59');
+ok(e.consumoTotalSeg===0&&e.texto==='⏱️ Tolerância 05:00'&&e.relogioAtivo==='pausado','11:21:59 não consome tolerância');
+e=show('Fim 11:22:00',arrumar,'2026-08-08T11:22:00');
+ok(e.consumoTotalSeg===0&&e.texto==='⏱️ Tolerância 05:00'&&e.relogioAtivo==='fim','11:22:00 inicia o cronômetro cheio');
+e=show('Fim 11:22:01',arrumar,'2026-08-08T11:22:01');
+ok(e.consumoTotalSeg===1&&e.texto==='⏱️ Tolerância 04:59','11:22:01 consumiu exatamente 1 s');
+
+console.log('\n=== SALDO ÚNICO INÍCIO + TÉRMINO ===');
+const combinado=tarefa({status:'Em andamento',dataExecucao:'2026-08-08',inicioExecutadoEm:'2026-08-08T08:01:15.000'});
+e=show('Atraso início 15 s',combinado,'2026-08-08T08:20:00');
+ok(e.consumoTotalSeg===15&&e.texto==='⏱️ Tolerância 09:45','início após 08:01 consome 15 s');
+e=show('Mais 45 s no término',combinado,'2026-08-08T08:31:45');
+ok(e.consumoTotalSeg===60&&e.texto==='⏱️ Tolerância 09:00','15 s de início + 45 s de término = 60 s');
+
+const semTol=tarefa({tempoLimite:0});
+e=show('Tolerância zero',semTol,'2026-08-08T08:05:00');
+ok(e.visivel===false,'tolerância 0 continua sem cronômetro');
+
+console.log('\n=== RELÓGIOS INDEPENDENTES ===');
+const A=tarefa({id:'A',nome:'A',status:'Em andamento',dataExecucao:'2026-08-08',inicioExecutadoEm:'2026-08-08T08:00:00.000'});
+const B=tarefa({id:'B',nome:'B',horaSugeridaInicio:'08:35',horaSugeridaFim:'09:00',status:'Pendente'});
+const ea=show('A continua independente',A,'2026-08-08T08:36:42');
+const eb=show('B começa após 08:35:59',B,'2026-08-08T08:36:42');
+ok(ea.relogioAtivo==='fim'&&eb.relogioAtivo==='inicio'&&eb.consumoTotalSeg===42&&eb.texto==='⏱️ Tolerância 09:18','B usa seu próprio relógio a partir de 08:36:00');
+const eb2=show('B após suspensão',B,'2026-08-08T08:43:42');
+ok(eb2.consumoTotalSeg===462&&eb2.texto==='⏱️ Tolerância 02:18','retorno recalcula pelo relógio absoluto');
+
+console.log('\n=== VIRADA DA MEIA-NOITE ===');
+const meiaNoite=tarefa({diaSemana:'Sábado',horaSugeridaInicio:'23:55',horaSugeridaFim:'00:10',status:'Em andamento',dataExecucao:'2026-08-08',inicioExecutadoEm:'2026-08-08T23:57:00.000'});
+e=show('Virada meia-noite',meiaNoite,'2026-08-09T00:12:30');
+ok(e.consumoTotalSeg===150&&e.texto==='⏱️ Tolerância 07:30','fronteiras de minuto funcionam atravessando meia-noite');
+
+console.log('\n=== CONCLUÍDA ===');
+e=show('Tarefa concluída',tarefa({status:'No Prazo (100%)',dataExecucao:'2026-08-08',inicioExecutadoEm:'2026-08-08T08:02:00.000',terminoExecutadoEm:'2026-08-08T08:31:00.000'}),'2026-08-08T09:00:00');
+ok(e.visivel===false&&e.consumoTotalSeg===60,'concluída some e preserva 60 s consumidos');
+
+console.log('\n=== STRESS / REGRESSÃO TEMPORAL ===');
+const stress=tarefa({tempoLimite:10});
+const snapshot=JSON.stringify(stress);
+let anterior=-1,ultimoPct=100;
+for(let s=0;s<=24*60*60;s++){
+  const agora=new Date(dt('2026-08-08T08:00:00').getTime()+s*1000);
+  const x=calcularEstadoCronometro(stress,agora);
+  if(!Number.isFinite(x.consumoTotalSeg)||!Number.isFinite(x.restanteNormalSeg)||!Number.isFinite(x.restanteFaixaSeg))throw new Error(`FALHOU: estado inválido no segundo ${s}`);
+  if(x.consumoTotalSeg<anterior)throw new Error(`FALHOU: consumo regrediu no segundo ${s}`);
+  if(x.percentual>ultimoPct)throw new Error(`FALHOU: percentual melhorou sozinho no segundo ${s}`);
+  anterior=x.consumoTotalSeg;ultimoPct=x.percentual;
+}
+ok(JSON.stringify(stress)===snapshot,'86.401 cálculos não alteram a tarefa');
+ok(anterior===86340,'24 h preservam o minuto sugerido antes do consumo');
+ok(ultimoPct===0,'stress termina em 0%');
+
+const matriz=[];
+for(let i=0;i<50;i++)matriz.push(tarefa({id:`M${i}`,nome:`T${i}`,horaSugeridaInicio:`${String(8+Math.floor(i/10)).padStart(2,'0')}:${String((i%10)*5).padStart(2,'0')}`,horaSugeridaFim:`${String(9+Math.floor(i/10)).padStart(2,'0')}:${String((i%10)*5).padStart(2,'0')}`,tempoLimite:(i%5)+1}));
+let checksum=0;
+for(let passo=0;passo<3600;passo+=5){
+  const agora=new Date(dt('2026-08-08T08:00:00').getTime()+passo*1000);
+  for(const t of matriz){const x=calcularEstadoCronometro(t,agora);checksum+=x.consumoTotalSeg+x.percentual;}
+}
+ok(Number.isFinite(checksum)&&checksum>0,'36.000 estados de 50 tarefas sem NaN/erro');
+
+console.log('\nTODAS AS SIMULAÇÕES DO MINUTO SUGERIDO + TOLERÂNCIA PASSARAM');
+''',encoding='utf-8')
           PY
       - name: Verify source and simulations
         run: |
-          grep -F 'horarioSugeridoEstourado' scoring-core.js
-          grep -F 'minutosCompletosAtrasoHorarioSugerido' client-time-guard-v2.js
-          grep -F 'tolerancia>0&&!concluida' tolerance-timer-core.js
-          grep -F 'aplicarSegundosHorario(row,t)' client-tolerance-timer.js
+          grep -F "m[3]||segundoPadrao" client-tolerance-timer.js
+          grep -F "aposMinutoSugerido(j.fim)" client-time-guard-v2.js
+          grep -F "const limiteInicio=aposMinutoSugerido(j.inicio),limiteFim=aposMinutoSugerido(j.fim);" tolerance-timer-core.js
           node --check scoring-core.js
           node --check client-time-guard-v2.js
           node --check tolerance-timer-core.js
@@ -109,5 +196,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scoring-core.js client-time-guard-v2.js tolerance-timer-core.js client-tolerance-timer.js timer-simulation.mjs
-          git commit -m "Fix suggested time tolerance independence"
+          git commit -m "Start tolerance after full suggested minute"
           git push
