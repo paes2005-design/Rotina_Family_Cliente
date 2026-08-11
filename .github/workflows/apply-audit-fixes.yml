@@ -1,4 +1,4 @@
-name: Apply Client audit fixes
+name: Apply Client visible time fix
 on:
   push:
     paths:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply full suggested-minute boundary
+      - name: Apply visible 59-second end boundary and cache refresh
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -23,68 +23,59 @@ jobs:
                   raise SystemExit(f'{path}: expected {expected} occurrence(s), found {n}')
               p.write_text(s.replace(old,new,expected),encoding='utf-8')
 
+          # A própria tabela já nasce com segundos: início :00 e término :59.
           replace_exact(
-              'scoring-core.js',
-              "// Regra educativa do horário sugerido, independente do cronômetro de tolerância.\n// Como o cadastro informa HH:MM, o minuto programado inteiro e mais um minuto\n// completo são respeitados. Ex.: 07:00:00 até 07:01:59 = dentro do horário;\n// 07:02:00 = horário sugerido estourado.\nexport function horarioSugeridoEstourado(real,previsto){\n  const atraso=real-previsto;\n  return Number.isFinite(atraso)&&atraso>=2*MINUTO_MS;\n}\n\nexport function minutosCompletosAtrasoHorarioSugerido(real,previsto){\n  const atraso=real-previsto;\n  if(!Number.isFinite(atraso)||atraso<2*MINUTO_MS)return 0;\n  return Math.max(1,Math.floor(atraso/MINUTO_MS)-1);\n}",
-              "// Regra educativa do horário sugerido, independente do cronômetro de tolerância.\n// O cadastro HH:MM representa o minuto inteiro: 07:00:00 até 07:00:59.\n// Às 07:01:00 termina o horário sugerido e, se houver tolerância, ela começa daí.\nexport function horarioSugeridoEstourado(real,previsto){\n  const atraso=real-previsto;\n  return Number.isFinite(atraso)&&atraso>=MINUTO_MS;\n}\n\nexport function minutosCompletosAtrasoHorarioSugerido(real,previsto){\n  const atraso=real-previsto;\n  if(!Number.isFinite(atraso)||atraso<MINUTO_MS)return 0;\n  return Math.max(1,Math.floor((atraso-MINUTO_MS)/MINUTO_MS)+1);\n}"
+              'index-CLIENTE-v6.html',
+              "        function renderizarTarefasHoje(){",
+              "        function horaSugeridaComSegundos(valor,fim=false){\n            const s=String(valor||'').trim();\n            if(/^\\d{1,2}:\\d{2}:\\d{2}$/.test(s)) return s;\n            if(/^\\d{1,2}:\\d{2}$/.test(s)) return `${s}:${fim?'59':'00'}`;\n            return s;\n        }\n\n        function renderizarTarefasHoje(){"
+          )
+          replace_exact(
+              'index-CLIENTE-v6.html',
+              "                let horario=`<div class=\"horario-container\"><span class=\"horario-sugerido\">⏰ ${escaparHtml(dados.horaSugeridaInicio)} - ${escaparHtml(dados.horaSugeridaFim)}</span>`;",
+              "                let horario=`<div class=\"horario-container\"><span class=\"horario-sugerido\">⏰ ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaInicio,false))} - ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaFim,true))}</span>`;"
           )
 
+          # Força o navegador/PWA a buscar a versão nova do cliente e do SW.
           replace_exact(
-              'tolerance-timer-core.js',
-              "const atrasoMs=(real,previsto)=>Math.max(0,real-previsto);\nconst minutosCompletos=ms=>Math.max(0,Math.floor(ms/MINUTO));",
-              "const atrasoMs=(real,previsto)=>Math.max(0,real-previsto);\nconst minutosCompletos=ms=>Math.max(0,Math.floor(ms/MINUTO));\nconst aposMinutoSugerido=previsto=>new Date(previsto.getTime()+MINUTO);"
+              'index-CLIENTE-v6.html',
+              '    <script src="./client-ui-pro.js"></script>',
+              '    <script src="./client-ui-pro.js?v=24"></script>'
           )
           replace_exact(
-              'tolerance-timer-core.js',
-              "  if(pendente){\n    atrasoInicioMs=atrasoMs(agora,j.inicio);\n    if(agora>=j.inicio)relogioAtivo='inicio';\n  }else{\n    const ini=inicioReal(t,j,agora);\n    atrasoInicioMs=atrasoMs(ini,j.inicio);\n    if(andamento){\n      atrasoFimMs=atrasoMs(agora,j.fim);\n      relogioAtivo=agora>=j.fim?'fim':'pausado';\n    }else{\n      const fim=terminoReal(t,j,agora);\n      atrasoFimMs=atrasoMs(fim,j.fim);\n      relogioAtivo='finalizado';\n    }\n  }",
-              "  const limiteInicio=aposMinutoSugerido(j.inicio),limiteFim=aposMinutoSugerido(j.fim);\n  if(pendente){\n    atrasoInicioMs=atrasoMs(agora,limiteInicio);\n    if(agora>=limiteInicio)relogioAtivo='inicio';\n  }else{\n    const ini=inicioReal(t,j,agora);\n    atrasoInicioMs=atrasoMs(ini,limiteInicio);\n    if(andamento){\n      atrasoFimMs=atrasoMs(agora,limiteFim);\n      relogioAtivo=agora>=limiteFim?'fim':'pausado';\n    }else{\n      const fim=terminoReal(t,j,agora);\n      atrasoFimMs=atrasoMs(fim,limiteFim);\n      relogioAtivo='finalizado';\n    }\n  }"
+              'index-CLIENTE-v6.html',
+              "          navigator.serviceWorker.register('./sw.js')",
+              "          navigator.serviceWorker.register('./sw.js?v=24')"
           )
           replace_exact(
-              'tolerance-timer-core.js',
-              "  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=j.inicio));",
-              "  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=limiteInicio));"
-          )
-          replace_exact(
-              'tolerance-timer-core.js',
-              "    inicioPrevisto:j.inicio,fimPrevisto:j.fim",
-              "    inicioPrevisto:j.inicio,fimPrevisto:j.fim,\n    inicioToleranciaPrevisto:limiteInicio,fimToleranciaPrevisto:limiteFim"
+              'sw.js',
+              "const CACHE_NAME='rotina-family-cliente-v23';",
+              "const CACHE_NAME='rotina-family-cliente-v24';"
           )
 
+          # Atualiza a auditoria para a versão publicada e trava a regra visual.
           replace_exact(
-              'client-time-guard-v2.js',
-              "function janela(t,agora=new Date()){\n  const ocorr=dataOcorrencia(t,agora),inicio=horarioNaData(ocorr,t.horaSugeridaInicio),fim=horarioNaData(ocorr,t.horaSugeridaFim);\n  if(fim<=inicio)fim.setDate(fim.getDate()+1);\n  return {ocorr,inicio,fim};\n}",
-              "function janela(t,agora=new Date()){\n  const ocorr=dataOcorrencia(t,agora),inicio=horarioNaData(ocorr,t.horaSugeridaInicio),fim=horarioNaData(ocorr,t.horaSugeridaFim);\n  if(fim<=inicio)fim.setDate(fim.getDate()+1);\n  return {ocorr,inicio,fim};\n}\nconst aposMinutoSugerido=d=>new Date(d.getTime()+60000);"
-          )
-          replace_exact(
-              'client-time-guard-v2.js',
-              "  const calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora});\n  const regra=await regraAtual(),tolerancia=Math.max(0,Number(t.tempoLimite)||0);",
-              "  const regra=await regraAtual(),tolerancia=Math.max(0,Number(t.tempoLimite)||0);\n  const calc=tolerancia===0\n    ?calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora})\n    :calcularConsumoAtraso({inicioPrevisto:aposMinutoSugerido(j.inicio),inicioReal:ini,fimPrevisto:aposMinutoSugerido(j.fim),fimReal:agora});"
-          )
-
-          replace_exact(
-              'client-tolerance-timer.js',
-              "function campoHMS(valor){\n  const m=String(valor||'').match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?$/);\n  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||'00'}`:String(valor||'');\n}",
-              "function campoHMS(valor,segundoPadrao='00'){\n  const m=String(valor||'').match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?$/);\n  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||segundoPadrao}`:String(valor||'');\n}"
-          )
-          replace_exact(
-              'client-tolerance-timer.js',
-              "  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio)} - ${campoHMS(t.horaSugeridaFim)}`;",
-              "  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio,'00')} - ${campoHMS(t.horaSugeridaFim,'59')}`;"
+              '.github/workflows/client-regression-audit.yml',
+              "assert(sw.includes(\"const CACHE_NAME='rotina-family-cliente-v23'\"),'Client cache is v23');",
+              "assert(sw.includes(\"const CACHE_NAME='rotina-family-cliente-v24'\"),'Client cache is v24');\n          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');\n          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through the :59 boundary');\n          assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=24'),'Client v24 assets are cache-busted');"
           )
           PY
-      - name: Verify source
+      - name: Verify visible rule
         run: |
-          grep -F "m[3]||segundoPadrao" client-tolerance-timer.js
-          grep -F "aposMinutoSugerido(j.fim)" client-time-guard-v2.js
+          grep -F "horaSugeridaComSegundos(dados.horaSugeridaFim,true)" index-CLIENTE-v6.html
+          grep -F "client-ui-pro.js?v=24" index-CLIENTE-v6.html
+          grep -F "sw.js?v=24" index-CLIENTE-v6.html
+          grep -F "rotina-family-cliente-v24" sw.js
+          grep -F "campoHMS(t.horaSugeridaFim,'59')" client-tolerance-timer.js
           grep -F "limiteFim=aposMinutoSugerido(j.fim)" tolerance-timer-core.js
-          node --check scoring-core.js
-          node --check client-time-guard-v2.js
-          node --check tolerance-timer-core.js
+          node --check client-ui-pro.js
           node --check client-tolerance-timer.js
-      - name: Commit fixes
+          node --check tolerance-timer-core.js
+          node --check scoring-core.js
+          node --check sw.js
+      - name: Commit visible fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scoring-core.js client-time-guard-v2.js tolerance-timer-core.js client-tolerance-timer.js
-          git commit -m "Start tolerance after full suggested minute"
+          git add index-CLIENTE-v6.html sw.js .github/workflows/client-regression-audit.yml
+          git commit -m "Render suggested end at 59 seconds and refresh Client cache"
           git push
