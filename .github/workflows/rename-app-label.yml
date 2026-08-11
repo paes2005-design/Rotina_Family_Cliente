@@ -1,0 +1,47 @@
+name: Rename Client app label
+on:
+  push:
+    paths:
+      - '.github/workflows/rename-app-label.yml'
+permissions:
+  contents: write
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rename installed app label only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('index-CLIENTE-v6.html')
+          s = p.read_text(encoding='utf-8')
+          old = '<meta name="apple-mobile-web-app-title" content="Metas">'
+          new = '<meta name="apple-mobile-web-app-title" content="Rotina Family">'
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected exactly one old Client app-title, found {s.count(old)}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          old = '<title>Rotina Family Cliente</title>'
+          new = '<title>Rotina Family</title>'
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected exactly one Client root title, found {s.count(old)}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Verify labels
+        run: |
+          grep -F '<meta name="apple-mobile-web-app-title" content="Rotina Family">' index-CLIENTE-v6.html
+          grep -F '<title>Rotina Family</title>' index.html
+          grep -F '"name": "Rotina Family"' manifest.json
+          grep -F '"short_name": "Rotina Family"' manifest.json
+      - name: Commit label change and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/rename-app-label.yml
+          git add index-CLIENTE-v6.html index.html .github/workflows/rename-app-label.yml
+          git commit -m "Rename Client app label to Rotina Family"
+          git push
