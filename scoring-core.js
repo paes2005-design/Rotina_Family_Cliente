@@ -74,7 +74,10 @@ export function minutosCompletosAtraso(real,previsto){
 
 export function calcularConsumoAtraso({inicioPrevisto,inicioReal,fimPrevisto,fimReal}){
   const atrasoInicioMs=Math.max(0,inicioReal-inicioPrevisto);
-  const atrasoFimMs=Math.max(0,fimReal-fimPrevisto);
+  // O minuto final do horário sugerido vale inteiro. Ex.: fim 07:19 só começa
+  // a consumir tolerância às 07:20:00. A regra interna da tolerância não muda.
+  const fimSugeridoCompleto=new Date(fimPrevisto.getTime()+60000);
+  const atrasoFimMs=Math.max(0,fimReal-fimSugeridoCompleto);
   const atrasoInicio=Math.floor(atrasoInicioMs/60000);
   const atrasoFim=Math.floor(atrasoFimMs/60000);
   const consumoTotal=atrasoInicio+atrasoFim;
