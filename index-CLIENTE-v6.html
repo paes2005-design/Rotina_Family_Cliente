@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Meu Espaço de Metas</title>
+    <title>Rotina Family</title>
 
-    <link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="manifest.json?v=25">
     <meta name="theme-color" content="#ff4d6d">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -689,7 +689,7 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js?v=24')
+          navigator.serviceWorker.register('./sw.js?v=25')
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });
