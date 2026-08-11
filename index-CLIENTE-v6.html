@@ -417,6 +417,13 @@
             unsubscribeConfigGrupo=onSnapshot(doc(db,'configGrupos',codigoGrupo),snap=>{ regraAtrasoAtual=normalizarRegraAtraso(snap.exists()?snap.data():{}); const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); });
         }
 
+        function horaSugeridaComSegundos(valor,fim=false){
+            const s=String(valor||'').trim();
+            if(/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s;
+            if(/^\d{1,2}:\d{2}$/.test(s)) return `${s}:${fim?'59':'00'}`;
+            return s;
+        }
+
         function renderizarTarefasHoje(){
             const tbody=document.getElementById('tabelaCorpo'); tbody.innerHTML='';
             if(!cacheTarefasHoje.length){tbody.innerHTML='<tr><td colspan="4" style="text-align:center">Nenhuma tarefa cadastrada para hoje.</td></tr>';return;}
@@ -424,7 +431,7 @@
             cacheTarefasHoje.forEach(dados=>{
                 const status=dados.status||'Pendente'; if(status.includes('Prazo')||status.includes('Atrasado')) concluidas++;
                 let cls='status-pendente',acao=''; if(status==='Pendente')acao=`<button class="btn btn-iniciar" onclick="iniciarTarefa('${dados.id}')">Iniciar</button>`; else if(status==='Em andamento'){cls='status-andamento';acao=`<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}')">Finalizar</button>`;} else if(status.includes('Prazo')){cls='status-prazo';acao='🎉';} else {cls='status-atrasado';acao='⏰';}
-                let horario=`<div class="horario-container"><span class="horario-sugerido">⏰ ${escaparHtml(dados.horaSugeridaInicio)} - ${escaparHtml(dados.horaSugeridaFim)}</span>`; if(dados.horarioInicio) horario+=`<span class="horario-real">▶️ ${escaparHtml(dados.horarioInicio)}${dados.horarioTermino?` / ⏹️ ${escaparHtml(dados.horarioTermino)}`:''}</span>`; horario+='</div>';
+                let horario=`<div class="horario-container"><span class="horario-sugerido">⏰ ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaInicio,false))} - ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaFim,true))}</span>`; if(dados.horarioInicio) horario+=`<span class="horario-real">▶️ ${escaparHtml(dados.horarioInicio)}${dados.horarioTermino?` / ⏹️ ${escaparHtml(dados.horarioTermino)}`:''}</span>`; horario+='</div>';
                 tbody.insertAdjacentHTML('beforeend',`<tr><td>${horario}</td><td><strong data-task-icon="${escaparHtml(dados.icone||'')}">${escaparHtml(dados.nome)}</strong>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
             });
             const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
@@ -678,11 +685,11 @@
         }
         window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
     </script>
-    <script src="./client-ui-pro.js"></script>
+    <script src="./client-ui-pro.js?v=24"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js')
+          navigator.serviceWorker.register('./sw.js?v=24')
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });
