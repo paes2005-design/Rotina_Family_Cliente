@@ -1,5 +1,5 @@
 name: Rotina Family Cliente regression audit
-# audit trigger: suggested-time tolerance independence 2026-08-11
+# audit trigger: visible suggested end boundary 2026-08-11
 on:
   push:
     paths:
@@ -77,7 +77,12 @@ jobs:
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
           assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
-          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v23'"),'Client cache is v23');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v24'"),'Client cache is v24');
+          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');
+          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through :59');
+          assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=24'),'Client v24 assets are cache-busted');
+          assert(timer.includes("campoHMS(t.horaSugeridaFim,'59')"),'timer decorator preserves :59 end display');
+          assert(timerCore.includes('limiteFim=aposMinutoSugerido(j.fim)'),'tolerance starts only after full suggested end minute');
           assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer modules are cached offline');
           assert(sw.includes('client-reviewed-points.js')&&sw.includes('client-time-guard-v2.js')&&sw.includes('scoring-core.js'),'active core modules are cached offline');
           assert(manifest.start_url,'manifest has start URL');
