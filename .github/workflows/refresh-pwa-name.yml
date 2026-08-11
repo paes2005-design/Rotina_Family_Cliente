@@ -1,0 +1,47 @@
+name: Refresh Client PWA name
+on:
+  push:
+    paths:
+      - '.github/workflows/refresh-pwa-name.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Force fresh Client manifest and cache
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new):
+              p=Path(path); s=p.read_text(encoding='utf-8')
+              n=s.count(old)
+              if n != 1: raise SystemExit(f'{path}: expected 1 occurrence, found {n}: {old}')
+              p.write_text(s.replace(old,new,1),encoding='utf-8')
+
+          replace_exact('index-CLIENTE-v6.html','<title>Meu Espaço de Metas</title>','<title>Rotina Family</title>')
+          replace_exact('index-CLIENTE-v6.html','<link rel="manifest" href="manifest.json">','<link rel="manifest" href="manifest.json?v=25">')
+          replace_exact('index-CLIENTE-v6.html',"navigator.serviceWorker.register('./sw.js?v=24')","navigator.serviceWorker.register('./sw.js?v=25')")
+          replace_exact('sw.js',"const CACHE_NAME='rotina-family-cliente-v24';","const CACHE_NAME='rotina-family-cliente-v25';")
+          replace_exact('sw.js',"'./manifest.json'","'./manifest.json?v=25'")
+          replace_exact('sw.js',"/\\.(?:js|css|html)$/.test(url.pathname)","/\\.(?:js|css|html|json)$/.test(url.pathname)")
+          PY
+      - name: Verify fresh Client PWA identity
+        run: |
+          grep -F '<title>Rotina Family</title>' index-CLIENTE-v6.html
+          grep -F 'manifest.json?v=25' index-CLIENTE-v6.html
+          grep -F "sw.js?v=25" index-CLIENTE-v6.html
+          grep -F "rotina-family-cliente-v25" sw.js
+          grep -F "html|json" sw.js
+          grep -F '"name": "Rotina Family"' manifest.json
+          grep -F '"short_name": "Rotina Family"' manifest.json
+      - name: Commit and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/refresh-pwa-name.yml
+          git add index-CLIENTE-v6.html sw.js .github/workflows/refresh-pwa-name.yml
+          git commit -m "Force fresh Rotina Family PWA identity"
+          git push
