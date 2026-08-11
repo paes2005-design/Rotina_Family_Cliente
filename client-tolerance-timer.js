@@ -5,14 +5,14 @@ import {calcularEstadoCronometro,formatarDuracaoCronometro} from './tolerance-ti
 const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const pad=n=>String(n).padStart(2,'0');
 const horaHMS=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-function campoHMS(valor){
+function campoHMS(valor,segundoPadrao='00'){
   const m=String(valor||'').match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||'00'}`:String(valor||'');
+  return m?`${pad(Number(m[1]))}:${m[2]}:${m[3]||segundoPadrao}`:String(valor||'');
 }
 function dataValida(valor){if(!valor)return null;const d=new Date(valor);return Number.isNaN(d.getTime())?null:d;}
 function aplicarSegundosHorario(row,t){
   const sugerido=row.children?.[0]?.querySelector('.horario-sugerido');
-  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio)} - ${campoHMS(t.horaSugeridaFim)}`;
+  if(sugerido)sugerido.textContent=`⏰ ${campoHMS(t.horaSugeridaInicio,'00')} - ${campoHMS(t.horaSugeridaFim,'59')}`;
   const real=row.children?.[0]?.querySelector('.horario-real');
   if(!real)return;
   const inicio=dataValida(t.inicioExecutadoEm),fim=dataValida(t.terminoExecutadoEm);

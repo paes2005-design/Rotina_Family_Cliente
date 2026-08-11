@@ -25,6 +25,7 @@ function janela(t,agora=new Date()){
   if(fim<=inicio)fim.setDate(fim.getDate()+1);
   return {ocorr,inicio,fim};
 }
+const aposMinutoSugerido=d=>new Date(d.getTime()+60000);
 function inicioReal(t,j,agora){
   if(t.inicioExecutadoEm){const d=new Date(t.inicioExecutadoEm);if(!Number.isNaN(d.getTime()))return d;}
   if(!t.horarioInicio)return agora;
@@ -152,8 +153,10 @@ async function finalizar(id){
   const t=await buscarTarefa(id);if(!t)return;
   if(t.status!=='Em andamento')return;
   const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora);
-  const calc=calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora});
   const regra=await regraAtual(),tolerancia=Math.max(0,Number(t.tempoLimite)||0);
+  const calc=tolerancia===0
+    ?calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora})
+    :calcularConsumoAtraso({inicioPrevisto:aposMinutoSugerido(j.inicio),inicioReal:ini,fimPrevisto:aposMinutoSugerido(j.fim),fimReal:agora});
   const semTolBase={tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0,limite100Seg:0,limite75Seg:0,limite50Seg:0,faixa75Seg:0,faixa50Seg:0,janelaParcialSeg:0};
   const horarioEstourado=horarioSugeridoEstourado(ini,j.inicio)||horarioSugeridoEstourado(agora,j.fim);
   const faixa=tolerancia===0

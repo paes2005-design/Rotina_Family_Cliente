@@ -61,6 +61,7 @@ function terminoReal(t,j,agora){
 
 const atrasoMs=(real,previsto)=>Math.max(0,real-previsto);
 const minutosCompletos=ms=>Math.max(0,Math.floor(ms/MINUTO));
+const aposMinutoSugerido=previsto=>new Date(previsto.getTime()+MINUTO);
 
 export function formatarDuracaoCronometro(segundos){
   const s=Math.max(0,Math.floor(Number(segundos)||0));
@@ -77,18 +78,19 @@ export function calcularEstadoCronometro(t,agora=new Date()){
   const tolerancia=Math.max(0,Number(t?.tempoLimite)||0);
 
   let atrasoInicioMs=0,atrasoFimMs=0,relogioAtivo='nenhum';
+  const limiteInicio=aposMinutoSugerido(j.inicio),limiteFim=aposMinutoSugerido(j.fim);
   if(pendente){
-    atrasoInicioMs=atrasoMs(agora,j.inicio);
-    if(agora>=j.inicio)relogioAtivo='inicio';
+    atrasoInicioMs=atrasoMs(agora,limiteInicio);
+    if(agora>=limiteInicio)relogioAtivo='inicio';
   }else{
     const ini=inicioReal(t,j,agora);
-    atrasoInicioMs=atrasoMs(ini,j.inicio);
+    atrasoInicioMs=atrasoMs(ini,limiteInicio);
     if(andamento){
-      atrasoFimMs=atrasoMs(agora,j.fim);
-      relogioAtivo=agora>=j.fim?'fim':'pausado';
+      atrasoFimMs=atrasoMs(agora,limiteFim);
+      relogioAtivo=agora>=limiteFim?'fim':'pausado';
     }else{
       const fim=terminoReal(t,j,agora);
-      atrasoFimMs=atrasoMs(fim,j.fim);
+      atrasoFimMs=atrasoMs(fim,limiteFim);
       relogioAtivo='finalizado';
     }
   }
@@ -117,7 +119,7 @@ export function calcularEstadoCronometro(t,agora=new Date()){
     texto='🔴 Tolerância estourada · 0%';tom='estourado';
   }
 
-  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=j.inicio));
+  const visivel=tolerancia>0&&!concluida&&(andamento||(pendente&&agora>=limiteInicio));
   return {
     visivel,texto,tom,status,relogioAtivo,tolerancia,
     atrasoInicioMin,atrasoFimMin,consumoTotal,consumoTotalSeg,
@@ -125,6 +127,7 @@ export function calcularEstadoCronometro(t,agora=new Date()){
     restanteNormalSeg,restanteFaixaSeg,
     limite100Seg:faixa.limite100Seg,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,
     faixa75Seg:faixa.faixa75Seg,faixa50Seg:faixa.faixa50Seg,
-    inicioPrevisto:j.inicio,fimPrevisto:j.fim
+    inicioPrevisto:j.inicio,fimPrevisto:j.fim,
+    inicioToleranciaPrevisto:limiteInicio,fimToleranciaPrevisto:limiteFim
   };
 }

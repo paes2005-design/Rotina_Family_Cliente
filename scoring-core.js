@@ -69,18 +69,17 @@ export function classificarConsumoToleranciaSegundos(tolerancia,consumoSeg,regra
 const MINUTO_MS=60000;
 
 // Regra educativa do horário sugerido, independente do cronômetro de tolerância.
-// Como o cadastro informa HH:MM, o minuto programado inteiro e mais um minuto
-// completo são respeitados. Ex.: 07:00:00 até 07:01:59 = dentro do horário;
-// 07:02:00 = horário sugerido estourado.
+// O cadastro HH:MM representa o minuto inteiro: 07:00:00 até 07:00:59.
+// Às 07:01:00 termina o horário sugerido e, se houver tolerância, ela começa daí.
 export function horarioSugeridoEstourado(real,previsto){
   const atraso=real-previsto;
-  return Number.isFinite(atraso)&&atraso>=2*MINUTO_MS;
+  return Number.isFinite(atraso)&&atraso>=MINUTO_MS;
 }
 
 export function minutosCompletosAtrasoHorarioSugerido(real,previsto){
   const atraso=real-previsto;
-  if(!Number.isFinite(atraso)||atraso<2*MINUTO_MS)return 0;
-  return Math.max(1,Math.floor(atraso/MINUTO_MS)-1);
+  if(!Number.isFinite(atraso)||atraso<MINUTO_MS)return 0;
+  return Math.max(1,Math.floor((atraso-MINUTO_MS)/MINUTO_MS)+1);
 }
 
 // Mantém os campos históricos em minutos completos, mas também entrega o consumo
