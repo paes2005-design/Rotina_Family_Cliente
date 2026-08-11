@@ -1,6 +1,6 @@
 {
-  "name": "Meu Espaço de Metas",
-  "short_name": "Metas",
+  "name": "Rotina Family",
+  "short_name": "Rotina Family",
   "description": "Acompanhe suas tarefas e metas diárias",
   "start_url": "./index-CLIENTE-v6.html",
   "scope": "./",
