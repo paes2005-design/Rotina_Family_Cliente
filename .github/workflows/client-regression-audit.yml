@@ -1,5 +1,5 @@
 name: Rotina Family Cliente regression audit
-# audit trigger: visible suggested end boundary 2026-08-11
+# audit trigger: weekly navigation and offline cache 2026-08-14
 on:
   push:
     paths:
@@ -17,6 +17,7 @@ jobs:
       - name: Syntax and JSON
         run: |
           node --check client-ui-pro.js
+          node --check client-week-nav.js
           node --check client-time-guard-v2.js
           node --check client-reviewed-points.js
           node --check client-early-start-ui.js
@@ -34,6 +35,7 @@ jobs:
           const read=f=>fs.readFileSync(f,'utf8');
           const html=read('index-CLIENTE-v6.html');
           const ui=read('client-ui-pro.js');
+          const week=read('client-week-nav.js');
           const guard=read('client-time-guard-v2.js');
           const review=read('client-reviewed-points.js');
           const early=read('client-early-start-ui.js');
@@ -47,6 +49,7 @@ jobs:
           assert(!guard.includes('setInterval('),'guard has no continuous interval');
           assert(!review.includes('setInterval('),'reviewed-points has no continuous interval');
           assert(!early.includes('setInterval('),'early-start display has no continuous interval');
+          assert(!week.includes('setInterval('),'weekly navigation has no continuous interval');
           assert((timer.match(/setInterval\(/g)||[]).length===1,'timer has exactly one global interval');
           assert(!guard.includes('MutationObserver'),'guard adds no MutationObserver');
           assert(!review.includes('MutationObserver'),'review module adds no MutationObserver');
@@ -55,6 +58,8 @@ jobs:
           assert(ui.includes('subtree:false'),'existing task observer is limited to direct row changes');
           assert(!ui.includes('client-rules-v2.js')&&!ui.includes('client-compat-v2.js'),'known freeze modules remain disabled');
           assert(!sw.includes('client-rules-v2.js')&&!sw.includes('client-compat-v2.js'),'known freeze modules remain outside app shell');
+          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(week),'weekly navigation is Firestore read-only');
+          assert(week.includes('onSnapshot(')&&week.includes("where('grupoId','==',grupo)"),'weekly cache listener is group-scoped');
 
           const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
           const tickBody=timer.match(/function tick\(\)\{([\s\S]*?)\n\}/)?.[1]||'';
@@ -73,18 +78,21 @@ jobs:
           assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points is loaded');
           assert(ui.includes("import('./client-early-start-ui.js')"),'early-start display is loaded');
           assert(ui.includes("import('./client-tolerance-timer.js')"),'timer is loaded');
+          assert(ui.includes("import('./client-week-nav.js?v=1')"),'weekly navigation is loaded');
           assert(ui.includes('prepararCronometrosTolerancia'),'task renderer prepares timer nodes');
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
           assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
-          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v24'"),'Client cache is v24');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v26'"),'Client cache is v26');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through :59');
-          assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=24'),'Client v24 assets are cache-busted');
+          assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=25'),'current Client asset URLs remain compatible');
           assert(timer.includes("campoHMS(t.horaSugeridaFim,'59')"),'timer decorator preserves :59 end display');
           assert(timerCore.includes('limiteFim=aposMinutoSugerido(j.fim)'),'tolerance starts only after full suggested end minute');
           assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer modules are cached offline');
           assert(sw.includes('client-reviewed-points.js')&&sw.includes('client-time-guard-v2.js')&&sw.includes('scoring-core.js'),'active core modules are cached offline');
+          assert(sw.includes('client-week-nav.js'),'weekly navigation is cached offline');
+          assert(week.includes('Semana disponível offline')&&week.includes('Semana atualizada e em cache'),'weekly cache status is visible');
           assert(manifest.start_url,'manifest has start URL');
 
           // Exact scoring rule
@@ -136,6 +144,7 @@ jobs:
           for(const s of ['conectarCliente','sairCliente','renderizarTarefasHoje','resgatarRecompensa']) assert(html.includes(s),'core flow '+s+' remains');
           assert(html.includes("localStorage.getItem('cliente_nome')"),'saved session restoration remains');
           assert(html.includes("`${h.data}__${h.tarefaId}`"),'justification edit updates canonical execution');
+          assert(week.includes('data-dia')&&week.includes('Consulta'),'weekly tabs expose the seven-day read-only views');
           console.log('ALL CLIENT PRODUCTION REGRESSION CHECKS PASSED');
           NODE
       - name: Deterministic timer simulation and stress

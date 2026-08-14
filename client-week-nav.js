@@ -204,11 +204,7 @@ function iniciar(){
     observarTabelaHoje();
     conectarCacheSemanal();
   }).observe(app,{attributes:true,attributeFilter:['style']});
-  setInterval(() => {
-    garantirNavegacao();
-    observarTabelaHoje();
-    conectarCacheSemanal();
-  },1500);
+  window.addEventListener('storage', conectarCacheSemanal);
 }
 
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar, {once:true});
