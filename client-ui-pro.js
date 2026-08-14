@@ -5,6 +5,7 @@
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
   import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
+  import('./client-week-nav.js?v=1').catch(e=>console.error('Navegação semanal:',e));
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
   // muito rápido caia nas funções legadas do HTML.
