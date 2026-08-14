@@ -23,12 +23,17 @@ const EXIBICAO = {
 
 let diaSelecionado = NOMES[new Date().getDay()];
 let tarefasSemana = [];
+let historicoSemana = [];
+let historicoCarregado = false;
 let htmlHoje = '';
 let escrevendoTabela = false;
 let unsubscribeSemana = null;
+let unsubscribeHistoricoSemana = null;
 let chaveSessao = '';
 
 const hojeTexto = () => NOMES[new Date().getDay()];
+const pad = n => String(n).padStart(2,'0');
+const dataISO = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const escapar = (texto) => String(texto ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const horaComSegundos = (valor, fim=false) => {
   const s = String(valor || '').trim();
@@ -36,6 +41,19 @@ const horaComSegundos = (valor, fim=false) => {
   if(/^\d{1,2}:\d{2}$/.test(s)) return `${s}:${fim ? '59' : '00'}`;
   return s;
 };
+
+function dataDoDiaSelecionado(){
+  const agora = new Date();
+  agora.setHours(12,0,0,0);
+  const indiceHoje = agora.getDay();
+  const segunda = new Date(agora);
+  segunda.setDate(agora.getDate() + (indiceHoje === 0 ? -6 : 1 - indiceHoje));
+  const indiceAlvo = NOMES.indexOf(diaSelecionado);
+  const deslocamento = indiceAlvo === 0 ? 6 : indiceAlvo - 1;
+  const alvo = new Date(segunda);
+  alvo.setDate(segunda.getDate() + deslocamento);
+  return alvo;
+}
 
 function limparMarcaAntiga(){
   document.title = 'Rotina Family';
@@ -49,9 +67,42 @@ function limparMarcaAntiga(){
   });
 }
 
+function garantirResumoDia(){
+  const tabela = document.querySelector('#telaApp table');
+  if(!tabela) return null;
+  let resumo = document.getElementById('weekDayScore');
+  if(!resumo){
+    resumo = document.createElement('div');
+    resumo.id = 'weekDayScore';
+    resumo.className = 'week-day-score';
+    resumo.setAttribute('aria-live','polite');
+    tabela.insertAdjacentElement('beforebegin', resumo);
+  }
+  atualizarPontuacaoDia();
+  return resumo;
+}
+
+function atualizarPontuacaoDia(){
+  const resumo = document.getElementById('weekDayScore');
+  if(!resumo) return;
+  if(diaSelecionado === hojeTexto()){
+    resumo.hidden = true;
+    resumo.innerHTML = '';
+    return;
+  }
+  resumo.hidden = false;
+  const data = dataDoDiaSelecionado();
+  const iso = dataISO(data);
+  const pontos = historicoSemana.reduce((s,h) => h.data === iso ? s + (Number(h.pontosGanhos)||0) : s, 0);
+  const valor = historicoCarregado ? `${pontos} pts` : '...';
+  const origem = historicoCarregado ? 'Pontuação registrada no histórico' : 'Carregando pontuação do histórico';
+  resumo.innerHTML = `<div class="week-day-score-main"><span>⭐ Pontuação neste dia</span><strong>${valor}</strong></div><small>${escapar(EXIBICAO[diaSelecionado] || diaSelecionado)} · ${pad(data.getDate())}/${pad(data.getMonth()+1)} · ${origem}</small>`;
+}
+
 function garantirNavegacao(){
   const tabela = document.querySelector('#telaApp table');
   if(!tabela) return null;
+  garantirResumoDia();
   let wrap = document.getElementById('semanaNavWrap');
   if(!wrap){
     wrap = document.createElement('div');
@@ -94,6 +145,7 @@ function escreverTabela(html){
 
 function renderizarDiaConsulta(){
   if(diaSelecionado === hojeTexto()) return;
+  atualizarPontuacaoDia();
   const lista = tarefasSemana
     .filter(t => t.diaSemana === diaSelecionado)
     .sort((a,b) => (a.horaSugeridaInicio || '').localeCompare(b.horaSugeridaInicio || ''));
@@ -130,6 +182,7 @@ function selecionarDia(dia){
   diaSelecionado = dia;
   renderizarAbas();
   atualizarSubtitulo();
+  atualizarPontuacaoDia();
   if(diaSelecionado === hoje){
     if(htmlHoje) escreverTabela(htmlHoje);
   } else {
@@ -157,20 +210,29 @@ function atualizarBadgeCache(snapshot){
     : '☁️ Semana atualizada e em cache';
 }
 
+function encerrarEscutas(){
+  if(unsubscribeSemana){ unsubscribeSemana(); unsubscribeSemana = null; }
+  if(unsubscribeHistoricoSemana){ unsubscribeHistoricoSemana(); unsubscribeHistoricoSemana = null; }
+  chaveSessao = '';
+  tarefasSemana = [];
+  historicoSemana = [];
+  historicoCarregado = false;
+}
+
 function conectarCacheSemanal(){
   const grupo = (localStorage.getItem('cliente_grupo') || '').trim();
   const perfilId = (localStorage.getItem('cliente_perfil_id') || '').trim();
   const nome = (localStorage.getItem('cliente_nome') || '').trim();
   const novaChave = `${grupo}|${perfilId}|${nome}`;
   if(!grupo){
-    if(unsubscribeSemana){ unsubscribeSemana(); unsubscribeSemana = null; }
-    chaveSessao = '';
+    encerrarEscutas();
+    atualizarPontuacaoDia();
     return;
   }
-  if(novaChave === chaveSessao && unsubscribeSemana) return;
+  if(novaChave === chaveSessao && unsubscribeSemana && unsubscribeHistoricoSemana) return;
   const app = getApps()[0];
   if(!app) return;
-  if(unsubscribeSemana) unsubscribeSemana();
+  encerrarEscutas();
   chaveSessao = novaChave;
   const db = getFirestore(app);
   unsubscribeSemana = onSnapshot(
@@ -189,6 +251,22 @@ function conectarCacheSemanal(){
       if(badge) badge.textContent = '⚠️ Semana ainda não disponível offline';
     }
   );
+  unsubscribeHistoricoSemana = onSnapshot(
+    query(collection(db,'historico'),where('grupoId','==',grupo)),
+    { includeMetadataChanges: true },
+    snapshot => {
+      historicoSemana = snapshot.docs
+        .map(d => ({id:d.id,...d.data()}))
+        .filter(h => h.perfilId ? h.perfilId === perfilId : h.perfilNome === nome);
+      historicoCarregado = true;
+      atualizarPontuacaoDia();
+    },
+    erro => {
+      console.warn('Histórico semanal indisponível:', erro);
+      historicoCarregado = false;
+      atualizarPontuacaoDia();
+    }
+  );
 }
 
 function iniciar(){
@@ -205,6 +283,7 @@ function iniciar(){
     conectarCacheSemanal();
   }).observe(app,{attributes:true,attributeFilter:['style']});
   window.addEventListener('storage', conectarCacheSemanal);
+  window.addEventListener('beforeunload', encerrarEscutas);
 }
 
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar, {once:true});
