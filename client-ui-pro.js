@@ -7,6 +7,7 @@
   import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
   import('./client-week-nav.js?v=1').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=6').catch(e=>console.error('Despertador programado por tarefa:',e));
+  import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
   // muito rápido caia nas funções legadas do HTML.

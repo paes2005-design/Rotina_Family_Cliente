@@ -19,6 +19,7 @@ jobs:
           node --check client-ui-pro.js
           node --check client-week-nav.js
           node --check client-time-guard-v2.js
+          node --check client-history-reconciler.js
           node --check client-reviewed-points.js
           node --check client-early-start-ui.js
           node --check client-tolerance-timer.js
@@ -37,6 +38,7 @@ jobs:
           const ui=read('client-ui-pro.js');
           const week=read('client-week-nav.js');
           const guard=read('client-time-guard-v2.js');
+          const reconciler=read('client-history-reconciler.js');
           const review=read('client-reviewed-points.js');
           const early=read('client-early-start-ui.js');
           const timer=read('client-tolerance-timer.js');
@@ -75,6 +77,7 @@ jobs:
 
           // Loading / PWA
           assert(ui.includes("import('./client-time-guard-v2.js')"),'temporal guard is loaded');
+          assert(ui.includes("import('./client-history-reconciler.js?v=1')"),'history reconciler is loaded');
           assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points is loaded');
           assert(ui.includes("import('./client-early-start-ui.js')"),'early-start display is loaded');
           assert(ui.includes("import('./client-tolerance-timer.js')"),'timer is loaded');
@@ -83,7 +86,7 @@ jobs:
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
           assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
-          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v30'"),'Client cache is v30');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v31'"),'Client cache is v31');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through :59');
           assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=25'),'current Client asset URLs remain compatible');
@@ -91,6 +94,7 @@ jobs:
           assert(timerCore.includes('limiteFim=aposMinutoSugerido(j.fim)'),'tolerance starts only after full suggested end minute');
           assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer modules are cached offline');
           assert(sw.includes('client-reviewed-points.js')&&sw.includes('client-time-guard-v2.js')&&sw.includes('scoring-core.js'),'active core modules are cached offline');
+          assert(sw.includes('client-history-reconciler.js'),'history reconciler is cached offline');
           assert(sw.includes('client-week-nav.js'),'weekly navigation is cached offline');
           assert(week.includes('Semana disponível offline')&&week.includes('Semana atualizada e em cache'),'weekly cache status is visible');
           assert(manifest.start_url,'manifest has start URL');
@@ -127,6 +131,11 @@ jobs:
           assert(guard.includes('window.registrarHistoricoLocal?.(historicoId,hist)'),'offline completion updates points optimistically');
           assert(guard.indexOf('window.registrarHistoricoLocal?.(historicoId,hist)')<guard.indexOf("setDoc(doc(banco,'historico',historicoId)"),'local points update happens before remote history write');
           assert(guard.includes('Promise.all([')&&guard.includes('navigator.onLine===false'),'all completion writes are queued together while offline');
+          assert(reconciler.includes("origemReconciliacao:'tarefa-concluida-sem-historico'"),'missing history records are marked as reconciled');
+          assert(reconciler.includes("dataDaTarefa(t)===hoje")&&reconciler.includes('concluida(t)'),'reconciliation is limited to completed tasks from today');
+          assert(reconciler.includes("lote.set(doc(banco,'historico',historicoId)")&&reconciler.includes("lote.set(doc(banco,'execucoes'"),'history and execution are repaired atomically');
+          assert(reconciler.includes('historicos.some(h=>historicoDaTarefa(h,t,p,n,hoje))'),'existing history is never duplicated, including legacy name-only records');
+          assert(reconciler.includes("addEventListener('online'"),'reconciliation runs when connectivity returns');
 
           // Daily-only visual panels, cumulative balance preserved
           assert(html.includes('Meus resgates de hoje'),'redemptions list is daily');
