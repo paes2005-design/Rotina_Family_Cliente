@@ -304,6 +304,21 @@
             document.getElementById("possivelMes").innerText = ` / ${possivelMes} pts`;
         }
 
+        // Reflete imediatamente uma conclusão feita sem internet. Quando o snapshot
+        // local/remoto chegar, o mesmo id substitui este registro e não duplica pontos.
+        window.registrarHistoricoLocal = (id, historico) => {
+            if(!id || !historico) return;
+            const pertenceAoPerfil = historico.perfilId ? historico.perfilId === clientePerfilId : historico.perfilNome === clienteNome;
+            if(!pertenceAoPerfil) return;
+            const registro = { id, ...historico };
+            const indice = cacheHistorico.findIndex(h => h.id === id);
+            if(indice >= 0) cacheHistorico[indice] = { ...cacheHistorico[indice], ...registro };
+            else cacheHistorico.push(registro);
+            atualizarPainelPontos();
+            atualizarConquistas();
+            renderizarRecompensasCliente();
+        };
+
         // Reset semanal (aos domingos): o histórico já guardou tudo permanentemente antes disso,
         // então aqui é seguro só devolver as tarefas para "Pendente".
         async function verificarEExecutarResetSemanal(grupoId) {
@@ -432,7 +447,7 @@
                 const status=dados.status||'Pendente'; if(status.includes('Prazo')||status.includes('Atrasado')) concluidas++;
                 let cls='status-pendente',acao=''; if(status==='Pendente')acao=`<button class="btn btn-iniciar" onclick="iniciarTarefa('${dados.id}')">Iniciar</button>`; else if(status==='Em andamento'){cls='status-andamento';acao=`<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}')">Finalizar</button>`;} else if(status.includes('Prazo')){cls='status-prazo';acao='🎉';} else {cls='status-atrasado';acao='⏰';}
                 let horario=`<div class="horario-container"><span class="horario-sugerido">⏰ ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaInicio,false))} - ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaFim,true))}</span>`; if(dados.horarioInicio) horario+=`<span class="horario-real">▶️ ${escaparHtml(dados.horarioInicio)}${dados.horarioTermino?` / ⏹️ ${escaparHtml(dados.horarioTermino)}`:''}</span>`; horario+='</div>';
-                tbody.insertAdjacentHTML('beforeend',`<tr data-family-task-id="${escaparHtml(dados.id)}" data-family-task-group="${escaparHtml(dados.tarefaGrupoId||'')}" data-family-task-name="${escaparHtml(dados.nome)}" data-family-task-day="${escaparHtml(dados.diaSemana||diaAtualTexto)}" data-family-task-time="${escaparHtml(dados.horaSugeridaInicio||'')}" data-family-task-status="${escaparHtml(status)}"><td>${horario}</td><td><strong data-task-icon="${escaparHtml(dados.icone||'')}">${escaparHtml(dados.nome)}</strong>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
+                tbody.insertAdjacentHTML('beforeend',`<tr data-family-task-id="${escaparHtml(dados.id)}" data-family-task-group="${escaparHtml(dados.tarefaGrupoId||'')}" data-family-task-name="${escaparHtml(dados.nome)}" data-family-task-day="${escaparHtml(dados.diaSemana||diaAtualTexto)}" data-family-task-time="${escaparHtml(dados.horaSugeridaInicio||'')}" data-family-task-end="${escaparHtml(dados.horaSugeridaFim||'')}" data-family-task-status="${escaparHtml(status)}"><td>${horario}</td><td><strong data-task-icon="${escaparHtml(dados.icone||'')}">${escaparHtml(dados.nome)}</strong>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
             });
             const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
         }

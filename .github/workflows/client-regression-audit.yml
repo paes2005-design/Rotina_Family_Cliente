@@ -83,7 +83,7 @@ jobs:
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
           assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
-          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v29'"),'Client cache is v29');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v30'"),'Client cache is v30');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through :59');
           assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=25'),'current Client asset URLs remain compatible');
@@ -123,6 +123,10 @@ jobs:
           assert(guard.includes('SpeechRecognition')&&guard.includes("lang='pt-BR'"),'voice justification is pt-BR');
           assert(guard.includes("palavras.length<5"),'justification minimum length is enforced');
           assert(guard.includes('pontosOriginais:pontos')&&guard.includes('percentualOriginal:faixa.percentual'),'automatic result is preserved for review');
+          assert(html.includes('window.registrarHistoricoLocal'),'Client exposes immediate local history update');
+          assert(guard.includes('window.registrarHistoricoLocal?.(historicoId,hist)'),'offline completion updates points optimistically');
+          assert(guard.indexOf('window.registrarHistoricoLocal?.(historicoId,hist)')<guard.indexOf("setDoc(doc(banco,'historico',historicoId)"),'local points update happens before remote history write');
+          assert(guard.includes('Promise.all([')&&guard.includes('navigator.onLine===false'),'all completion writes are queued together while offline');
 
           // Daily-only visual panels, cumulative balance preserved
           assert(html.includes('Meus resgates de hoje'),'redemptions list is daily');

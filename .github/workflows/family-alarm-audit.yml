@@ -28,10 +28,12 @@ jobs:
           const sw=fs.readFileSync('sw.js','utf8');
           const index=fs.readFileSync('index-CLIENTE-v6.html','utf8');
           const ok=(v,m)=>{if(!v)throw new Error(m);console.log('OK - '+m)};
-          ok(ui.includes("import('./family-alarm-client.js?v=4')"),'Client loads scheduled task alarm v4');
+          ok(ui.includes("import('./family-alarm-client.js?v=6')"),'Client loads scheduled task alarm v6');
           ok(sw.includes("'./family-alarm-client.js'"),'alarm module is cached offline');
           ok(index.includes('data-family-task-id'),'every rendered Client task exposes its identity');
+          ok(index.includes('data-family-task-end'),'every rendered Client task exposes its end time');
           ok(alarm.includes('family-task-alarm-client'),'alarm control is attached to each task');
+          ok(alarm.includes('family-task-actions')&&alarm.includes('display:flex;align-items:center')&&alarm.includes('gap:6px'),'alarm and task action stay aligned side by side');
           ok(alarm.includes('rotina_family_alarm_pref_v2')&&alarm.includes('rotina_family_task_alarms_v2'),'tones and per-task alarms persist locally');
           ok(alarm.includes('rotina_family_task_alarm_pending_v2'),'offline command queue persists locally');
           ok(alarm.includes("a.origem==='ADM'||a.bloqueado===true"),'ADM task alarm is visibly locked on Client');
@@ -39,9 +41,11 @@ jobs:
           ok(alarm.includes("if(!navigator.onLine||!getApps().length){enfileirar(payload)"),'Client queues writes offline');
           ok(alarm.includes("window.addEventListener('online',sincronizarPendente)"),'offline queue syncs on reconnection');
           ok(alarm.includes("where('grupoId','==',g)"),'remote task alarms are listened in real time');
-          ok(alarm.includes('nomeTarefa')&&alarm.includes('HORA DA TAREFA'),'ringing alert identifies the task');
+          ok(alarm.includes('nomeTarefa')&&alarm.includes("${momento==='fim'?'FIM':'INÍCIO'} DA TAREFA"),'ringing alert identifies the task and scheduled moment');
           ok(alarm.includes('deveDispararAgora'),'alarm delegates firing to strict schedule');
-          ok(alarm.includes('m.remove();toast(ativar')&&alarm.includes('gravar(tarefa,ativar'),'programming panel closes before remote synchronization');
+          ok(alarm.includes('alarmMoment')&&alarm.includes("['inicio','fim']"),'alarm can be configured for start, finish, or both');
+          ok(alarm.includes('momentoDaOcorrenciaAtual'),'ringing view identifies start versus finish');
+          ok(alarm.includes('m.remove();toast(ativar')&&alarm.includes('gravar({...tarefa,momentos:'),'programming panel closes before remote synchronization');
           ok(alarm.includes('silenciarOcorrencia(a)')&&!alarm.includes("gravar(a,false,'CLIENTE')"),'ringing Stop silences occurrence without removing alarm');
           ok(alarm.includes('showNotification')&&alarm.includes('nomeTarefa'),'system notification identifies ringing task');
           ok(sw.includes("addEventListener('notificationclick'"),'notification opens or focuses Client app');
@@ -56,16 +60,20 @@ jobs:
       - name: Scheduled firing regression
         run: |
           node --input-type=module <<'NODE'
-          import {deveDispararAgora,proximaOcorrencia} from './alarm-schedule-core.js';
+          import {deveDispararAgora,proximaOcorrencia,momentoDaOcorrenciaAtual} from './alarm-schedule-core.js';
           const ok=(v,m)=>{if(!v)throw new Error(m);console.log('OK - '+m)};
           const base={ativo:true,tarefaId:'pedala',diaSemana:'Sábado',horaSugeridaInicio:'03:26',acionadoEm:'2026-08-15T02:00:00'};
           ok(!deveDispararAgora(base,new Date('2026-08-15T09:21:27')),'03:26 does not ring late at 09:21');
           ok(deveDispararAgora(base,new Date('2026-08-15T03:26:30')),'alarm rings inside its scheduled minute');
           ok(!deveDispararAgora({...base,acionadoEm:'2026-08-15T03:26:40'},new Date('2026-08-15T03:26:45')),'alarm enabled after scheduled instant waits for next occurrence');
-          const occurrence='pedala__2026-08-15__03:26';
+          const occurrence='pedala__inicio__2026-08-15__03:26';
           ok(!deveDispararAgora(base,new Date('2026-08-15T03:26:30'),60000,occurrence),'stopped occurrence does not ring again in the same minute');
           ok(deveDispararAgora(base,new Date('2026-08-22T03:26:30'),60000,occurrence),'stopping today keeps next scheduled occurrence active');
           const next=proximaOcorrencia(base,new Date('2026-08-15T09:21:27'));
-          ok(next?.getFullYear()===2026&&next?.getMonth()===7&&next?.getDate()===22&&next?.getHours()===3&&next?.getMinutes()===26,'past Saturday task schedules next Saturday at 03:26');
+          ok(next?.data.getFullYear()===2026&&next?.data.getMonth()===7&&next?.data.getDate()===22&&next?.data.getHours()===3&&next?.data.getMinutes()===26,'past Saturday task schedules next Saturday at 03:26');
+          const both={...base,horaSugeridaFim:'04:10',momentos:['inicio','fim']};
+          ok(deveDispararAgora(both,new Date('2026-08-15T04:10:20')),'both option rings at task finish');
+          ok(momentoDaOcorrenciaAtual(both,new Date('2026-08-15T04:10:20'))==='fim','finish alarm is identified as finish');
+          ok(proximaOcorrencia(both,new Date('2026-08-15T03:30:00')).tipo==='fim','next occurrence chooses task finish after start has passed');
           console.log('ALL SCHEDULED ALARM CHECKS PASSED');
           NODE

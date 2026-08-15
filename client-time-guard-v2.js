@@ -113,10 +113,19 @@ async function salvarResultado(t,agora,j,ini,calc,faixa,justificativa='',opcoes=
   const status=faixa.faixa==='dentro-limites'?`No Prazo (${faixa.percentual}%)`:faixa.faixa==='atraso-leve'?`No Prazo — atraso leve (${faixa.percentual}%)`:faixa.faixa==='atraso-maior'?`No Prazo — atraso maior (${faixa.percentual}%)`:'Atrasado (0%)';
   const temJustificativa=Boolean(justificativa.trim());
   const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,toleranciaConsumidaMin:calc.consumoTotal,toleranciaConsumidaSeg:calc.consumoTotalSeg,atrasoInicioMin:calc.atrasoInicio,atrasoFimMin:calc.atrasoFim,limite75Min:faixa.limite75,limite50Min:faixa.limite50,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,justificativaAtraso:justificativa,revisaoStatus:temJustificativa?'aguardando':'sem-revisao',iniciouComAtraso:t.iniciouComAtraso===true,tipoJustificativa:temJustificativa?(opcoes.vozUsada?'voz-transcrita':'texto'):'',justificativaRecusada:!temJustificativa&&opcoes.recusou===true};
-  await updateDoc(doc(banco,'tarefas',t.id),base);
   const hist={grupoId:grupo(),perfilId:perfil(),perfilNome:nome(),tarefaId:t.id,tarefaGrupoId:t.tarefaGrupoId||'',nomeTarefa:t.nome,diaSemana:t.diaSemana,data:dataISO(j.ocorr),dataExecucao:dataISO(j.ocorr),horaSugeridaInicio:t.horaSugeridaInicio,horaSugeridaFim:t.horaSugeridaFim,horarioInicio:t.horarioInicio||horaHM(ini),inicioExecutadoEm:t.inicioExecutadoEm||ini.toISOString(),tempoLimite:Number(t.tempoLimite)||0,pontosMaximos:Number(t.pontosMaximos)||0,icone:t.icone||'',inicioAntecipado:t.inicioAntecipado===true,antecipacaoMin:Number(t.antecipacaoMin)||0,motivoInicioAntecipado:t.motivoInicioAntecipado||'',tipoMotivoInicioAntecipado:t.tipoMotivoInicioAntecipado||'',...base};
-  await setDoc(doc(banco,'historico',`${perfil()}_${t.id}_${dataISO(j.ocorr)}`),hist,{merge:true});
-  await setDoc(doc(banco,'execucoes',`${dataISO(j.ocorr)}__${t.id}`),hist,{merge:true});
+  const historicoId=`${perfil()}_${t.id}_${dataISO(j.ocorr)}`;
+  window.registrarHistoricoLocal?.(historicoId,hist);
+  const sincronizacao=Promise.all([
+    updateDoc(doc(banco,'tarefas',t.id),base),
+    setDoc(doc(banco,'historico',historicoId),hist,{merge:true}),
+    setDoc(doc(banco,'execucoes',`${dataISO(j.ocorr)}__${t.id}`),hist,{merge:true})
+  ]);
+  if(navigator.onLine===false){
+    sincronizacao.catch(e=>console.warn('Resultado offline aguardando sincronização:',e));
+    return;
+  }
+  await sincronizacao;
 }
 function pedirJustificativa(t,agora,j,ini,calc,faixa){
   document.getElementById('guardJustModalV2')?.remove();
