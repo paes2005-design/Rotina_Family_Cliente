@@ -6,7 +6,7 @@
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
   import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
   import('./client-week-nav.js?v=1').catch(e=>console.error('Navegação semanal:',e));
-  import('./family-alarm-client.js?v=2').catch(e=>console.error('Despertador por tarefa:',e));
+  import('./family-alarm-client.js?v=3').catch(e=>console.error('Despertador programado por tarefa:',e));
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
   // muito rápido caia nas funções legadas do HTML.

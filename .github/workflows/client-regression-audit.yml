@@ -83,7 +83,7 @@ jobs:
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
           assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
-          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v27'"),'Client cache is v27');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v28'"),'Client cache is v28');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through :59');
           assert(html.includes('./client-ui-pro.js?v=24')&&html.includes('./sw.js?v=25'),'current Client asset URLs remain compatible');
