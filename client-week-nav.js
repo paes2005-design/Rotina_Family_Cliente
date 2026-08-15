@@ -157,6 +157,8 @@ function renderizarDiaConsulta(){
     const status = dados.status || 'Pendente';
     let cls = 'status-pendente';
     if(status === 'Em andamento') cls = 'status-andamento';
+    else if(dados.faixaAtraso==='atraso-maior'||status.includes('50%')) cls = 'status-prazo-50';
+    else if(dados.faixaAtraso==='atraso-leve'||status.includes('75%')) cls = 'status-prazo-75';
     else if(status.includes('Prazo')) cls = 'status-prazo';
     else if(status.includes('Atrasado')) cls = 'status-atrasado';
     let horario = `<div class="horario-container"><span class="horario-sugerido">⏰ ${escapar(horaComSegundos(dados.horaSugeridaInicio,false))} - ${escapar(horaComSegundos(dados.horaSugeridaFim,true))}</span>`;
