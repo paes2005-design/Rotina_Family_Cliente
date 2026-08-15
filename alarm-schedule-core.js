@@ -9,6 +9,17 @@ function partesHorario(valor){
 
 function indiceDia(valor){return DIAS.indexOf(String(valor||'').trim())}
 
+function dataLocal(data){
+  const ano=data.getFullYear(),mes=String(data.getMonth()+1).padStart(2,'0'),dia=String(data.getDate()).padStart(2,'0');
+  return `${ano}-${mes}-${dia}`;
+}
+
+export function chaveOcorrencia(alarme,agora=new Date()){
+  const horario=partesHorario(alarme?.horaSugeridaInicio),dia=indiceDia(alarme?.diaSemana);
+  if(!alarme?.tarefaId||!horario||dia<0||agora.getDay()!==dia)return '';
+  return `${alarme.tarefaId}__${dataLocal(agora)}__${String(horario.hora).padStart(2,'0')}:${String(horario.minuto).padStart(2,'0')}`;
+}
+
 export function proximaOcorrencia(alarme,agora=new Date()){
   const horario=partesHorario(alarme?.horaSugeridaInicio),dia=indiceDia(alarme?.diaSemana);
   if(!horario||dia<0)return null;
@@ -20,7 +31,7 @@ export function proximaOcorrencia(alarme,agora=new Date()){
   return proxima;
 }
 
-export function deveDispararAgora(alarme,agora=new Date(),janelaMs=60000){
+export function deveDispararAgora(alarme,agora=new Date(),janelaMs=60000,ocorrenciaSilenciada=''){
   if(!alarme?.ativo||!alarme.tarefaId)return false;
   const horario=partesHorario(alarme.horaSugeridaInicio),dia=indiceDia(alarme.diaSemana);
   if(!horario||dia<0||agora.getDay()!==dia)return false;
@@ -29,7 +40,7 @@ export function deveDispararAgora(alarme,agora=new Date(),janelaMs=60000){
   const ativadoEm=Date.parse(alarme.acionadoEm||'');
   if(Number.isFinite(ativadoEm)&&ativadoEm>programado.getTime())return false;
   const atraso=agora.getTime()-programado.getTime();
-  return atraso>=0&&atraso<janelaMs;
+  return atraso>=0&&atraso<janelaMs&&ocorrenciaSilenciada!==chaveOcorrencia(alarme,agora);
 }
 
 export function descreverProximaOcorrencia(alarme,agora=new Date()){
