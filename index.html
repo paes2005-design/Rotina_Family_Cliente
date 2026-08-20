@@ -3,12 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="0; url=./index-CLIENTE-v6.html">
   <title>Rotina Family</title>
-  <script>location.replace('./index-CLIENTE-v6.html');</script>
+  <style>body{font-family:Segoe UI,Tahoma,sans-serif;background:#fff0f3;color:#590d22;margin:0;display:grid;place-items:center;min-height:100vh}.loading{padding:24px;text-align:center}</style>
 </head>
 <body>
-  <p>Redirecionando para o Rotina Family Cliente...</p>
-  <p><a href="./index-CLIENTE-v6.html">Abrir aplicativo</a></p>
+  <div class="loading">Carregando Rotina Family...</div>
+  <script>
+    (async()=>{
+      try{
+        const r=await fetch('./index-CLIENTE-v6.html',{cache:'no-store'});
+        if(!r.ok) throw new Error('Falha ao carregar aplicativo');
+        let html=await r.text();
+        const addon='<script type="module" src="./commercial-access-client.js?v=1"><\\/script>';
+        if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
+        document.open();document.write(html);document.close();
+      }catch(e){
+        document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html">Tentar abrir diretamente</a></div>';
+      }
+    })();
+  </script>
 </body>
 </html>
