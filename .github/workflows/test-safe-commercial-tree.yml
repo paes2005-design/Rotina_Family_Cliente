@@ -33,6 +33,7 @@ jobs:
           node --check src/commercial-preview-entry.js
           node --check src/master-user-actions-fallback.js
           node --check src/master-user-actions-preview.js
+          node --check src/master-group-summary.js
           node --check src/master-rate-limit-entry.js
           node --check src/test-console.js
       - name: Architecture invariants
@@ -45,10 +46,13 @@ jobs:
           preview = Path('src/commercial-preview-entry.js').read_text(encoding='utf-8')
           policy = Path('src/commercial-policy.js').read_text(encoding='utf-8')
           entry = Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
+          summary = Path('src/master-group-summary.js').read_text(encoding='utf-8')
           client = Path('../commercial-access-client.js').read_text(encoding='utf-8')
           wrangler = Path('wrangler.jsonc').read_text(encoding='utf-8')
 
           assert "import app from './commercial-preview-entry.js'" in entry
+          assert "handleMasterGroupSummary" in entry
+          assert "'/admin-master/group'" in entry
           assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
           assert 'return false' in policy.split('mustMutateFirebaseAuthForFamilyBlock',1)[1]
 
@@ -74,13 +78,21 @@ jobs:
           assert "'perfis'" not in client
           assert 'desativadoMaster' not in client
 
+          # Consulta do Master é UM grupo por vez e identifica somente tipoAcesso=proprietario como responsável.
+          assert "queryByString(env, 'administradores', 'grupoId', groupId" in summary
+          assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
+          assert "queryByString(env, 'perfis', 'grupoId', groupId" in summary
+          assert "tipoAcesso || '') === 'proprietario'" in summary
+          assert 'administradorPrincipal' in summary
+          assert "listDocs(env, 'administradores'" not in summary
+
           assert 'COMMERCIAL_TEST_DRY_RUN' in preview
           assert '"preview_urls": true' in wrangler
           assert '"COMMERCIAL_TEST_DRY_RUN": "1"' in wrangler
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
               assert secret in wrangler, f'Secret obrigatório não declarado: {secret}'
 
-          print('Arquitetura comercial segura — fase grupo único: OK')
+          print('Arquitetura comercial segura — grupo único + proprietário: OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
