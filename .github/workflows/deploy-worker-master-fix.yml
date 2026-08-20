@@ -1,0 +1,29 @@
+name: Deploy Worker ADM Master fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/deploy-worker-master-fix.yml'
+      - 'onesignal-scheduler/src/index.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate Worker
+        run: npm run check && npm test
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
