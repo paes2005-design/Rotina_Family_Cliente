@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import {
-  adminIndividualBlockPatch,
   commercialState,
   familyBlockPatch,
   mustMutateFirebaseAuthForFamilyBlock,
@@ -8,43 +7,31 @@ import {
   resolveClientCommercialAccess
 } from '../src/commercial-policy.js';
 
-const now = Date.parse('2026-08-20T22:00:00Z');
+assert.equal(commercialState({ grupoBloqueado: true }), 'bloqueado');
+assert.equal(commercialState({ grupoBloqueado: false }), 'liberado');
+assert.equal(commercialState({ trialAtivo: true, trialFimEm: '2020-01-01T00:00:00Z' }), 'liberado', 'Trial não participa desta fase');
 
-assert.equal(commercialState({ grupoBloqueado: true }, now), 'bloqueado');
-assert.equal(commercialState({ grupoConfirmado: true }, now), 'liberado');
-assert.equal(commercialState({ trialAtivo: true, trialFimEm: '2026-08-20T21:59:59Z' }, now), 'teste-expirado');
-
-for (const config of [
-  { grupoBloqueado: true },
-  { trialAtivo: true, trialFimEm: '2026-08-20T21:59:59Z' },
-  { grupoConfirmado: false }
-]) {
-  const master = resolveAdminCommercialAccess({
-    isMaster: true,
-    config,
-    individualBlocked: true,
-    configAvailable: true,
-    nowMs: now
-  });
-  assert.equal(master.allowed, true, 'ADM Master nunca pode ser bloqueado pelo comercial');
-  assert.equal(master.reason, 'master-sistema');
-}
-
-const ownerBlocked = resolveAdminCommercialAccess({ config: { grupoBloqueado: true }, nowMs: now });
-assert.equal(ownerBlocked.allowed, false);
-assert.equal(ownerBlocked.reason, 'familia-bloqueada');
-
-const additionalBlocked = resolveAdminCommercialAccess({
-  config: { grupoConfirmado: true },
-  individualBlocked: true,
-  nowMs: now
+const master = resolveAdminCommercialAccess({
+  isMaster: true,
+  config: { grupoBloqueado: true },
+  configAvailable: true
 });
-assert.equal(additionalBlocked.allowed, false);
-assert.equal(additionalBlocked.reason, 'admin-bloqueado-individualmente');
+assert.equal(master.allowed, true, 'ADM Master nunca pode ser bloqueado pelo comercial');
+assert.equal(master.reason, 'master-sistema');
 
-const clientBlocked = resolveClientCommercialAccess({ config: { grupoBloqueado: true }, nowMs: now });
+const adminBlocked = resolveAdminCommercialAccess({ config: { grupoBloqueado: true } });
+assert.equal(adminBlocked.allowed, false);
+assert.equal(adminBlocked.reason, 'familia-bloqueada');
+
+const adminAllowed = resolveAdminCommercialAccess({ config: { grupoBloqueado: false } });
+assert.equal(adminAllowed.allowed, true);
+
+const clientBlocked = resolveClientCommercialAccess({ config: { grupoBloqueado: true } });
 assert.equal(clientBlocked.allowed, false);
 assert.equal(clientBlocked.reason, 'familia-bloqueada');
+
+const clientAllowed = resolveClientCommercialAccess({ config: {} });
+assert.equal(clientAllowed.allowed, true);
 
 assert.equal(resolveAdminCommercialAccess({ configAvailable: false }).allowed, true, 'Falha de leitura comercial não deve derrubar ADM');
 assert.equal(resolveClientCommercialAccess({ configAvailable: false }).allowed, true, 'Falha de leitura comercial não deve derrubar Cliente');
@@ -53,10 +40,6 @@ assert.deepEqual(familyBlockPatch(true, '2026-08-20T22:00:00.000Z'), {
   grupoBloqueado: true,
   bloqueioAtualizadoEm: '2026-08-20T22:00:00.000Z'
 });
-assert.deepEqual(adminIndividualBlockPatch(true, '2026-08-20T22:00:00.000Z'), {
-  bloqueadoComercialIndividual: true,
-  bloqueioComercialIndividualEm: '2026-08-20T22:00:00.000Z'
-});
 assert.equal(mustMutateFirebaseAuthForFamilyBlock(), false, 'Bloqueio familiar não pode alterar Firebase Auth');
 
-console.log('commercial-safety.test.mjs: OK');
+console.log('commercial-safety.test.mjs: OK — fase grupo único');
