@@ -1,10 +1,10 @@
 import app from './commercial-entry.js';
 import { handleMasterUsersFallback } from './master-users-fallback.js';
+import { handleMasterLogsFallback } from './master-logs-fallback.js';
 
 // Protege o Firestore contra rajadas de leitura geradas pela inicialização do ADM Master.
-// Session, usuários, árvore e logs podem ser solicitados quase ao mesmo tempo no mobile/PWA.
-// A lista de usuários usa Firebase Authentication como fonte principal para não ficar
-// indisponível quando o Firestore aplicar limite 429.
+// A lista de usuários usa Firebase Authentication como fonte principal e os logs são
+// consultados somente sob demanda, com leitura global exclusiva do Master.
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
 const MIN_SPACING_MS = 1200;
@@ -26,6 +26,10 @@ function isMasterUsersRead(request) {
   return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/users');
 }
 
+function isMasterLogsRead(request) {
+  return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/logs');
+}
+
 function ttlFor(path) {
   if (path.endsWith('/session')) return 12_000;
   if (path.endsWith('/users')) return 30_000;
@@ -36,7 +40,6 @@ function ttlFor(path) {
 
 function cacheKey(request) {
   const url = new URL(request.url);
-  // O sufixo do bearer diferencia sessões sem registrar/expor o token completo.
   const auth = String(request.headers.get('authorization') || '');
   const suffix = auth.slice(-18);
   return `${url.pathname}${url.search}|${suffix}`;
@@ -78,6 +81,13 @@ async function executeMasterRead(request, env, ctx) {
       console.warn('Fallback Firebase Auth indisponível; usando rota legada.', String(error?.message || error));
     }
   }
+  if (isMasterLogsRead(request)) {
+    try {
+      return await handleMasterLogsFallback(request, env);
+    } catch (error) {
+      console.warn('Leitor global de logs indisponível; usando rota legada.', String(error?.message || error));
+    }
+  }
   return app.fetch(request, env, ctx);
 }
 
@@ -86,7 +96,6 @@ async function queuedMasterRead(request, env, ctx) {
   if (hit) return hit;
 
   const run = masterReadQueue.then(async () => {
-    // Um segundo cache check evita duplicidade de chamadas que ficaram aguardando na fila.
     const secondHit = cachedResponse(request);
     if (secondHit) return secondHit;
     await sleep(MIN_SPACING_MS);
