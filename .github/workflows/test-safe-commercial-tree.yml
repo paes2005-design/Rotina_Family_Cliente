@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - teste-arvore-comercial-segura-2026-08-20
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -70,5 +73,4 @@ jobs:
           print('Arquitetura comercial segura: OK')
 
       - name: No deployment from test branch
-        run: |
-          echo "Branch de teste validada. Nenhum wrangler deploy é executado por este workflow."
+        run: echo "PR de teste validado. Nenhum wrangler deploy é executado por este workflow."
