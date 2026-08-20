@@ -6,6 +6,11 @@ on:
       - teste-arvore-comercial-segura-2026-08-20
     paths:
       - .github/workflows/inspect-preview-observability.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/inspect-preview-observability.yml
   workflow_dispatch:
 
 permissions:
@@ -92,7 +97,7 @@ jobs:
                   '/test-console', '/admin-master/session', '/admin-master/users',
                   '/admin-master/tree', '/admin-master/logs', '/admin-master/groups',
                   '/admin-master/admin-access', '/admin-master/profiles', 'dryrun',
-                  'safe-commercial'
+                  'safe-commercial', '429'
               ]):
                   interesting.append(event)
 
