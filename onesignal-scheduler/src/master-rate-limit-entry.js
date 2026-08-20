@@ -1,10 +1,10 @@
-import app from './commercial-entry.js';
+import app from './commercial-safe-entry.js';
 import { handleMasterUsersFallback } from './master-users-fallback.js';
 import { handleMasterLogsFallback } from './master-logs-fallback.js';
+import { handleMasterUserActionFallback } from './master-user-actions-fallback.js';
 
 // Protege o Firestore contra rajadas de leitura geradas pela inicialização do ADM Master.
-// A lista de usuários usa Firebase Authentication como fonte principal e os logs são
-// consultados somente sob demanda, com leitura global exclusiva do Master.
+// Na branch de teste, comercial e árvore usam um plano de controle separado do Master.
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
 const MIN_SPACING_MS = 1200;
@@ -28,6 +28,10 @@ function isMasterUsersRead(request) {
 
 function isMasterLogsRead(request) {
   return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/logs');
+}
+
+function isMasterUsersWrite(request) {
+  return request.method === 'POST' && new URL(request.url).pathname.endsWith('/admin-master/users');
 }
 
 function ttlFor(path) {
@@ -78,14 +82,14 @@ async function executeMasterRead(request, env, ctx) {
     try {
       return await handleMasterUsersFallback(request, env);
     } catch (error) {
-      console.warn('Fallback Firebase Auth indisponível; usando rota legada.', String(error?.message || error));
+      console.warn('Fallback Firebase Auth indisponível; usando rota base.', String(error?.message || error));
     }
   }
   if (isMasterLogsRead(request)) {
     try {
       return await handleMasterLogsFallback(request, env);
     } catch (error) {
-      console.warn('Leitor global de logs indisponível; usando rota legada.', String(error?.message || error));
+      console.warn('Leitor global de logs indisponível; usando rota base.', String(error?.message || error));
     }
   }
   return app.fetch(request, env, ctx);
@@ -109,6 +113,9 @@ async function queuedMasterRead(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
+    if (isMasterUsersWrite(request)) {
+      return handleMasterUserActionFallback(request, env);
+    }
     if (isMasterRead(request)) return queuedMasterRead(request, env, ctx);
     return app.fetch(request, env, ctx);
   },
