@@ -1,11 +1,13 @@
 import app from './commercial-entry.js';
+import { handleMasterUsersFallback } from './master-users-fallback.js';
 
 // Protege o Firestore contra rajadas de leitura geradas pela inicialização do ADM Master.
 // Session, usuários, árvore e logs podem ser solicitados quase ao mesmo tempo no mobile/PWA.
-// Serializamos somente essas leituras e reutilizamos respostas por poucos segundos.
+// A lista de usuários usa Firebase Authentication como fonte principal para não ficar
+// indisponível quando o Firestore aplicar limite 429.
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
-const MIN_SPACING_MS = 700;
+const MIN_SPACING_MS = 1200;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -20,11 +22,15 @@ function isMasterRead(request) {
   ].some(suffix => path.endsWith(suffix));
 }
 
+function isMasterUsersRead(request) {
+  return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/users');
+}
+
 function ttlFor(path) {
   if (path.endsWith('/session')) return 12_000;
-  if (path.endsWith('/users')) return 4_000;
-  if (path.endsWith('/tree')) return 4_000;
-  if (path.endsWith('/logs')) return 2_000;
+  if (path.endsWith('/users')) return 30_000;
+  if (path.endsWith('/tree')) return 10_000;
+  if (path.endsWith('/logs')) return 15_000;
   return 0;
 }
 
@@ -64,6 +70,17 @@ async function rememberResponse(request, response) {
   return response;
 }
 
+async function executeMasterRead(request, env, ctx) {
+  if (isMasterUsersRead(request)) {
+    try {
+      return await handleMasterUsersFallback(request, env);
+    } catch (error) {
+      console.warn('Fallback Firebase Auth indisponível; usando rota legada.', String(error?.message || error));
+    }
+  }
+  return app.fetch(request, env, ctx);
+}
+
 async function queuedMasterRead(request, env, ctx) {
   const hit = cachedResponse(request);
   if (hit) return hit;
@@ -73,7 +90,7 @@ async function queuedMasterRead(request, env, ctx) {
     const secondHit = cachedResponse(request);
     if (secondHit) return secondHit;
     await sleep(MIN_SPACING_MS);
-    const response = await app.fetch(request, env, ctx);
+    const response = await executeMasterRead(request, env, ctx);
     return rememberResponse(request, response);
   });
 
