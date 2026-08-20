@@ -642,7 +642,7 @@ async function auditMasterAction(env, caller, action, targetUid, status, fetchIm
     evento: `master.${action}`,
     nivel: status === 'sucesso' ? 'info' : 'error',
     detalhes: { alvoUid: String(targetUid || '').slice(0, 128), resultado: status },
-    grupoId,
+    grupoId: groupId,
     perfilId: '',
     sessaoId: '',
     clienteEm: now.toISOString(),
