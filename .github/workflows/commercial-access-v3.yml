@@ -1,0 +1,229 @@
+name: Commercial access v3
+
+on:
+  push:
+    paths:
+      - '.github/workflows/commercial-access-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply backend and client changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          worker = Path('onesignal-scheduler/src/index.js')
+          text = worker.read_text()
+
+          helper = r'''
+async function groupConfig(env, groupId, fetchImpl = fetch, now = new Date()) {
+  const id = String(groupId || '').trim();
+  if (!id) return null;
+  return getDocument(env, `projects/${required(env.FIREBASE_PROJECT_ID, 'FIREBASE_PROJECT_ID')}/databases/(default)/documents/configGrupos/${id}`, fetchImpl, now);
+}
+
+async function upsertGroupConfig(env, groupId, patch, fetchImpl = fetch, now = new Date()) {
+  const id = String(groupId || '').trim();
+  const name = `projects/${required(env.FIREBASE_PROJECT_ID, 'FIREBASE_PROJECT_ID')}/databases/(default)/documents/configGrupos/${id}`;
+  const current = await getDocument(env, name, fetchImpl, now);
+  if (current) await patchDocument(env, name, { grupoId: id, ...patch }, fetchImpl, now);
+  else await createDocument(env, 'configGrupos', id, { grupoId: id, ...patch }, fetchImpl, now);
+}
+
+function commercialGroupState(config = {}, now = new Date()) {
+  if (config.grupoBloqueado === true) return 'bloqueado';
+  if (config.grupoConfirmado === true) return 'liberado';
+  if (config.trialAtivo === true) {
+    const end = new Date(config.trialFimEm || '');
+    if (Number.isFinite(end.getTime()) && end.getTime() <= now.getTime()) return 'teste-expirado';
+    return 'teste';
+  }
+  return 'legado';
+}
+
+async function publicGroupAccess(env, groupId, fetchImpl = fetch, now = new Date()) {
+  const config = (await groupConfig(env, groupId, fetchImpl, now))?.data || {};
+  const estado = commercialGroupState(config, now);
+  return {
+    grupoId: String(groupId || '').trim(),
+    estado,
+    permitido: !['bloqueado', 'teste-expirado'].includes(estado),
+    confirmado: config.grupoConfirmado === true,
+    trialAtivo: config.trialAtivo === true,
+    trialInicioEm: config.trialInicioEm || '',
+    trialFimEm: config.trialFimEm || ''
+  };
+}
+
+async function listMasterTree(env, fetchImpl = fetch, now = new Date()) {
+  const [adminDocs, profiles, configs, adminUsers] = await Promise.all([
+    listDocuments(env, 'administradores', fetchImpl, now, 200),
+    listDocuments(env, 'perfis', fetchImpl, now, 200),
+    listDocuments(env, 'configGrupos', fetchImpl, now, 200),
+    listAdministratorUsers(env, fetchImpl, now)
+  ]);
+  const authByUid = new Map(adminUsers.map(user => [user.uid, user]));
+  const configByGroup = new Map(configs.map(item => [String(item.data.grupoId || item.name.split('/').at(-1) || ''), item.data]));
+  const groups = new Map();
+  const ensure = value => {
+    const id = String(value || '').trim();
+    if (!id) return null;
+    if (!groups.has(id)) groups.set(id, { grupoId: id, administradores: [], clientes: [], config: configByGroup.get(id) || {} });
+    return groups.get(id);
+  };
+  for (const document of adminDocs) {
+    const data = document.data || {};
+    const group = ensure(data.codigoCliente || data.grupoId);
+    if (!group) continue;
+    const auth = authByUid.get(String(data.uid || '')) || {};
+    const email = String(auth.email || data.email || '').trim().toLowerCase();
+    group.administradores.push({
+      ...auth,
+      id: document.name.split('/').at(-1) || '',
+      uid: String(data.uid || auth.uid || ''),
+      email,
+      tipoAcesso: String(data.tipoAcesso || 'admin'),
+      principal: String(data.tipoAcesso || '') === 'proprietario',
+      master: isMasterEmail(env, email),
+      desativadoIndividual: data.desativadoIndividual === true
+    });
+  }
+  for (const document of profiles) {
+    const data = document.data || {};
+    const group = ensure(data.grupoId);
+    if (!group) continue;
+    group.clientes.push({
+      id: document.name.split('/').at(-1) || '',
+      perfilId: String(data.perfilId || document.name.split('/').at(-1) || ''),
+      nome: String(data.nome || 'Integrante'),
+      sexo: String(data.sexo || ''),
+      desativado: data.desativadoMaster === true
+    });
+  }
+  return [...groups.values()].map(group => ({
+    ...group,
+    estado: commercialGroupState(group.config, now),
+    grupoBloqueado: group.config.grupoBloqueado === true,
+    grupoConfirmado: group.config.grupoConfirmado === true,
+    trialAtivo: group.config.trialAtivo === true,
+    trialInicioEm: group.config.trialInicioEm || '',
+    trialFimEm: group.config.trialFimEm || '',
+    protegido: group.administradores.some(admin => admin.master === true)
+  })).sort((a, b) => a.grupoId.localeCompare(b.grupoId));
+}
+
+async function groupAdministrators(env, groupId, fetchImpl = fetch, now = new Date()) {
+  const byClient = await queryDocumentsByString(env, 'administradores', 'codigoCliente', groupId, fetchImpl, now, 200);
+  const byGroup = await queryDocumentsByString(env, 'administradores', 'grupoId', groupId, fetchImpl, now, 200);
+  return [...new Map([...byClient, ...byGroup].map(item => [item.name, item])).values()];
+}
+
+async function setCommercialGroupDisabled(env, groupId, disabled, fetchImpl = fetch, now = new Date()) {
+  const admins = await groupAdministrators(env, groupId, fetchImpl, now);
+  if (admins.some(item => isMasterEmail(env, item.data?.email))) throw new Error('O grupo do ADM Master é protegido.');
+  for (const document of admins) {
+    const data = document.data || {};
+    const uid = String(data.uid || '').trim();
+    if (!uid) continue;
+    const disableUser = disabled ? true : data.desativadoIndividual === true;
+    await identityToolkitAdminRequest(env, '/accounts:update', {
+      localId: uid,
+      disableUser,
+      validSince: String(Math.floor(now.getTime() / 1000))
+    }, fetchImpl, now);
+  }
+  await upsertGroupConfig(env, groupId, {
+    grupoBloqueado: disabled === true,
+    bloqueioAtualizadoEm: now.toISOString()
+  }, fetchImpl, now);
+}
+
+'''
+          marker = 'async function auditMasterAction(env, caller, action, targetUid, status, fetchImpl = fetch, now = new Date()) {'
+          if 'async function listMasterTree(' not in text:
+            if marker not in text: raise SystemExit('backend helper marker not found')
+            text = text.replace(marker, helper + marker, 1)
+
+          old_fields = """      papel: isMasterEmail(env, email) ? 'master' : 'admin',\n      desativado: authUser.disabled === true,"""
+          new_fields = """      papel: isMasterEmail(env, email) ? 'master' : 'admin',\n      tipoAcesso: String(document.data.tipoAcesso || 'admin'),\n      principal: String(document.data.tipoAcesso || '') === 'proprietario',\n      desativadoIndividual: document.data.desativadoIndividual === true,\n      desativado: authUser.disabled === true,"""
+          if old_fields in text: text = text.replace(old_fields, new_fields, 1)
+
+          get_users = """  if (request.method === 'GET' && url.pathname.endsWith('/users')) {\n    return Response.json({ users: await listAdministratorUsers(env, fetchImpl, now) }, { headers: appCorsHeaders(request) });\n  }"""
+          if "url.pathname.endsWith('/tree')" not in text:
+            text = text.replace(get_users, get_users + """\n  if (request.method === 'GET' && url.pathname.endsWith('/tree')) {\n    return Response.json({ groups: await listMasterTree(env, fetchImpl, now) }, { headers: appCorsHeaders(request) });\n  }\n  if (request.method === 'POST' && url.pathname.endsWith('/groups')) {\n    const body = await request.json().catch(() => ({}));\n    const groupId = String(body.grupoId || '').trim();\n    const action = String(body.action || '');\n    if (!groupId) return Response.json({ error: 'Grupo não informado.' }, { status: 400, headers: appCorsHeaders(request) });\n    try {\n      if (action === 'set-group-disabled') {\n        await setCommercialGroupDisabled(env, groupId, body.disabled === true, fetchImpl, now);\n      } else if (action === 'confirm-group') {\n        await upsertGroupConfig(env, groupId, { grupoConfirmado: true, trialAtivo: false, grupoBloqueado: false, confirmadoEm: now.toISOString(), confirmadoPorMaster: caller.uid }, fetchImpl, now);\n        await setCommercialGroupDisabled(env, groupId, false, fetchImpl, now);\n      } else {\n        throw new Error('Ação de grupo inválida.');\n      }\n      await auditMasterAction(env, caller, action, groupId, 'sucesso', fetchImpl, now);\n      return Response.json({ success: true, access: await publicGroupAccess(env, groupId, fetchImpl, now) }, { headers: appCorsHeaders(request) });\n    } catch (error) {\n      await auditMasterAction(env, caller, action || 'grupo-desconhecida', groupId, 'erro', fetchImpl, now).catch(() => {});\n      return Response.json({ error: cleanError(error) }, { status: 400, headers: appCorsHeaders(request) });\n    }\n  }\n  if (request.method === 'POST' && url.pathname.endsWith('/profiles')) {\n    const body = await request.json().catch(() => ({}));\n    const profileId = String(body.profileId || '').trim();\n    const action = String(body.action || '');\n    const profileName = `projects/${required(env.FIREBASE_PROJECT_ID, 'FIREBASE_PROJECT_ID')}/databases/(default)/documents/perfis/${profileId}`;\n    const profile = profileId ? await getDocument(env, profileName, fetchImpl, now) : null;\n    if (!profile) return Response.json({ error: 'Cliente não encontrado.' }, { status: 404, headers: appCorsHeaders(request) });\n    try {\n      if (action === 'set-profile-disabled') await patchDocument(env, profile.name, { desativadoMaster: body.disabled === true, desativadoMasterEm: now.toISOString() }, fetchImpl, now);\n      else if (action === 'delete-profile') await deleteDocument(env, profile.name, fetchImpl, now);\n      else throw new Error('Ação de cliente inválida.');\n      await auditMasterAction(env, caller, action, profileId, 'sucesso', fetchImpl, now);\n      return Response.json({ success: true }, { headers: appCorsHeaders(request) });\n    } catch (error) {\n      await auditMasterAction(env, caller, action || 'cliente-desconhecida', profileId, 'erro', fetchImpl, now).catch(() => {});\n      return Response.json({ error: cleanError(error) }, { status: 400, headers: appCorsHeaders(request) });\n    }\n  }""", 1)
+
+          old_gate = """  const target = targetUid ? await administratorByUid(env, targetUid, fetchImpl, now) : null;\n  if (!target) return Response.json({ error: 'Administrador não encontrado.' }, { status: 404, headers: appCorsHeaders(request) });"""
+          if old_gate not in text: raise SystemExit('target gate not found')
+
+          old_disabled = """    } else if (action === 'set-disabled') {\n      await identityToolkitAdminRequest(env, '/accounts:update', {\n        localId: targetUid,\n        disableUser: body.disabled === true,\n        validSince: String(Math.floor(now.getTime() / 1000))\n      }, fetchImpl, now);"""
+          new_disabled = """    } else if (action === 'set-disabled') {\n      const principal = String(target.data.tipoAcesso || '') === 'proprietario';\n      const groupId = String(target.data.codigoCliente || target.data.grupoId || '').trim();\n      if (principal && groupId) {\n        await setCommercialGroupDisabled(env, groupId, body.disabled === true, fetchImpl, now);\n      } else {\n        await identityToolkitAdminRequest(env, '/accounts:update', {\n          localId: targetUid,\n          disableUser: body.disabled === true,\n          validSince: String(Math.floor(now.getTime() / 1000))\n        }, fetchImpl, now);\n        await patchDocument(env, target.name, { desativadoIndividual: body.disabled === true, desativadoIndividualEm: now.toISOString() }, fetchImpl, now);\n      }"""
+          if old_disabled in text: text = text.replace(old_disabled, new_disabled, 1)
+
+          text = text.replace('masterAdminVersion: 2', 'masterAdminVersion: 3')
+          worker.write_text(text)
+
+          client = Path('index-CLIENTE-v6.html')
+          html = client.read_text()
+          if 'function estadoComercialGrupoCliente' not in html:
+            anchor = """        async function hashPin(pin) {\n            const data = new TextEncoder().encode(pin);"""
+            insert = """        function estadoComercialGrupoCliente(config={}) {\n            if(config.grupoBloqueado===true) return 'bloqueado';\n            if(config.grupoConfirmado===true) return 'liberado';\n            if(config.trialAtivo===true){ const fim=new Date(config.trialFimEm||''); if(Number.isFinite(fim.getTime())&&fim.getTime()<=Date.now()) return 'teste-expirado'; return 'teste'; }\n            return 'legado';\n        }\n        function mensagemBloqueioComercialCliente(estado){ return estado==='teste-expirado'?'Sua versão teste de 15 dias terminou. Peça ao responsável para entrar em contato e ativar o grupo familiar.':'Este grupo familiar está temporariamente desativado.'; }\n        async function verificarAcessoComercialCliente(grupo){\n            const snap=await getDoc(doc(db,'configGrupos',grupo));\n            const estado=estadoComercialGrupoCliente(snap.exists()?snap.data():{});\n            return {estado,permitido:!['bloqueado','teste-expirado'].includes(estado)};\n        }\n\n""" + anchor
+            if anchor not in html: raise SystemExit('client hash marker not found')
+            html = html.replace(anchor, insert, 1)
+
+          old_connect = """            const nomeFormatado=nomeInput.charAt(0).toUpperCase()+nomeInput.slice(1);\n            const snap=await getDocs(query(collection(db,'perfis'),where('grupoId','==',codInput),where('nome','==',nomeFormatado)));"""
+          new_connect = """            const acesso=await verificarAcessoComercialCliente(codInput);\n            if(!acesso.permitido) return alert(mensagemBloqueioComercialCliente(acesso.estado));\n            const nomeFormatado=nomeInput.charAt(0).toUpperCase()+nomeInput.slice(1);\n            const snap=await getDocs(query(collection(db,'perfis'),where('grupoId','==',codInput),where('nome','==',nomeFormatado)));"""
+          if old_connect in html: html = html.replace(old_connect, new_connect, 1)
+          old_profile = """            const perfilDoc=snap.docs[0], dados=perfilDoc.data();\n            if(dados.pinHash) {"""
+          new_profile = """            const perfilDoc=snap.docs[0], dados=perfilDoc.data();\n            if(dados.desativadoMaster===true) return alert('Seu acesso a este grupo familiar está desativado.');\n            if(dados.pinHash) {"""
+          if old_profile in html: html = html.replace(old_profile, new_profile, 1)
+
+          old_session = """        async function iniciarSessaoCliente(nome,grupo,sexo,perfilId=''){\n            clienteNome=nome; codigoGrupo=grupo; clienteSexo=sexo; clientePerfilId=perfilId; aplicarTemaVisual(clienteSexo);"""
+          new_session = """        async function iniciarSessaoCliente(nome,grupo,sexo,perfilId=''){\n            const acesso=await verificarAcessoComercialCliente(grupo);\n            if(!acesso.permitido){ ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none'; document.getElementById('telaAuth').style.display='block'; alert(mensagemBloqueioComercialCliente(acesso.estado)); return; }\n            if(perfilId){ const ps=await getDoc(doc(db,'perfis',perfilId)); if(!ps.exists()||ps.data().desativadoMaster===true){ ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none'; document.getElementById('telaAuth').style.display='block'; alert('Seu acesso a este grupo familiar está desativado.'); return; } }\n            clienteNome=nome; codigoGrupo=grupo; clienteSexo=sexo; clientePerfilId=perfilId; aplicarTemaVisual(clienteSexo);"""
+          if old_session in html: html = html.replace(old_session, new_session, 1)
+
+          old_config = """            unsubscribeConfigGrupo=onSnapshot(doc(db,'configGrupos',codigoGrupo),snap=>{ regraAtrasoAtual=normalizarRegraAtraso(snap.exists()?snap.data():{}); const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); });"""
+          new_config = """            unsubscribeConfigGrupo=onSnapshot(doc(db,'configGrupos',codigoGrupo),snap=>{ const cfg=snap.exists()?snap.data():{}; const estado=estadoComercialGrupoCliente(cfg); if(['bloqueado','teste-expirado'].includes(estado)){ alert(mensagemBloqueioComercialCliente(estado)); sairCliente(); return; } regraAtrasoAtual=normalizarRegraAtraso(cfg); const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); });"""
+          if old_config in html: html = html.replace(old_config, new_config, 1)
+          client.write_text(html)
+
+          sw = Path('sw.js')
+          sw_text = sw.read_text().replace("rotina-family-cliente-v38", "rotina-family-cliente-v39")
+          sw.write_text(sw_text)
+
+      - name: Install Worker dependencies
+        working-directory: onesignal-scheduler
+        run: npm ci
+      - name: Test Worker
+        working-directory: onesignal-scheduler
+        run: npm run check && npm test
+      - name: Audit commercial access markers
+        run: |
+          grep -q "listMasterTree" onesignal-scheduler/src/index.js
+          grep -q "setCommercialGroupDisabled" onesignal-scheduler/src/index.js
+          grep -q "trialFimEm" index-CLIENTE-v6.html
+          grep -q "desativadoMaster" index-CLIENTE-v6.html
+          grep -q "rotina-family-cliente-v39" sw.js
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/index.js index-CLIENTE-v6.html sw.js
+          git diff --cached --quiet || git commit -m "Implement commercial access, trial and Master tree backend"
+          git push
+      - name: Deploy Worker
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
