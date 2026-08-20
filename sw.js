@@ -1,4 +1,4 @@
-const CACHE_NAME='rotina-family-cliente-v34';
+const CACHE_NAME='rotina-family-cliente-v35';
 const APP_SHELL=['./','./index.html','./index-CLIENTE-v6.html','./manifest.json?v=25','./icon-cliente-192.png','./icon-cliente-512.png','./client-ui-pro.css','./client-ui-pro.js','./client-week-nav.js','./family-alarm-client.js','./alarm-schedule-core.js','./client-time-guard-v2.js','./client-history-reconciler.js','./scoring-core.js','./client-reviewed-points.js','./client-early-start-ui.js','./client-tolerance-timer.js','./tolerance-timer-core.js','./reset-cache.html'];
 const MODULE_ROOTS=['https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js','https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js'];
 const STATIC_SCRIPTS=['https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js'];

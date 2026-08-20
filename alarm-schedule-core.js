@@ -98,10 +98,19 @@ function chaveProgramacao(alarme,programacao){
   return `${alarme.tarefaId}__${programacao.tipo}__${dataLocal(programacao.data)}__${pad(programacao.data.getHours())}:${pad(programacao.data.getMinutes())}`;
 }
 
-export function chaveOcorrencia(alarme,agora=new Date(),janelaMs=300000){
+function foiSilenciada(ocorrenciasSilenciadas,chave){
+  if(!ocorrenciasSilenciadas||!chave)return false;
+  if(typeof ocorrenciasSilenciadas==='string')return ocorrenciasSilenciadas===chave;
+  if(Array.isArray(ocorrenciasSilenciadas))return ocorrenciasSilenciadas.includes(chave);
+  if(ocorrenciasSilenciadas instanceof Set)return ocorrenciasSilenciadas.has(chave);
+  return typeof ocorrenciasSilenciadas==='object'&&ocorrenciasSilenciadas[chave]===true;
+}
+
+export function chaveOcorrencia(alarme,agora=new Date(),janelaMs=300000,ocorrenciasSilenciadas=''){
   if(!alarme?.tarefaId)return '';
   const atual=programacoes(alarme)
     .filter(p=>agora.getTime()>=p.data.getTime()&&agora.getTime()-p.data.getTime()<janelaMs)
+    .filter(p=>!foiSilenciada(ocorrenciasSilenciadas,chaveProgramacao(alarme,p)))
     .sort((a,b)=>b.data-a.data)[0];
   return atual?chaveProgramacao(alarme,atual):'';
 }
@@ -112,19 +121,20 @@ export function proximaOcorrencia(alarme,agora=new Date()){
     .sort((a,b)=>a.data-b.data)[0]||null;
 }
 
-export function deveDispararAgora(alarme,agora=new Date(),janelaMs=300000,ocorrenciaSilenciada=''){
+export function deveDispararAgora(alarme,agora=new Date(),janelaMs=300000,ocorrenciasSilenciadas=''){
   if(!alarmeVigente(alarme,agora)||!alarme.tarefaId)return false;
   return programacoes(alarme).some(p=>{
     const ativadoEm=Date.parse(alarme.acionadoEm||'');
     if(Number.isFinite(ativadoEm)&&ativadoEm>p.data.getTime())return false;
     const atraso=agora.getTime()-p.data.getTime();
-    return atraso>=0&&atraso<janelaMs&&ocorrenciaSilenciada!==chaveProgramacao(alarme,p);
+    return atraso>=0&&atraso<janelaMs&&!foiSilenciada(ocorrenciasSilenciadas,chaveProgramacao(alarme,p));
   });
 }
 
-export function momentoDaOcorrenciaAtual(alarme,agora=new Date(),janelaMs=300000){
+export function momentoDaOcorrenciaAtual(alarme,agora=new Date(),janelaMs=300000,ocorrenciasSilenciadas=''){
   const atual=programacoes(alarme)
     .filter(p=>agora.getTime()>=p.data.getTime()&&agora.getTime()-p.data.getTime()<janelaMs)
+    .filter(p=>!foiSilenciada(ocorrenciasSilenciadas,chaveProgramacao(alarme,p)))
     .sort((a,b)=>b.data-a.data)[0];
   return atual?.tipo||'inicio';
 }

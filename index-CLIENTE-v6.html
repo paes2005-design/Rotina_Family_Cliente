@@ -55,7 +55,25 @@
                     scope: `${oneSignalBasePath}push/onesignal/`
                 },
                 notifyButton: {
-                    enable: true
+                    enable: true,
+                    size: 'medium',
+                    position: 'bottom-right',
+                    showCredit: false,
+                    text: {
+                        'launcher.button.aria-label': 'Gerenciar notificações',
+                        'tip.state.unsubscribed': 'Ativar notificações',
+                        'tip.state.subscribed': 'Notificações ativadas',
+                        'tip.state.blocked': 'Notificações bloqueadas',
+                        'message.prenotify': 'Clique para receber os lembretes da rotina',
+                        'message.action.subscribed': 'Notificações ativadas com sucesso!',
+                        'message.action.resubscribed': 'Notificações ativadas novamente',
+                        'message.action.unsubscribed': 'Você não receberá mais notificações',
+                        'dialog.main.title': 'Notificações do Rotina Family',
+                        'dialog.main.button.subscribe': 'ATIVAR',
+                        'dialog.main.button.unsubscribe': 'DESATIVAR',
+                        'dialog.blocked.title': 'Desbloquear notificações',
+                        'dialog.blocked.message': 'Siga estas instruções para permitir notificações:'
+                    }
                 }
             });
             const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
@@ -754,11 +772,11 @@
         }
         window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
     </script>
-    <script src="./client-ui-pro.js?v=26"></script>
+    <script src="./client-ui-pro.js?v=27"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js?v=27')
+          navigator.serviceWorker.register('./sw.js?v=28')
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });
