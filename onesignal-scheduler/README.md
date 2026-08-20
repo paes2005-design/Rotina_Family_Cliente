@@ -27,6 +27,16 @@ npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
 
 O gatilho roda a cada minuto. Alterações pendentes são processadas imediatamente; uma varredura completa ocorre a cada cinco minutos e à meia-noite no fuso `America/Bahia`. O OneSignal recebe o horário final em UTC e entrega a notificação mesmo com a página fechada ou a tela apagada.
 
+O mesmo Worker envia notificações de solicitações de recompensa ao ADM e de aprovação ou recusa ao Cliente. O direcionamento usa tags de grupo, perfil e aplicativo, permitindo que o mesmo navegador esteja inscrito no Cliente e no ADM sem trocar a identidade da assinatura.
+
+## Monitoramento e logs
+
+- `GET /monitoramento` apresenta o estado sanitizado do Worker, os últimos 30 ciclos e as versões ativas.
+- Cada mensagem de alarme é consultada novamente no OneSignal após o envio. O Firestore registra quantas entregas chegaram ao serviço push, quantas foram confirmadas pelos aparelhos e quantas falharam.
+- Cliente e ADM registram ações, sincronização, conectividade e erros JavaScript na coleção `appLogs`, sem senhas, PINs, e-mails, justificativas ou textos digitados.
+- Os logs do aplicativo expiram em sete dias e o Worker remove registros vencidos a cada hora.
+- Os logs estruturados do Cloudflare continuam disponíveis em **Worker > Observability > Logs**.
+
 Os logs estruturados do Worker ficam habilitados no Cloudflare para auditoria das execuções, sem registrar códigos de família, perfis ou chaves secretas.
 
 ## Segurança e repetição

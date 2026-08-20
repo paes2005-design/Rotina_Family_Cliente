@@ -36,6 +36,10 @@ A tarefa continua recorrente por dia da semana, usando os valores canônicos `Do
 
 O canal de notificação é exclusivamente o OneSignal Web. Ao autorizar notificações, cada navegador é inscrito e associado ao identificador externo `rotina_family__{grupoId}__{perfilId}`. O Worker dedicado em `push/onesignal/` recebe mensagens mesmo sem uma página aberta. O serviço em `onesignal-scheduler/` roda no Cloudflare Workers Free, lê mudanças pendentes no Firestore e cria ou cancela mensagens com `send_after` no OneSignal. A entrega com a página fechada e a tela apagada deixa de depender do temporizador do navegador. A chave REST do OneSignal e a conta de serviço Google permanecem somente nos Secrets do Cloudflare e nunca no navegador ou no repositório.
 
+Solicitações de recompensa também entram na fila do Worker. O responsável recebe um push no ADM e, depois da decisão, o integrante recebe a aprovação ou recusa no Cliente. Alarmes e recompensas são direcionados pelas tags ativas de grupo, perfil e aplicativo.
+
+O módulo `app-monitoring.js` registra ações importantes, estado de rede, sincronização e erros técnicos por sete dias. Nenhuma senha, PIN, e-mail, justificativa ou texto digitado é incluído nos logs.
+
 O toque local possui ação explícita para parar, também encerra ao dispensar a notificação e tem limite automático de dois minutos. Os snapshots do Firestore passam a substituir o estado antigo do aparelho; somente comandos offline ainda pendentes são sobrepostos até a sincronização.
 
 ## Experiência gamificada

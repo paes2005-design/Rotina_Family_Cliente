@@ -1,0 +1,178 @@
+import { getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+const APP_KIND = 'cliente';
+const MONITOR_VERSION = 1;
+const QUEUE_KEY = `rotinaFamily.monitorQueue.${APP_KIND}`;
+const SESSION_KEY = `rotinaFamily.monitorSession.${APP_KIND}`;
+const SENSITIVE = /senha|password|pin|email|justificativa|token|secret|chave|api/i;
+const sessionId = sessionStorage.getItem(SESSION_KEY) || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+sessionStorage.setItem(SESSION_KEY, sessionId);
+let flushing = false;
+let sentInSession = 0;
+let lastSignature = '';
+let lastSignatureAt = 0;
+
+function readQueue() {
+  try {
+    const value = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function writeQueue(queue) {
+  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue.slice(-120))); } catch (_) {}
+}
+
+function cleanValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'boolean' || typeof value === 'number') return value;
+  return String(value).replace(/\s+/g, ' ').slice(0, 180);
+}
+
+function cleanDetails(details = {}) {
+  const result = {};
+  for (const [key, value] of Object.entries(details || {})) {
+    if (SENSITIVE.test(key) || typeof value === 'object') continue;
+    result[key.slice(0, 50)] = cleanValue(value);
+  }
+  return result;
+}
+
+function context() {
+  if (APP_KIND === 'cliente') {
+    return {
+      grupoId: String(localStorage.getItem('cliente_grupo') || '').trim(),
+      perfilId: String(localStorage.getItem('cliente_perfil_id') || '').trim()
+    };
+  }
+  const group = String(
+    localStorage.getItem('rotina_admin_push_grupo') ||
+    document.getElementById('displayCodigoCliente')?.textContent || ''
+  ).trim();
+  return { grupoId: group === '--' || group === 'CLI-Gen' ? '' : group, perfilId: '' };
+}
+
+function browserFamily() {
+  const ua = navigator.userAgent;
+  if (/Edg\//.test(ua)) return 'Edge';
+  if (/Firefox\//.test(ua)) return 'Firefox';
+  if (/Chrome\//.test(ua)) return 'Chrome';
+  if (/Safari\//.test(ua)) return 'Safari';
+  return 'Outro';
+}
+
+async function flush() {
+  if (flushing || !navigator.onLine || !getApps().length) return;
+  const ctx = context();
+  if (!ctx.grupoId) return;
+  flushing = true;
+  const queue = readQueue();
+  const remaining = [];
+  try {
+    const db = getFirestore(getApp());
+    for (let index = 0; index < queue.length; index += 1) {
+      const item = queue[index];
+      if (sentInSession >= 300) { remaining.push(item); continue; }
+      try {
+        const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        await addDoc(collection(db, 'appLogs'), {
+          ...item,
+          grupoId: item.grupoId || ctx.grupoId,
+          perfilId: item.perfilId || ctx.perfilId,
+          servidorEm: serverTimestamp(),
+          expiraEm: expires
+        });
+        sentInSession += 1;
+      } catch (_) {
+        remaining.push(...queue.slice(index));
+        break;
+      }
+    }
+  } finally {
+    writeQueue(remaining);
+    flushing = false;
+  }
+}
+
+window.rotinaLog = function (eventName, details = {}, level = 'info') {
+  const event = String(eventName || 'evento').replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 80);
+  const safeDetails = cleanDetails(details);
+  const signature = JSON.stringify([event, safeDetails, level]);
+  const now = Date.now();
+  if (signature === lastSignature && now - lastSignatureAt < 1500) return;
+  lastSignature = signature;
+  lastSignatureAt = now;
+  const ctx = context();
+  const queue = readQueue();
+  queue.push({
+    aplicativo: APP_KIND,
+    versaoMonitor: MONITOR_VERSION,
+    evento: event,
+    nivel: ['info', 'warning', 'error'].includes(level) ? level : 'info',
+    detalhes: safeDetails,
+    grupoId: ctx.grupoId,
+    perfilId: ctx.perfilId,
+    sessaoId: sessionId,
+    clienteEm: new Date().toISOString(),
+    pagina: location.pathname.split('/').filter(Boolean).at(-1) || 'inicio',
+    navegador: browserFamily(),
+    online: navigator.onLine,
+    visibilidade: document.visibilityState,
+    instalado: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
+  });
+  writeQueue(queue);
+  queueMicrotask(flush);
+};
+
+function actionName(element) {
+  const inline = element.getAttribute('onclick') || '';
+  const match = inline.match(/^\s*(?:window\.)?([a-zA-Z_$][\w$]*)/);
+  if (match) return match[1];
+  return element.id || element.dataset.nav || element.dataset.action || element.getAttribute('aria-label') || element.tagName.toLowerCase();
+}
+
+document.addEventListener('click', event => {
+  const element = event.target.closest('button,a,[role="button"]');
+  if (!element) return;
+  window.rotinaLog('ui.acao', {
+    acao: actionName(element),
+    elemento: element.tagName.toLowerCase(),
+    aba: document.querySelector('.tab-content.active')?.id || ''
+  });
+}, true);
+
+window.addEventListener('error', event => window.rotinaLog('app.erro_javascript', {
+  mensagem: event.message || 'erro',
+  arquivo: String(event.filename || '').split('/').at(-1) || '',
+  linha: event.lineno || 0,
+  coluna: event.colno || 0
+}, 'error'));
+
+window.addEventListener('unhandledrejection', event => window.rotinaLog('app.promessa_rejeitada', {
+  mensagem: event.reason?.message || String(event.reason || 'erro')
+}, 'error'));
+
+window.addEventListener('online', () => { window.rotinaLog('rede.online'); flush(); });
+window.addEventListener('offline', () => window.rotinaLog('rede.offline', {}, 'warning'));
+document.addEventListener('visibilitychange', () => window.rotinaLog('app.visibilidade', { estado: document.visibilityState }));
+
+for (const eventName of [
+  'rotina-client-session-ready',
+  'rotina-admin-session-ready',
+  'rotina-family-alarm-sync',
+  'rotina-family-alarm-stop-sync',
+  'rotina-family-tasks-rendered'
+]) {
+  window.addEventListener(eventName, event => window.rotinaLog(`evento.${eventName}`, event.detail || {}));
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', () => window.rotinaLog('app.iniciado'), { once: true });
+} else {
+  window.rotinaLog('app.iniciado');
+}
+setInterval(flush, 15_000);
+flush();

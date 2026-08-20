@@ -729,7 +729,7 @@
             el.innerHTML=`<strong>Saldo disponível: ${saldo} pts</strong><br>${catalogo}<div style="margin-top:12px"><strong>Meus resgates de hoje</strong>${hist||'<br><small>Nenhum resgate solicitado hoje.</small>'}</div>`;
         }
         const resgatesEmEnvio=new Set();
-        window.resgatarRecompensa=async id=>{ const r=recompensasCache.find(x=>x.id===id);if(!r||resgatesEmEnvio.has(id))return; const custo=Number(r.pontos)||0;if(saldoPontos()<custo)return alert('Pontos insuficientes ou já reservados em pedidos pendentes.'); if(resgatesCache.some(x=>x.recompensaId===id&&x.status==='Pendente'))return alert('Você já tem um pedido pendente para esta recompensa.'); resgatesEmEnvio.add(id); try{ const pedidoId=`${clientePerfilId}_${id}_${Date.now()}`; await setDoc(doc(db,'resgates',pedidoId),{grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,recompensaId:id,recompensaNome:r.nome,pontos:custo,status:'Pendente',criadoEm:new Date().toISOString()});alert('Pedido enviado aos seus pais! Os pontos ficam reservados enquanto aguardam a decisão.'); } finally { resgatesEmEnvio.delete(id); } };
+        window.resgatarRecompensa=async id=>{ const r=recompensasCache.find(x=>x.id===id);if(!r||resgatesEmEnvio.has(id))return; const custo=Number(r.pontos)||0;if(saldoPontos()<custo)return alert('Pontos insuficientes ou já reservados em pedidos pendentes.'); if(resgatesCache.some(x=>x.recompensaId===id&&x.status==='Pendente'))return alert('Você já tem um pedido pendente para esta recompensa.'); resgatesEmEnvio.add(id); try{ const pedidoId=`${clientePerfilId}_${id}_${Date.now()}`,agora=new Date().toISOString(); await setDoc(doc(db,'resgates',pedidoId),{grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,recompensaId:id,recompensaNome:r.nome,pontos:custo,status:'Pendente',criadoEm:agora,pushAdminPendente:true,pushAdminSolicitadoEm:agora,pushAdminTentativas:0});window.rotinaLog?.('recompensa.solicitada',{recompensaId:id,pontos:custo});alert('Pedido enviado aos seus pais! Os pontos ficam reservados enquanto aguardam a decisão.'); } finally { resgatesEmEnvio.delete(id); } };
         function verificarRetornosResgates(){
             resgatesCache.forEach(r=>{ if(r.status!=='Aprovado'&&r.status!=='Recusado') return; const chave=`resgate_visto_${r.id}_${r.status}`; if(localStorage.getItem(chave)) return; localStorage.setItem(chave,'1'); const aprovado=r.status==='Aprovado'; document.getElementById('iconeRecompensaStatus').innerText=aprovado?'🎉':'💬'; document.getElementById('tituloRecompensaStatus').innerText=aprovado?'Resgate autorizado!':'Resgate não autorizado'; document.getElementById('textoRecompensaStatus').innerText=aprovado?`${r.recompensaNome} foi autorizado. Aproveite sua conquista!`:`Converse com seus pais para compreender por que ${r.recompensaNome} não foi autorizado.`; document.getElementById('modalRecompensaStatus').style.display='flex'; if(aprovado) confetti({particleCount:180,spread:110,origin:{y:.65}}); });
         }
@@ -772,11 +772,12 @@
         }
         window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
     </script>
+    <script type="module" src="./app-monitoring.js?v=1"></script>
     <script src="./client-ui-pro.js?v=27"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js?v=28')
+          navigator.serviceWorker.register('./sw.js?v=29')
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });
