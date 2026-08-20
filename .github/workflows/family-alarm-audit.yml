@@ -8,6 +8,7 @@ on:
       - 'client-ui-pro.js'
       - 'index-CLIENTE-v6.html'
       - 'sw.js'
+      - 'onesignal-scheduler/**'
       - '.github/workflows/family-alarm-audit.yml'
 jobs:
   alarm-audit:
@@ -23,6 +24,10 @@ jobs:
           node --check client-week-nav.js
           node --check client-ui-pro.js
           node --check sw.js
+          node --check onesignal-scheduler/src/core.js
+          node --check onesignal-scheduler/src/index.js
+          node --check onesignal-scheduler/test/scheduler.test.mjs
+          node --check onesignal-scheduler/test/integration.test.mjs
       - name: Alarm data, offline and authority regression
         run: |
           node <<'NODE'
@@ -34,7 +39,7 @@ jobs:
           const sw=fs.readFileSync('sw.js','utf8');
           const index=fs.readFileSync('index-CLIENTE-v6.html','utf8');
           const ok=(v,m)=>{if(!v)throw new Error(m);console.log('OK - '+m)};
-          ok(ui.includes("import('./family-alarm-client.js?v=9')"),'Client loads cross-device stoppable date alarm v9');
+          ok(ui.includes("import('./family-alarm-client.js?v=10')"),'Client loads server-scheduled cross-device date alarm v10');
           ok(ui.includes("import('./client-week-nav.js?v=3')"),'Client loads weekly navigation with dated rows');
           ok(sw.includes("'./family-alarm-client.js'")&&sw.includes("'./alarm-schedule-core.js'"),'date alarm remains cached offline');
           ok(index.includes('data-family-task-date'),'today task exposes its exact date');
@@ -51,6 +56,8 @@ jobs:
           ok(alarm.includes("where('grupoId','==',g)"),'remote alarms remain group-scoped and real-time');
           ok(alarm.includes('dataAgendada')&&alarm.includes('semanaInicio')&&core.includes('inicioEm')&&core.includes('fimEm'),'alarm payload stores exact date and start/end datetimes');
           ok(alarm.includes('versaoAgenda:3'),'alarm payload identifies dated schema');
+          ok(alarm.includes('schedulerPendente:true')&&alarm.includes('schedulerVersao:1'),'every Client alarm change requests server reconciliation');
+          ok(alarm.includes("expiradoPor:'VIRADA_SEMANA',schedulerPendente:true"),'Client week rollover asks the server to cancel pending OneSignal messages');
           ok(alarm.includes('JANELA_DISPARO_MS=5*60*1000'),'foreground timer tolerates short mobile throttling');
           ok(alarm.includes('LIMITE_TOQUE_MS=2*60*1000')&&alarm.includes('autoStopTimer=setTimeout'),'ringing always stops automatically');
           ok(alarm.includes('rotina_family_task_alarm_stop_pending_v1')&&alarm.includes('arrayUnion(p.ocorrencia)'),'stopped occurrences are queued and merged atomically across devices');
@@ -70,6 +77,10 @@ jobs:
           ok(core.includes("['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado']"),'one canonical short weekday contract is used');
           console.log('ALL CLIENT DATE ALARM CHECKS PASSED');
           NODE
+      - name: OneSignal server scheduler regression
+        run: |
+          node onesignal-scheduler/test/scheduler.test.mjs
+          node onesignal-scheduler/test/integration.test.mjs
       - name: Seven-day, exact-date and week-rollover regression
         run: |
           node --input-type=module <<'NODE'

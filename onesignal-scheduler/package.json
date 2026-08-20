@@ -1,0 +1,13 @@
+{
+  "name": "rotina-family-onesignal-scheduler",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/scheduler.test.mjs && node test/integration.test.mjs",
+    "check": "node --check src/core.js && node --check src/index.js && node --check test/scheduler.test.mjs && node --check test/integration.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
