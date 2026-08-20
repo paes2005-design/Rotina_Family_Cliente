@@ -54,19 +54,10 @@ async function googleToken(env, now = new Date()) {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth-type:jwt-bearer', assertion })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
   });
-  // Compatibilidade com o grant oficial caso o endpoint rejeite a forma curta.
-  let body = await response.json().catch(() => ({}));
-  if (!response.ok || !body.access_token) {
-    const retry = await fetch(GOOGLE_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
-    });
-    body = await retry.json().catch(() => ({}));
-    if (!retry.ok || !body.access_token) throw new Error(`OAuth Google recusado (${retry.status}).`);
-  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.access_token) throw new Error(`OAuth Google recusado (${response.status}).`);
   tokenCache = { value: body.access_token, email: c.client_email, expiresAt: now.getTime() + Number(body.expires_in || 3600) * 1000 };
   return tokenCache.value;
 }
