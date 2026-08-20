@@ -445,7 +445,7 @@ async function storeSecureLog(env, value, fetchImpl = fetch, now = new Date(), d
   await createDocument(env, 'appLogsSecure', id, {
     ...envelope,
     criadoEm: now,
-    expiraEm: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    expiraEm: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
   }, fetchImpl, now);
   return id;
 }
@@ -1352,7 +1352,8 @@ export default {
     const now = new Date(controller.scheduledTime);
     const timeZone = env.ALARM_TIME_ZONE || DEFAULT_TIME_ZONE;
     const minute = zonedParts(now, timeZone).minute;
-    const fullScan = isLocalMidnight(now, timeZone) || minute % 5 === 0;
+    const dailyMaintenance = isLocalMidnight(now, timeZone);
+    const fullScan = dailyMaintenance || minute % 5 === 0;
     context.waitUntil((async () => {
       try {
         const [alarmResults, rewardResults, alarmAuditResults, rewardAuditResults, logCleanup, logMigration, orphanCleanup] = await Promise.all([
@@ -1361,8 +1362,8 @@ export default {
           runAlarmDeliveryAudits(env, { now }),
           runRewardDeliveryAudits(env, { now }),
           minute === 0 ? cleanupExpiredAppLogs(env, { now }) : Promise.resolve(null),
-          fullScan ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null),
-          cleanupKnownOrphanTestAdmin(env, fetch, now)
+          dailyMaintenance ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null),
+          dailyMaintenance ? cleanupKnownOrphanTestAdmin(env, fetch, now) : Promise.resolve(null)
         ]);
         const results = [
           ...alarmResults,
