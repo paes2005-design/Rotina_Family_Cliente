@@ -103,5 +103,30 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify preview bindings safely
+        shell: python
+        run: |
+          import json, time, urllib.request
+
+          url = 'https://safe-commercial-rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/preview-health'
+          last = None
+          for attempt in range(6):
+              try:
+                  with urllib.request.urlopen(url, timeout=15) as response:
+                      last = json.loads(response.read().decode('utf-8'))
+                  break
+              except Exception as error:
+                  if attempt == 5:
+                      raise
+                  time.sleep(2)
+
+          assert last.get('preview') is True, last
+          assert last.get('dryRun') is True, last
+          bindings = last.get('bindings') or {}
+          required = ['firebaseProjectId', 'masterAdminEmails', 'googleServiceAccount', 'appLogEncryptionKey']
+          missing = [name for name in required if bindings.get(name) is not True]
+          assert not missing, f'Bindings essenciais ausentes: {missing}'
+          print('Preview health: OK')
+          print(json.dumps({'preview': last.get('preview'), 'dryRun': last.get('dryRun'), 'bindings': bindings}, sort_keys=True))
       - name: Confirm no production deployment
-        run: echo "Preview version uploaded. Production deployment was not changed."
+        run: echo "Preview version validated. Production deployment was not changed."
