@@ -1,0 +1,92 @@
+name: Experiment - separate Master identity from commercial groups
+
+on:
+  push:
+    branches:
+      - experimento-admin-protegido-comercial
+    paths:
+      - '.github/workflows/experiment-separate-master-identity.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experimento-admin-protegido-comercial
+
+      - name: Separate Master authority from administradores/group
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('onesignal-scheduler/src/index.js')
+          s = p.read_text(encoding='utf-8')
+
+          old = '''async function requireMaster(request, env, fetchImpl = fetch, now = new Date()) {
+            const identity = await verifyFirebaseIdToken(env, bearerToken(request), fetchImpl, now);
+            if (!isMasterEmail(env, identity.email)) throw new Error('Acesso exclusivo do ADM Master.');
+            const administrator = await administratorByUid(env, identity.uid, fetchImpl, now);
+            if (!administrator) throw new Error('Cadastro administrativo do Master não encontrado.');
+            if (String(administrator.data.email || '').trim().toLowerCase() !== identity.email) {
+              throw new Error('E-mail autenticado não corresponde ao cadastro administrativo.');
+            }
+            return { ...identity, administrator };
+          }'''
+
+          new = '''async function requireMaster(request, env, fetchImpl = fetch, now = new Date()) {
+            const identity = await verifyFirebaseIdToken(env, bearerToken(request), fetchImpl, now);
+            if (!isMasterEmail(env, identity.email)) throw new Error('Acesso exclusivo do ADM Master.');
+
+            // A autoridade Master pertence à identidade autenticada e ao Secret privado
+            // MASTER_ADMIN_EMAILS. O documento em `administradores` é apenas compatibilidade
+            // legada do painel e nunca pode decidir se o Master continua autorizado.
+            const administrator = await administratorByUid(env, identity.uid, fetchImpl, now).catch(() => null);
+            return { ...identity, administrator };
+          }'''
+
+          if old not in s:
+            raise SystemExit('requireMaster original não encontrado')
+          s = s.replace(old, new, 1)
+
+          old_audit = "const groupId = caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || 'sistema';"
+          new_audit = "const groupId = 'MASTER-SYSTEM';"
+          if old_audit not in s:
+            raise SystemExit('auditMasterAction groupId original não encontrado')
+          s = s.replace(old_audit, new_audit, 1)
+
+          old_session = "grupoId: caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || ''"
+          new_session = "grupoId: '',\n      autoridade: 'MASTER-SYSTEM'"
+          if old_session not in s:
+            raise SystemExit('session groupId original não encontrado')
+          s = s.replace(old_session, new_session, 1)
+
+          old_logs = "const groupId = String(url.searchParams.get('grupoId') || caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || '').trim();"
+          new_logs = "const groupId = String(url.searchParams.get('grupoId') || '').trim();"
+          if old_logs not in s:
+            raise SystemExit('logs groupId original não encontrado')
+          s = s.replace(old_logs, new_logs, 1)
+
+          p.write_text(s, encoding='utf-8')
+
+      - name: Validate Worker
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          node --check src/index.js
+          npm test
+          grep -F "const groupId = 'MASTER-SYSTEM';" src/index.js
+          grep -F "autoridade: 'MASTER-SYSTEM'" src/index.js
+          grep -F "administratorByUid(env, identity.uid, fetchImpl, now).catch(() => null)" src/index.js
+          ! grep -F "Cadastro administrativo do Master não encontrado." src/index.js
+
+      - name: Commit experimental patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/index.js
+          git diff --cached --quiet || git commit -m "Experiment: separate Master identity from commercial groups"
+          git push origin HEAD:experimento-admin-protegido-comercial
