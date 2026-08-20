@@ -588,11 +588,11 @@ async function administratorByUid(env, uid, fetchImpl = fetch, now = new Date())
 async function requireMaster(request, env, fetchImpl = fetch, now = new Date()) {
   const identity = await verifyFirebaseIdToken(env, bearerToken(request), fetchImpl, now);
   if (!isMasterEmail(env, identity.email)) throw new Error('Acesso exclusivo do ADM Master.');
-  const administrator = await administratorByUid(env, identity.uid, fetchImpl, now);
-  if (!administrator) throw new Error('Cadastro administrativo do Master não encontrado.');
-  if (String(administrator.data.email || '').trim().toLowerCase() !== identity.email) {
-    throw new Error('E-mail autenticado não corresponde ao cadastro administrativo.');
-  }
+
+  // A autoridade Master pertence à identidade autenticada e ao Secret privado
+  // MASTER_ADMIN_EMAILS. O documento em `administradores` é apenas compatibilidade
+  // legada do painel e nunca pode decidir se o Master continua autorizado.
+  const administrator = await administratorByUid(env, identity.uid, fetchImpl, now).catch(() => null);
   return { ...identity, administrator };
 }
 
@@ -636,7 +636,7 @@ async function listAdministratorUsers(env, fetchImpl = fetch, now = new Date()) 
 }
 
 async function auditMasterAction(env, caller, action, targetUid, status, fetchImpl = fetch, now = new Date()) {
-  const groupId = caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || 'sistema';
+  const groupId = 'MASTER-SYSTEM';
   await storeSecureLog(env, {
     aplicativo: 'master',
     evento: `master.${action}`,
@@ -679,14 +679,15 @@ async function handleAdminMasterRequest(request, env, fetchImpl = fetch, now = n
       master: true,
       uid: caller.uid,
       email: caller.email,
-      grupoId: caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || ''
+      grupoId: '',
+      autoridade: 'MASTER-SYSTEM'
     }, { headers: appCorsHeaders(request) });
   }
   if (request.method === 'GET' && url.pathname.endsWith('/users')) {
     return Response.json({ users: await listAdministratorUsers(env, fetchImpl, now) }, { headers: appCorsHeaders(request) });
   }
   if (request.method === 'GET' && url.pathname.endsWith('/logs')) {
-    const groupId = String(url.searchParams.get('grupoId') || caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || '').trim();
+    const groupId = String(url.searchParams.get('grupoId') || '').trim();
     return Response.json({ logs: await readSecureLogs(env, groupId, fetchImpl, now) }, { headers: appCorsHeaders(request) });
   }
   if (request.method !== 'POST' || !url.pathname.endsWith('/users')) {
