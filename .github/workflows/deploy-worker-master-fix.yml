@@ -7,6 +7,7 @@ on:
       - 'onesignal-scheduler/src/index.js'
       - 'onesignal-scheduler/src/commercial-entry.js'
       - 'onesignal-scheduler/src/master-rate-limit-entry.js'
+      - 'onesignal-scheduler/src/master-users-fallback.js'
       - 'onesignal-scheduler/wrangler.jsonc'
   workflow_dispatch:
 
@@ -29,6 +30,8 @@ jobs:
         run: node --check src/commercial-entry.js
       - name: Syntax check Master rate-limit entry
         run: node --check src/master-rate-limit-entry.js
+      - name: Syntax check Master Auth fallback
+        run: node --check src/master-users-fallback.js
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
@@ -36,5 +39,5 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
 # Publicação 2026-08-20: autoridade do ADM Master separada de grupo/comercial.
-# O Worker mantém os endpoints comerciais existentes, mas o Master é autorizado
-# por Firebase Authentication + MASTER_ADMIN_EMAILS e não por CLI/grupoId.
+# A lista de usuários Master usa Firebase Authentication como fallback independente
+# do Firestore para permanecer disponível mesmo durante limitação 429.
