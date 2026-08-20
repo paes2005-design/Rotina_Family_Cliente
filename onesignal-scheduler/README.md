@@ -7,7 +7,7 @@ Este Cloudflare Worker reconcilia a coleção `despertadores` do Firestore com m
 Nunca coloque estes valores no repositório ou no navegador:
 
 - `ONESIGNAL_REST_API_KEY`: chave REST do aplicativo OneSignal.
-- `GOOGLE_SERVICE_ACCOUNT_JSON`: JSON completo de uma conta de serviço Google com acesso somente ao Firestore necessário.
+- `GOOGLE_SERVICE_ACCOUNT_JSON`: JSON completo de uma conta de serviço Google com acesso ao Firestore e ao Firebase Authentication usado pelo ADM Master.
 - `MASTER_ADMIN_EMAILS`: lista privada, separada por vírgulas, dos e-mails autorizados como ADM Master.
 - `APP_LOG_ENCRYPTION_KEY`: segredo longo e aleatório usado para criptografar os logs do aplicativo.
 
@@ -20,14 +20,24 @@ npx wrangler secret put MASTER_ADMIN_EMAILS
 npx wrangler secret put APP_LOG_ENCRYPTION_KEY
 ```
 
+## Permissões da conta de serviço Google
+
+A conta armazenada em `GOOGLE_SERVICE_ACCOUNT_JSON` é usada pelo Worker tanto para o Firestore quanto para as operações administrativas do Firebase Authentication. Ela precisa ter, no projeto `sistema-de-metas-diarias`, no mínimo:
+
+- `Cloud Datastore User` para leitura e gravação no Firestore;
+- `Firebase Authentication Admin` (`roles/firebaseauth.admin`) para listar usuários, editar e-mail, desativar/ativar, excluir login e enviar redefinição de senha.
+
+Sem `roles/firebaseauth.admin`, a aba ADM Master consegue validar a sessão e o Worker continua saudável, mas a listagem/alteração de usuários falha com `INSUFFICIENT_PERMISSION`.
+
 ## Publicação
 
 1. Crie uma conta gratuita Cloudflare.
-2. Crie uma conta de serviço no Google Cloud com o papel mínimo `Cloud Datastore User` no projeto `sistema-de-metas-diarias` e gere uma chave JSON.
-3. No diretório `onesignal-scheduler`, execute `npm install` e `npx wrangler login`.
-4. Cadastre os dois segredos acima sem colá-los em mensagens, arquivos ou commits.
-5. Execute `npm test`, `npm run check` e `npx wrangler deploy`.
-6. No OneSignal, confirme que a chave usada pertence ao App ID configurado em `wrangler.jsonc`.
+2. Crie uma conta de serviço no Google Cloud para o projeto `sistema-de-metas-diarias` e atribua os papéis `Cloud Datastore User` e `Firebase Authentication Admin`.
+3. Gere a chave JSON dessa conta de serviço e salve o JSON completo em `GOOGLE_SERVICE_ACCOUNT_JSON` no Cloudflare.
+4. No diretório `onesignal-scheduler`, execute `npm install` e `npx wrangler login`.
+5. Cadastre os segredos acima sem colá-los em mensagens, arquivos ou commits.
+6. Execute `npm test`, `npm run check` e `npx wrangler deploy`.
+7. No OneSignal, confirme que a chave usada pertence ao App ID configurado em `wrangler.jsonc`.
 
 O gatilho roda a cada minuto. Alterações pendentes são processadas imediatamente; uma varredura completa ocorre a cada cinco minutos e à meia-noite no fuso `America/Bahia`. O OneSignal recebe o horário final em UTC e entrega a notificação mesmo com a página fechada ou a tela apagada.
 
