@@ -1,10 +1,10 @@
-import app from './commercial-safe-entry.js';
+import app from './commercial-preview-entry.js';
 import { handleMasterUsersFallback } from './master-users-fallback.js';
 import { handleMasterLogsFallback } from './master-logs-fallback.js';
-import { handleMasterUserActionFallback } from './master-user-actions-fallback.js';
+import { handleMasterUserActionPreview } from './master-user-actions-preview.js';
 
 // Protege o Firestore contra rajadas de leitura geradas pela inicialização do ADM Master.
-// Na branch de teste, comercial e árvore usam um plano de controle separado do Master.
+// Na branch de teste, comercial e ações destrutivas podem operar em dry-run no preview.
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
 const MIN_SPACING_MS = 1200;
@@ -57,10 +57,7 @@ function cachedResponse(request) {
     responseCache.delete(key);
     return null;
   }
-  return new Response(item.body, {
-    status: item.status,
-    headers: item.headers
-  });
+  return new Response(item.body, { status: item.status, headers: item.headers });
 }
 
 async function rememberResponse(request, response) {
@@ -79,18 +76,12 @@ async function rememberResponse(request, response) {
 
 async function executeMasterRead(request, env, ctx) {
   if (isMasterUsersRead(request)) {
-    try {
-      return await handleMasterUsersFallback(request, env);
-    } catch (error) {
-      console.warn('Fallback Firebase Auth indisponível; usando rota base.', String(error?.message || error));
-    }
+    try { return await handleMasterUsersFallback(request, env); }
+    catch (error) { console.warn('Fallback Firebase Auth indisponível; usando rota base.', String(error?.message || error)); }
   }
   if (isMasterLogsRead(request)) {
-    try {
-      return await handleMasterLogsFallback(request, env);
-    } catch (error) {
-      console.warn('Leitor global de logs indisponível; usando rota base.', String(error?.message || error));
-    }
+    try { return await handleMasterLogsFallback(request, env); }
+    catch (error) { console.warn('Leitor global de logs indisponível; usando rota base.', String(error?.message || error)); }
   }
   return app.fetch(request, env, ctx);
 }
@@ -98,24 +89,19 @@ async function executeMasterRead(request, env, ctx) {
 async function queuedMasterRead(request, env, ctx) {
   const hit = cachedResponse(request);
   if (hit) return hit;
-
   const run = masterReadQueue.then(async () => {
     const secondHit = cachedResponse(request);
     if (secondHit) return secondHit;
     await sleep(MIN_SPACING_MS);
-    const response = await executeMasterRead(request, env, ctx);
-    return rememberResponse(request, response);
+    return rememberResponse(request, await executeMasterRead(request, env, ctx));
   });
-
   masterReadQueue = run.then(() => undefined, () => undefined);
   return run;
 }
 
 export default {
   async fetch(request, env, ctx) {
-    if (isMasterUsersWrite(request)) {
-      return handleMasterUserActionFallback(request, env);
-    }
+    if (isMasterUsersWrite(request)) return handleMasterUserActionPreview(request, env);
     if (isMasterRead(request)) return queuedMasterRead(request, env, ctx);
     return app.fetch(request, env, ctx);
   },
