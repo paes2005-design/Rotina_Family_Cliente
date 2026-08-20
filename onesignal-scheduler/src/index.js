@@ -526,7 +526,7 @@ async function recordMonitoringCycle(env, cycle, fetchImpl = fetch, now = new Da
     rewardPushVersion: 1,
     deliveryAuditVersion: 1,
     appLogVersion: 2,
-    masterAdminVersion: 1
+    masterAdminVersion: 2
   }, fetchImpl, now);
   return entry;
 }
@@ -545,7 +545,7 @@ async function publicMonitoringStatus(env, fetchImpl = fetch, now = new Date()) 
       rewardPush: data.rewardPushVersion || 1,
       deliveryAudit: data.deliveryAuditVersion || 1,
       appLogs: data.appLogVersion || 2,
-      masterAdmin: data.masterAdminVersion || 1
+      masterAdmin: data.masterAdminVersion || 2
     }
   };
 }
@@ -1299,6 +1299,20 @@ export async function runRewardDeliveryAudits(env, {
   return results;
 }
 
+async function cleanupKnownOrphanTestAdmin(env, fetchImpl = fetch, now = new Date()) {
+  const documents = await listDocuments(env, 'administradores', fetchImpl, now, 200);
+  const candidates = documents.filter(document => {
+    const data = document.data || {};
+    const uid = String(data.uid || '').trim();
+    const email = String(data.email || '').trim().toLowerCase();
+    const grupoId = String(data.codigoCliente || data.grupoId || '').trim();
+    const codigoAdmin = String(data.codigoAdmin || '').trim();
+    return !uid && email === 'teste' && grupoId === 'CLI-7335' && codigoAdmin === 'ADM-8609';
+  });
+  for (const document of candidates) await deleteDocument(env, document.name, fetchImpl, now);
+  return { state: candidates.length ? 'ADMIN_TESTE_ORFAO_REMOVIDO' : 'ADMIN_TESTE_ORFAO_AUSENTE', deleted: candidates.length };
+}
+
 export async function runScheduler(env, {
   fetchImpl = fetch,
   now = new Date(),
@@ -1340,13 +1354,14 @@ export default {
     const fullScan = isLocalMidnight(now, timeZone) || minute % 5 === 0;
     context.waitUntil((async () => {
       try {
-        const [alarmResults, rewardResults, alarmAuditResults, rewardAuditResults, logCleanup, logMigration] = await Promise.all([
+        const [alarmResults, rewardResults, alarmAuditResults, rewardAuditResults, logCleanup, logMigration, orphanCleanup] = await Promise.all([
           runScheduler(env, { now, fullScan }),
           runRewardNotifications(env, { now }),
           runAlarmDeliveryAudits(env, { now }),
           runRewardDeliveryAudits(env, { now }),
           minute === 0 ? cleanupExpiredAppLogs(env, { now }) : Promise.resolve(null),
-          fullScan ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null)
+          fullScan ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null),
+          cleanupKnownOrphanTestAdmin(env, fetch, now)
         ]);
         const results = [
           ...alarmResults,
@@ -1354,7 +1369,8 @@ export default {
           ...alarmAuditResults,
           ...rewardAuditResults,
           ...(logCleanup ? [logCleanup] : []),
-          ...(logMigration ? [logMigration] : [])
+          ...(logMigration ? [logMigration] : []),
+          ...(orphanCleanup ? [orphanCleanup] : [])
         ];
         const summary = results.reduce((counts, result) => {
           counts[result.state] = (counts[result.state] || 0) + 1;
@@ -1372,6 +1388,7 @@ export default {
           rewardAudits: rewardAuditResults.length,
           logsDeleted: logCleanup?.deleted || 0,
           logsMigrated: logMigration?.migrated || 0,
+          orphanAdminsDeleted: orphanCleanup?.deleted || 0,
           states: summary
         };
         await recordMonitoringCycle(env, cycle, fetch, now);
@@ -1429,7 +1446,7 @@ export default {
       schedulerVersion: SCHEDULER_VERSION,
       rewardPushVersion: 1,
       deliveryAuditVersion: 1,
-      masterAdminVersion: 1,
+      masterAdminVersion: 2,
       secureLogsVersion: 1,
       monitoringUrl: `${url.origin}/monitoramento`
     });
