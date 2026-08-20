@@ -130,3 +130,67 @@ jobs:
               print('O teste humano deve autenticar no Access antes de abrir /test-console.')
       - name: Confirm no production deployment
         run: echo "Preview version validated. Production deployment was not changed."
+
+  manual-preview-audit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read recent Cloudflare telemetry
+        shell: python
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          import json, os, time, urllib.request, urllib.error
+
+          account = os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token = os.environ['CLOUDFLARE_API_TOKEN']
+          now = int(time.time() * 1000)
+          start = now - 60 * 60 * 1000
+          endpoint = f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/observability/telemetry/query'
+          payload = {
+              'queryId': 'rotina-family-preview-manual-audit',
+              'timeframe': {'from': start, 'to': now},
+              'limit': 200,
+              'dry': True,
+              'parameters': {
+                  'datasets': [],
+                  'filterCombination': 'and',
+                  'filters': [{
+                      'key': '$metadata.service',
+                      'operation': 'eq',
+                      'type': 'string',
+                      'value': 'rotina-family-onesignal-scheduler'
+                  }],
+                  'view': 'events'
+              }
+          }
+          req = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), method='POST', headers={
+              'Authorization': f'Bearer {token}',
+              'Content-Type': 'application/json'
+          })
+          try:
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = json.loads(response.read().decode())
+          except urllib.error.HTTPError as error:
+              print('OBSERVABILITY_HTTP='+str(error.code))
+              print(error.read().decode('utf-8','replace')[:1500])
+              raise
+
+          events = (raw.get('result') or {}).get('events') or []
+          matches = []
+          for event in events:
+              text = json.dumps(event, ensure_ascii=False).lower()
+              if any(term in text for term in ['/admin-master/tree','/admin-master/users','/admin-master/logs','/test-console','429','listagem firestore recusada']):
+                  matches.append(event)
+
+          print('EVENT_COUNT='+str(len(events)))
+          print('MATCH_COUNT='+str(len(matches)))
+          for index,event in enumerate(matches[:50],1):
+              text=json.dumps(event,ensure_ascii=False,sort_keys=True)
+              for marker in ['authorization','password','senha','cookie']:
+                  if marker in text.lower():
+                      text='[EVENT REDACTED: sensitive field present]'
+                      break
+              print(f'--- MATCH_{index} ---')
+              print(text[:3000])
