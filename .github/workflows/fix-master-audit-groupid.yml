@@ -1,0 +1,38 @@
+name: Fix ADM Master audit groupId
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-master-audit-groupid.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix server-side Master audit log variable
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('onesignal-scheduler/src/index.js')
+          s=p.read_text(encoding='utf-8')
+          old="""    grupoId,\n    perfilId: '',"""
+          new="""    grupoId: groupId,\n    perfilId: '',"""
+          n=s.count(old)
+          if n != 1:
+              raise SystemExit(f'expected exactly 1 buggy audit occurrence, found {n}')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Validate Worker syntax
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+      - name: Commit Master audit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/index.js
+          git commit -m "Fix ADM Master audit groupId reference"
+          git push
