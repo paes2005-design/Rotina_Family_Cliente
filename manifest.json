@@ -2,7 +2,7 @@
   "name": "Rotina Family",
   "short_name": "Rotina Family",
   "description": "Acompanhe suas tarefas e metas diárias",
-  "start_url": "./index-CLIENTE-v6.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
