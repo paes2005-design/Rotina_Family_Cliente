@@ -71,7 +71,8 @@ async function fetchRetry(url, options = {}, attempts = 4) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     response = await fetch(url, options);
     if (response.status !== 429 || attempt === attempts) break;
-    await new Promise(resolve => setTimeout(resolve, attempt * 900));
+    const retryAfter = Number(response.headers.get('retry-after') || 0);
+    await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : attempt * 900));
   }
   return response;
 }
@@ -87,7 +88,7 @@ async function queryByString(env, collectionId, field, value, limit = 100, now =
     } })
   });
   const rows = await response.json().catch(() => []);
-  if (!response.ok) throw new Error(`Consulta do grupo recusada (${response.status}).`);
+  if (!response.ok) throw new Error(`${collectionId}:${field} recusado (${response.status}).`);
   return (Array.isArray(rows) ? rows : []).filter(r => r.document).map(r => ({
     id: String(r.document.name || '').split('/').at(-1) || '',
     data: firestoreFieldsToJs(r.document.fields || {})
@@ -95,11 +96,11 @@ async function queryByString(env, collectionId, field, value, limit = 100, now =
 }
 
 async function groupAdmins(env, groupId, now = new Date()) {
-  const byGroup = await queryByString(env, 'administradores', 'grupoId', groupId, 50, now);
+  // O cadastro atual grava codigoCliente e grupoId com o mesmo CLI. Usar apenas codigoCliente
+  // reduz uma consulta por abertura de grupo. Se não houver resultado, tenta o campo legado grupoId.
   const byCode = await queryByString(env, 'administradores', 'codigoCliente', groupId, 50, now);
-  const map = new Map();
-  for (const item of [...byGroup, ...byCode]) map.set(item.id, item);
-  return [...map.values()];
+  if (byCode.length) return byCode;
+  return queryByString(env, 'administradores', 'grupoId', groupId, 50, now);
 }
 
 async function groupProfiles(env, groupId, now = new Date()) {
@@ -112,7 +113,7 @@ async function groupConfig(env, groupId, now = new Date()) {
   });
   if (response.status === 404) return {};
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`Leitura do grupo recusada (${response.status}).`);
+  if (!response.ok) throw new Error(`configGrupos recusado (${response.status}).`);
   return firestoreFieldsToJs(body.fields || {});
 }
 
@@ -135,14 +136,24 @@ export async function handleMasterGroupSummary(request, env, now = new Date()) {
   const identity = await verifyFirebaseIdToken(env, bearer(request), fetch, now);
   if (!isMasterEmail(env, identity.email)) return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
 
-  const groupId = String(new URL(request.url).searchParams.get('grupoId') || '').trim().toUpperCase();
+  const url = new URL(request.url);
+  const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
+  const ownerHint = String(url.searchParams.get('ownerEmail') || '').trim().toLowerCase();
   if (!groupId) return Response.json({ error: 'Informe o código do grupo.' }, { status: 400, headers: cors(request) });
 
-  const [admins, profiles, config] = await Promise.all([
+  const [adminsResult, profilesResult, configResult] = await Promise.allSettled([
     groupAdmins(env, groupId, now),
     groupProfiles(env, groupId, now),
     groupConfig(env, groupId, now)
   ]);
+
+  const avisos = [];
+  const admins = adminsResult.status === 'fulfilled' ? adminsResult.value : [];
+  const profiles = profilesResult.status === 'fulfilled' ? profilesResult.value : [];
+  const config = configResult.status === 'fulfilled' ? configResult.value : {};
+  if (adminsResult.status === 'rejected') avisos.push(String(adminsResult.reason?.message || 'Administradores indisponíveis.'));
+  if (profilesResult.status === 'rejected') avisos.push(String(profilesResult.reason?.message || 'Integrantes indisponíveis.'));
+  if (configResult.status === 'rejected') avisos.push(String(configResult.reason?.message || 'Estado comercial indisponível.'));
 
   const normalizedAdmins = admins.map(item => ({
     id: item.id,
@@ -152,7 +163,9 @@ export async function handleMasterGroupSummary(request, env, now = new Date()) {
     principal: String(item.data.tipoAcesso || '') === 'proprietario',
     master: isMasterEmail(env, String(item.data.email || '').trim().toLowerCase())
   }));
-  const owner = normalizedAdmins.find(a => a.principal && !a.master) || normalizedAdmins.find(a => a.principal) || null;
+  const owner = normalizedAdmins.find(a => a.principal && !a.master)
+    || normalizedAdmins.find(a => a.principal)
+    || (ownerHint ? { uid: '', email: ownerHint } : null);
 
   const clientes = profiles.map(item => ({
     id: item.id,
@@ -164,9 +177,12 @@ export async function handleMasterGroupSummary(request, env, now = new Date()) {
     grupo: {
       grupoId,
       grupoBloqueado: config.grupoBloqueado === true,
-      administradorPrincipal: owner ? { uid: owner.uid, email: owner.email } : null,
+      statusComercialDisponivel: configResult.status === 'fulfilled',
+      administradorPrincipal: owner ? { uid: owner.uid || '', email: owner.email || '' } : null,
       administradores: normalizedAdmins,
-      clientes
+      clientes,
+      parcial: avisos.length > 0,
+      avisos
     }
   }, { headers: cors(request) });
 }
