@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/deploy-worker-master-fix.yml'
       - 'onesignal-scheduler/src/index.js'
+      - 'onesignal-scheduler/src/commercial-entry.js'
+      - 'onesignal-scheduler/wrangler.jsonc'
   workflow_dispatch:
 
 permissions:
@@ -22,10 +24,12 @@ jobs:
         run: npm ci
       - name: Validate Worker
         run: npm run check && npm test
+      - name: Syntax check commercial entry
+        run: node --check src/commercial-entry.js
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-# Triggered after Cloudflare repository secrets were configured.
+# Includes commercial group blocking, Master tree and 15-day trial enforcement.
