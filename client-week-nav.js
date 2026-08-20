@@ -154,6 +154,7 @@ function renderizarDiaConsulta(){
     return;
   }
   const html = lista.map(dados => {
+    const dataAgendada = dataISO(dataDoDiaSelecionado());
     const status = dados.status || 'Pendente';
     let cls = 'status-pendente';
     if(status === 'Em andamento') cls = 'status-andamento';
@@ -169,7 +170,7 @@ function renderizarDiaConsulta(){
       : dados.iniciouComAtraso
         ? '<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>'
         : '';
-    return `<tr><td>${horario}</td><td><strong data-task-icon="${escapar(dados.icone || '')}">${escapar(dados.nome)}</strong>${alerta}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escapar(status)}</span></td><td><span class="week-readonly">Consulta</span></td></tr>`;
+    return `<tr data-family-task-id="${escapar(dados.id)}" data-family-task-group="${escapar(dados.tarefaGrupoId||'')}" data-family-task-name="${escapar(dados.nome)}" data-family-task-day="${escapar(dados.diaSemana||diaSelecionado)}" data-family-task-date="${escapar(dataAgendada)}" data-family-task-time="${escapar(dados.horaSugeridaInicio||'')}" data-family-task-end="${escapar(dados.horaSugeridaFim||'')}" data-family-task-status="${escapar(status)}"><td>${horario}</td><td><strong data-task-icon="${escapar(dados.icone || '')}">${escapar(dados.nome)}</strong>${alerta}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escapar(status)}</span></td><td><span class="week-readonly">Consulta</span></td></tr>`;
   }).join('');
   escreverTabela(html);
 }

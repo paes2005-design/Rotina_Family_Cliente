@@ -20,6 +20,7 @@ O Cliente não define as regras da rotina: elas são determinadas pelo Administr
 - Sequências e conquistas.
 - Catálogo de recompensas.
 - Histórico de pedidos de resgate com status pendente, autorizado ou recusado.
+- Alarmes por tarefa vinculados à data real da ocorrência, com início, fim ou ambos.
 - Celebração visual quando uma recompensa é aprovada.
 - Orientação para conversar com os pais quando um pedido é recusado.
 - Sincronização em tempo real com o Administrador.
@@ -28,6 +29,10 @@ O Cliente não define as regras da rotina: elas são determinadas pelo Administr
 ## Integração com o Administrador
 
 As tarefas, pontos, perfis e recompensas exibidos no Cliente são definidos pelo Painel do Administrador. Ao concluir uma tarefa, justificar um atraso ou solicitar uma recompensa, o Cliente registra a ação no Firestore. O Administrador recebe essas informações e pode acompanhar o desempenho ou decidir sobre pedidos de recompensa.
+
+## Contrato dos alarmes
+
+A tarefa continua recorrente por dia da semana, usando os valores canônicos `Domingo`, `Segunda`, `Terça`, `Quarta`, `Quinta`, `Sexta` e `Sábado`. O alarme não é recorrente: ele pertence a uma ocorrência real e armazena `dataAgendada`, `semanaInicio`, `inicioEm` e `fimEm`. Na virada de domingo para segunda, os alarmes e silenciamentos da semana anterior expiram; a nova semana começa sem alarmes herdados.
 
 ## Experiência gamificada
 

@@ -5,8 +5,8 @@
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
   import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
-  import('./client-week-nav.js?v=2').catch(e=>console.error('Navegação semanal:',e));
-  import('./family-alarm-client.js?v=6').catch(e=>console.error('Despertador programado por tarefa:',e));
+  import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
+  import('./family-alarm-client.js?v=7').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
