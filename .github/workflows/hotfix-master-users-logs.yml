@@ -1,0 +1,209 @@
+name: Hotfix Master users and logs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hotfix-master-users-logs.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch Worker Master reads
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('onesignal-scheduler/src/index.js')
+          s = p.read_text(encoding='utf-8')
+
+          def replace_between(start_name, next_name, replacement):
+              global s
+              pat = rf"async function {re.escape(start_name)}\(.*?\n\}}\n\n(?=async function {re.escape(next_name)}\()"
+              s2, n = re.subn(pat, replacement.rstrip() + '\n\n', s, count=1, flags=re.S)
+              if n != 1:
+                  raise SystemExit(f'Could not replace {start_name}: {n}')
+              s = s2
+
+          new_query = r'''async function queryDocumentsByString(env, collectionId, field, value, fetchImpl = fetch, now = new Date(), limit = 200) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  let response = null;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    response = await fetchImpl(`${firestoreBaseUrl(env)}:runQuery`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: field },
+              op: 'EQUAL',
+              value: { stringValue: String(value || '') }
+            }
+          },
+          limit
+        }
+      })
+    });
+    if (response.status !== 429 || attempt === 4) break;
+    const retryAfter = Number(response.headers.get('retry-after') || 0);
+    await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : 700 * attempt));
+  }
+  const rows = await response.json().catch(() => []);
+  if (!response.ok) throw new Error(`Consulta Firestore recusada (${response.status}).`);
+  return (Array.isArray(rows) ? rows : []).filter(row => row.document).map(row => ({
+    name: row.document.name,
+    createTime: row.document.createTime,
+    updateTime: row.document.updateTime,
+    data: firestoreFieldsToJs(row.document.fields || {})
+  }));
+}'''
+          replace_between('queryDocumentsByString', 'listDocuments', new_query)
+
+          new_list = r'''async function listDocuments(env, collectionId, fetchImpl = fetch, now = new Date(), pageSize = 200) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const url = new URL(`${firestoreBaseUrl(env)}/${encodeURIComponent(collectionId)}`);
+  url.searchParams.set('pageSize', String(Math.min(200, Math.max(1, pageSize))));
+  let response = null;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    response = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` } });
+    if (response.status !== 429 || attempt === 4) break;
+    const retryAfter = Number(response.headers.get('retry-after') || 0);
+    await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : 700 * attempt));
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Listagem Firestore recusada (${response.status}).`);
+  return (body.documents || []).map(document => ({
+    name: document.name,
+    createTime: document.createTime,
+    updateTime: document.updateTime,
+    data: firestoreFieldsToJs(document.fields || {})
+  }));
+}'''
+          replace_between('listDocuments', 'createDocument', new_list)
+
+          old_list_pat = r"async function listAdministratorUsers\(env, fetchImpl = fetch, now = new Date\(\)\) \{.*?\n\}\n\n(?=async function auditMasterAction\()"
+          new_users = r'''async function identityToolkitAdminGet(env, path, params = {}, fetchImpl = fetch, now = new Date()) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const url = new URL(`${IDENTITY_TOOLKIT_URL}/projects/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}${path}`);
+  for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+  const response = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` } });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = result.error?.message || result.error?.status || `HTTP ${response.status}`;
+    throw new Error(`Firebase Authentication recusou a listagem: ${String(message).slice(0, 180)}`);
+  }
+  return result;
+}
+
+async function listAdministratorUsers(env, fetchImpl = fetch, now = new Date()) {
+  let authUsers = [];
+  let authError = null;
+  try {
+    authUsers = (await identityToolkitAdminGet(env, '/accounts:batchGet', { maxResults: 1000 }, fetchImpl, now)).users || [];
+  } catch (error) {
+    authError = error;
+  }
+
+  let documents = [];
+  try {
+    documents = await listDocuments(env, 'administradores', fetchImpl, now, 200);
+  } catch (_) {
+    // O Firestore é apenas enriquecimento da tela Master. Um 429 não pode esconder os logins.
+  }
+
+  if (!authUsers.length && documents.length) {
+    const uids = documents.map(item => String(item.data.uid || '')).filter(Boolean);
+    authUsers = uids.length
+      ? (await identityToolkitAdminRequest(env, '/accounts:lookup', { localId: uids }, fetchImpl, now)).users || []
+      : [];
+  }
+  if (!authUsers.length && authError) throw authError;
+
+  const byUid = new Map(documents.map(document => [String(document.data.uid || ''), document]));
+  const users = authUsers.map(authUser => {
+    const uid = String(authUser.localId || '');
+    const document = byUid.get(uid);
+    const email = String(authUser.email || document?.data.email || '').trim().toLowerCase();
+    return {
+      uid,
+      email,
+      codigoAdmin: String(document?.data.codigoAdmin || ''),
+      grupoId: String(document?.data.codigoCliente || document?.data.grupoId || ''),
+      papel: isMasterEmail(env, email) ? 'master' : (document ? 'admin' : 'usuario'),
+      desativado: authUser.disabled === true,
+      criadoEm: authUser.createdAt ? new Date(Number(authUser.createdAt)).toISOString() : document?.createTime || '',
+      ultimoLoginEm: authUser.lastLoginAt ? new Date(Number(authUser.lastLoginAt)).toISOString() : ''
+    };
+  });
+
+  const known = new Set(users.map(user => user.uid).filter(Boolean));
+  for (const document of documents) {
+    const uid = String(document.data.uid || '');
+    if (!uid || known.has(uid)) continue;
+    const email = String(document.data.email || '').trim().toLowerCase();
+    users.push({
+      uid,
+      email,
+      codigoAdmin: String(document.data.codigoAdmin || ''),
+      grupoId: String(document.data.codigoCliente || document.data.grupoId || ''),
+      papel: isMasterEmail(env, email) ? 'master' : 'admin',
+      desativado: false,
+      criadoEm: document.createTime || '',
+      ultimoLoginEm: ''
+    });
+  }
+  return users.sort((a, b) => a.email.localeCompare(b.email));
+}'''
+          s2, n = re.subn(old_list_pat, new_users.rstrip() + '\n\n', s, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit(f'Could not replace listAdministratorUsers: {n}')
+          s = s2
+
+          if '+ 7 * 24 * 60 * 60 * 1000' not in s:
+              raise SystemExit('7-day log retention marker not found')
+          s = s.replace('+ 7 * 24 * 60 * 60 * 1000', '+ 30 * 24 * 60 * 60 * 1000')
+
+          p.write_text(s, encoding='utf-8')
+
+          r = Path('onesignal-scheduler/src/master-rate-limit-entry.js')
+          t = r.read_text(encoding='utf-8')
+          t = t.replace('const MIN_SPACING_MS = 700;', 'const MIN_SPACING_MS = 1200;')
+          t = t.replace("if (path.endsWith('/users')) return 4_000;", "if (path.endsWith('/users')) return 30_000;")
+          t = t.replace("if (path.endsWith('/logs')) return 2_000;", "if (path.endsWith('/logs')) return 15_000;")
+          r.write_text(t, encoding='utf-8')
+
+      - name: Verify hotfix
+        run: |
+          grep -F "accounts:batchGet" onesignal-scheduler/src/index.js
+          grep -F "papel: isMasterEmail(env, email) ? 'master' : (document ? 'admin' : 'usuario')" onesignal-scheduler/src/index.js
+          grep -F "+ 30 * 24 * 60 * 60 * 1000" onesignal-scheduler/src/index.js
+          grep -F "const MIN_SPACING_MS = 1200;" onesignal-scheduler/src/master-rate-limit-entry.js
+          grep -F "return 30_000" onesignal-scheduler/src/master-rate-limit-entry.js
+
+      - name: Install and test
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npx wrangler deploy --dry-run
+
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/index.js onesignal-scheduler/src/master-rate-limit-entry.js
+          git commit -m "Fix Master user listing and Firestore 429 resilience"
+          git push origin main
