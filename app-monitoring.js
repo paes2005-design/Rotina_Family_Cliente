@@ -82,6 +82,8 @@ async function flush() {
       body: JSON.stringify({ events: batch })
     });
     if (!response.ok) throw new Error(`Log HTTP ${response.status}`);
+    const result = await response.json().catch(() => ({}));
+    if (Number(result.accepted) !== batch.length) throw new Error('Worker ainda não confirmou o lote de logs.');
     writeQueue(queue.slice(batch.length));
     sentInSession += batch.length;
   } catch (_) {
