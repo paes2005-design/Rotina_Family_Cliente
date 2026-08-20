@@ -13,6 +13,14 @@
   "triggers": {
     "crons": ["* * * * *"]
   },
+  "secrets": {
+    "required": [
+      "MASTER_ADMIN_EMAILS",
+      "GOOGLE_SERVICE_ACCOUNT_JSON",
+      "APP_LOG_ENCRYPTION_KEY",
+      "ONESIGNAL_REST_API_KEY"
+    ]
+  },
   "vars": {
     "FIREBASE_PROJECT_ID": "sistema-de-metas-diarias",
     "ONESIGNAL_APP_ID": "356292b3-a763-4a89-b0e5-21bf54bf0424",
