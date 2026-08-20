@@ -356,7 +356,30 @@ export default {
     const timeZone = env.ALARM_TIME_ZONE || DEFAULT_TIME_ZONE;
     const minute = zonedParts(now, timeZone).minute;
     const fullScan = isLocalMidnight(now, timeZone) || minute % 5 === 0;
-    context.waitUntil(runScheduler(env, { now, fullScan }));
+    context.waitUntil((async () => {
+      try {
+        const results = await runScheduler(env, { now, fullScan });
+        const summary = results.reduce((counts, result) => {
+          counts[result.state] = (counts[result.state] || 0) + 1;
+          return counts;
+        }, {});
+        console.log(JSON.stringify({
+          event: 'rotina_family_scheduler_run',
+          scheduledTime: now.toISOString(),
+          fullScan,
+          processed: results.length,
+          states: summary
+        }));
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'rotina_family_scheduler_failure',
+          scheduledTime: now.toISOString(),
+          fullScan,
+          error: cleanError(error)
+        }));
+        throw error;
+      }
+    })());
   },
 
   async fetch() {

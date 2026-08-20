@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "test": "node test/scheduler.test.mjs && node test/integration.test.mjs",
-    "check": "node --check src/core.js && node --check src/index.js && node --check test/scheduler.test.mjs && node --check test/integration.test.mjs"
+    "check": "node --check src/core.js && node --check src/index.js && node --check test/scheduler.test.mjs && node --check test/integration.test.mjs",
+    "validate": "npm run check && npm test && wrangler deploy --dry-run"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "@types/node": "^26.2.0",
+    "wrangler": "^4.124.0"
   }
 }

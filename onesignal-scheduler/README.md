@@ -27,6 +27,8 @@ npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
 
 O gatilho roda a cada minuto. Alterações pendentes são processadas imediatamente; uma varredura completa ocorre a cada cinco minutos e à meia-noite no fuso `America/Bahia`. O OneSignal recebe o horário final em UTC e entrega a notificação mesmo com a página fechada ou a tela apagada.
 
+Os logs estruturados do Worker ficam habilitados no Cloudflare para auditoria das execuções, sem registrar códigos de família, perfis ou chaves secretas.
+
 ## Segurança e repetição
 
 - A chave REST do OneSignal e a chave da conta de serviço ficam criptografadas como Secrets no Cloudflare.
