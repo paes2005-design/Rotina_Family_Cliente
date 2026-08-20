@@ -15,6 +15,24 @@
     <link rel="icon" type="image/png" sizes="192x192" href="icon-cliente-192.png">
     <link rel="stylesheet" href="./client-ui-pro.css">
 
+    <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+    <script>
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        window.OneSignalDeferred.push(async function(OneSignal) {
+            await OneSignal.init({
+                appId: "356292b3-a763-4a89-b0e5-21bf54bf0424",
+                safari_web_id: "web.onesignal.auto.3a07767d-f8c5-4ebf-965b-cb322da40f9f",
+                serviceWorkerPath: "push/onesignal/OneSignalSDKWorker.js",
+                serviceWorkerParam: {
+                    scope: "/Rotina_Family_Cliente/push/onesignal/"
+                },
+                notifyButton: {
+                    enable: true
+                }
+            });
+        });
+    </script>
+
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <style>
         :root {
