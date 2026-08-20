@@ -6,6 +6,7 @@ on:
       - '.github/workflows/deploy-worker-master-fix.yml'
       - 'onesignal-scheduler/src/index.js'
       - 'onesignal-scheduler/src/commercial-entry.js'
+      - 'onesignal-scheduler/src/master-rate-limit-entry.js'
       - 'onesignal-scheduler/wrangler.jsonc'
   workflow_dispatch:
 
@@ -26,10 +27,12 @@ jobs:
         run: npm run check && npm test
       - name: Syntax check commercial entry
         run: node --check src/commercial-entry.js
+      - name: Syntax check Master rate-limit entry
+        run: node --check src/master-rate-limit-entry.js
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-# Includes commercial group blocking, Master tree and 15-day trial enforcement.
+# Includes commercial group blocking, Master tree, 15-day trial enforcement and serialized Master reads.
