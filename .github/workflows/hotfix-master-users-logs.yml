@@ -207,3 +207,5 @@ async function listAdministratorUsers(env, fetchImpl = fetch, now = new Date()) 
           git add onesignal-scheduler/src/index.js onesignal-scheduler/src/master-rate-limit-entry.js
           git commit -m "Fix Master user listing and Firestore 429 resilience"
           git push origin main
+
+# trigger 2026-08-20T19:23-03:00
