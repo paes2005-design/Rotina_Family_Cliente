@@ -2,9 +2,8 @@ import app from './commercial-preview-entry.js';
 import { handleMasterUsersFallback } from './master-users-fallback.js';
 import { handleMasterLogsFallback } from './master-logs-fallback.js';
 import { handleMasterUserActionPreview } from './master-user-actions-preview.js';
+import { handleMasterGroupSummary } from './master-group-summary.js';
 
-// Protege o Firestore contra rajadas de leitura geradas pela inicialização do ADM Master.
-// Na branch de teste, comercial e ações destrutivas podem operar em dry-run no preview.
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
 const MIN_SPACING_MS = 1200;
@@ -18,12 +17,17 @@ function isMasterRead(request) {
     '/admin-master/session',
     '/admin-master/users',
     '/admin-master/tree',
+    '/admin-master/group',
     '/admin-master/logs'
   ].some(suffix => path.endsWith(suffix));
 }
 
 function isMasterUsersRead(request) {
   return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/users');
+}
+
+function isMasterGroupRead(request) {
+  return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/group');
 }
 
 function isMasterLogsRead(request) {
@@ -37,6 +41,7 @@ function isMasterUsersWrite(request) {
 function ttlFor(path) {
   if (path.endsWith('/session')) return 12_000;
   if (path.endsWith('/users')) return 30_000;
+  if (path.endsWith('/group')) return 30_000;
   if (path.endsWith('/tree')) return 10_000;
   if (path.endsWith('/logs')) return 15_000;
   return 0;
@@ -78,6 +83,9 @@ async function executeMasterRead(request, env, ctx) {
   if (isMasterUsersRead(request)) {
     try { return await handleMasterUsersFallback(request, env); }
     catch (error) { console.warn('Fallback Firebase Auth indisponível; usando rota base.', String(error?.message || error)); }
+  }
+  if (isMasterGroupRead(request)) {
+    return handleMasterGroupSummary(request, env);
   }
   if (isMasterLogsRead(request)) {
     try { return await handleMasterLogsFallback(request, env); }
