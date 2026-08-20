@@ -1,5 +1,6 @@
 import app from './commercial-safe-entry.js';
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
+import { testConsoleHtml } from './test-console.js';
 
 function bearer(request) {
   return request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1] || '';
@@ -64,6 +65,15 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const dryRun = String(env.COMMERCIAL_TEST_DRY_RUN || '') === '1';
+    if (dryRun && request.method === 'GET' && (url.pathname === '/test-console' || url.pathname === '/test-console/')) {
+      return new Response(testConsoleHtml(), {
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-robots-tag': 'noindex, nofollow'
+        }
+      });
+    }
     if (dryRun && request.method === 'GET' && url.pathname === '/preview-health') {
       return Response.json(previewHealth(env), { headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-store' } });
     }
