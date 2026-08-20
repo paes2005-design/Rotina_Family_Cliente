@@ -34,7 +34,9 @@ jobs:
         run: |
           node --check src/commercial-policy.js
           node --check src/commercial-safe-entry.js
+          node --check src/commercial-preview-entry.js
           node --check src/master-user-actions-fallback.js
+          node --check src/master-user-actions-preview.js
           node --check src/master-rate-limit-entry.js
 
       - name: Architecture invariants
@@ -44,12 +46,15 @@ jobs:
           import re
 
           safe = Path('src/commercial-safe-entry.js').read_text(encoding='utf-8')
+          preview = Path('src/commercial-preview-entry.js').read_text(encoding='utf-8')
           policy = Path('src/commercial-policy.js').read_text(encoding='utf-8')
           entry = Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
           actions = Path('src/master-user-actions-fallback.js').read_text(encoding='utf-8')
+          actions_preview = Path('src/master-user-actions-preview.js').read_text(encoding='utf-8')
+          wrangler = Path('wrangler.jsonc').read_text(encoding='utf-8')
 
-          assert "import app from './commercial-safe-entry.js'" in entry
-          assert 'handleMasterUserActionFallback' in entry
+          assert "import app from './commercial-preview-entry.js'" in entry
+          assert 'handleMasterUserActionPreview' in entry
           assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
           assert 'return false' in policy.split('mustMutateFirebaseAuthForFamilyBlock',1)[1]
 
@@ -68,9 +73,35 @@ jobs:
 
           assert "url.pathname === '/admin-master/admin-access'" in safe
           assert 'bloqueadoComercialIndividual' in safe
-          assert "'/accounts:lookup'" in actions, 'Ações Master devem usar Authentication como fonte'
+          assert "'/accounts:lookup'" in actions, 'Ações Master reais usam Authentication como fonte'
 
-          print('Arquitetura comercial segura: OK')
+          assert "COMMERCIAL_TEST_DRY_RUN" in preview
+          assert "COMMERCIAL_TEST_DRY_RUN" in actions_preview
+          assert 'Nenhum dado foi alterado' in preview
+          assert 'Nenhum login foi alterado' in actions_preview
+          assert '"preview_urls": true' in wrangler
+          assert '"COMMERCIAL_TEST_DRY_RUN": "1"' in wrangler
 
-      - name: No deployment from test branch
-        run: echo "PR de teste validado. Nenhum wrangler deploy é executado por este workflow."
+          print('Arquitetura comercial segura + dry-run: OK')
+
+      - name: Dry-run bundle validation
+        run: npx wrangler versions upload --dry-run
+
+  preview-upload:
+    needs: safety-gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm ci
+      - name: Upload preview version only
+        run: npx wrangler versions upload --preview-alias safe-commercial
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Confirm no production deployment
+        run: echo "Preview version uploaded. Production deployment was not changed."
