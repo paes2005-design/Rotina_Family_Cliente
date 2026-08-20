@@ -8,6 +8,7 @@ on:
       - 'onesignal-scheduler/src/commercial-entry.js'
       - 'onesignal-scheduler/src/master-rate-limit-entry.js'
       - 'onesignal-scheduler/src/master-users-fallback.js'
+      - 'onesignal-scheduler/src/master-logs-fallback.js'
       - 'onesignal-scheduler/wrangler.jsonc'
   workflow_dispatch:
 
@@ -32,6 +33,8 @@ jobs:
         run: node --check src/master-rate-limit-entry.js
       - name: Syntax check Master Auth fallback
         run: node --check src/master-users-fallback.js
+      - name: Syntax check Master log fallback
+        run: node --check src/master-logs-fallback.js
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
@@ -39,5 +42,5 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
 # Publicação 2026-08-20: autoridade do ADM Master separada de grupo/comercial.
-# A lista de usuários Master usa Firebase Authentication como fallback independente
-# do Firestore para permanecer disponível mesmo durante limitação 429.
+# Usuários usam Firebase Authentication como fonte independente do Firestore.
+# Logs são consultados globalmente e somente sob demanda pelo ADM Master.
