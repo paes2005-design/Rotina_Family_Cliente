@@ -1,0 +1,74 @@
+name: Cleanup orphan test admin and deploy Worker
+
+on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-test-admin-and-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Worker for one-time orphan cleanup and Master v2
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('onesignal-scheduler/src/index.js')
+          s=p.read_text(encoding='utf-8')
+
+          # Version marker so we can confirm the deployed Worker is the fixed build.
+          if "masterAdminVersion: 2" not in s:
+              s=s.replace("masterAdminVersion: 1", "masterAdminVersion: 2")
+              s=s.replace("masterAdmin: data.masterAdminVersion || 1", "masterAdmin: data.masterAdminVersion || 2")
+
+          marker="export async function runScheduler(env, {"
+          cleanup_fn="""async function cleanupKnownOrphanTestAdmin(env, fetchImpl = fetch, now = new Date()) {\n  const documents = await listDocuments(env, 'administradores', fetchImpl, now, 200);\n  const candidates = documents.filter(document => {\n    const data = document.data || {};\n    const uid = String(data.uid || '').trim();\n    const email = String(data.email || '').trim().toLowerCase();\n    const grupoId = String(data.codigoCliente || data.grupoId || '').trim();\n    const codigoAdmin = String(data.codigoAdmin || '').trim();\n    return !uid && email === 'teste' && grupoId === 'CLI-7335' && codigoAdmin === 'ADM-8609';\n  });\n  for (const document of candidates) await deleteDocument(env, document.name, fetchImpl, now);\n  return { state: candidates.length ? 'ADMIN_TESTE_ORFAO_REMOVIDO' : 'ADMIN_TESTE_ORFAO_AUSENTE', deleted: candidates.length };\n}\n\n"""
+          if "cleanupKnownOrphanTestAdmin" not in s:
+              if marker not in s:
+                  raise SystemExit('runScheduler marker not found')
+              s=s.replace(marker, cleanup_fn+marker, 1)
+
+          old="""        const [alarmResults, rewardResults, alarmAuditResults, rewardAuditResults, logCleanup, logMigration] = await Promise.all([\n          runScheduler(env, { now, fullScan }),\n          runRewardNotifications(env, { now }),\n          runAlarmDeliveryAudits(env, { now }),\n          runRewardDeliveryAudits(env, { now }),\n          minute === 0 ? cleanupExpiredAppLogs(env, { now }) : Promise.resolve(null),\n          fullScan ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null)\n        ]);"""
+          new="""        const [alarmResults, rewardResults, alarmAuditResults, rewardAuditResults, logCleanup, logMigration, orphanCleanup] = await Promise.all([\n          runScheduler(env, { now, fullScan }),\n          runRewardNotifications(env, { now }),\n          runAlarmDeliveryAudits(env, { now }),\n          runRewardDeliveryAudits(env, { now }),\n          minute === 0 ? cleanupExpiredAppLogs(env, { now }) : Promise.resolve(null),\n          fullScan ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null),\n          cleanupKnownOrphanTestAdmin(env, fetch, now)\n        ]);"""
+          if old in s:
+              s=s.replace(old,new,1)
+
+          old2="""          ...(logCleanup ? [logCleanup] : []),\n          ...(logMigration ? [logMigration] : [])\n        ];"""
+          new2="""          ...(logCleanup ? [logCleanup] : []),\n          ...(logMigration ? [logMigration] : []),\n          ...(orphanCleanup ? [orphanCleanup] : [])\n        ];"""
+          if old2 in s:
+              s=s.replace(old2,new2,1)
+
+          old3="""          logsDeleted: logCleanup?.deleted || 0,\n          logsMigrated: logMigration?.migrated || 0,\n          states: summary"""
+          new3="""          logsDeleted: logCleanup?.deleted || 0,\n          logsMigrated: logMigration?.migrated || 0,\n          orphanAdminsDeleted: orphanCleanup?.deleted || 0,\n          states: summary"""
+          if old3 in s:
+              s=s.replace(old3,new3,1)
+
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Verify patch and tests
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          node --check src/index.js
+          npm test
+          grep -F "grupoId: groupId" src/index.js
+          grep -F "masterAdminVersion: 2" src/index.js
+          grep -F "ADMIN_TESTE_ORFAO_REMOVIDO" src/index.js
+      - name: Commit Worker patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/index.js
+          git diff --cached --quiet || git commit -m "Deploy ADM Master audit fix and cleanup orphan test admin"
+          git push
+      - name: Deploy Worker to Cloudflare
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
