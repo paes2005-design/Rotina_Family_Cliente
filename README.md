@@ -34,6 +34,10 @@ As tarefas, pontos, perfis e recompensas exibidos no Cliente são definidos pelo
 
 A tarefa continua recorrente por dia da semana, usando os valores canônicos `Domingo`, `Segunda`, `Terça`, `Quarta`, `Quinta`, `Sexta` e `Sábado`. O alarme não é recorrente: ele pertence a uma ocorrência real e armazena `dataAgendada`, `semanaInicio`, `inicioEm` e `fimEm`. Na virada de domingo para segunda, os alarmes e silenciamentos da semana anterior expiram; a nova semana começa sem alarmes herdados.
 
+O canal de notificação é exclusivamente o OneSignal Web. Ao autorizar notificações, cada navegador é inscrito e associado ao identificador externo `rotina_family__{grupoId}__{perfilId}`. O Worker dedicado em `push/onesignal/` recebe mensagens mesmo sem uma página aberta. A chave da API do OneSignal nunca deve ser colocada no navegador: o envio no horário exato precisa ser feito por um serviço servidor autorizado.
+
+O toque local possui ação explícita para parar, também encerra ao dispensar a notificação e tem limite automático de dois minutos. Os snapshots do Firestore passam a substituir o estado antigo do aparelho; somente comandos offline ainda pendentes são sobrepostos até a sincronização.
+
 ## Experiência gamificada
 
 O objetivo é transformar responsabilidades familiares em metas claras e recompensadoras. A interface utiliza pontuação, conquistas, sequências e celebrações para tornar o acompanhamento da rotina mais estimulante.

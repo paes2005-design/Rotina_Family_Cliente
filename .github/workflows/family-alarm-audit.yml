@@ -34,7 +34,7 @@ jobs:
           const sw=fs.readFileSync('sw.js','utf8');
           const index=fs.readFileSync('index-CLIENTE-v6.html','utf8');
           const ok=(v,m)=>{if(!v)throw new Error(m);console.log('OK - '+m)};
-          ok(ui.includes("import('./family-alarm-client.js?v=7')"),'Client loads date alarm v7');
+          ok(ui.includes("import('./family-alarm-client.js?v=8')"),'Client loads stoppable date alarm v8');
           ok(ui.includes("import('./client-week-nav.js?v=3')"),'Client loads weekly navigation with dated rows');
           ok(sw.includes("'./family-alarm-client.js'")&&sw.includes("'./alarm-schedule-core.js'"),'date alarm remains cached offline');
           ok(index.includes('data-family-task-date'),'today task exposes its exact date');
@@ -52,6 +52,12 @@ jobs:
           ok(alarm.includes('dataAgendada')&&alarm.includes('semanaInicio')&&core.includes('inicioEm')&&core.includes('fimEm'),'alarm payload stores exact date and start/end datetimes');
           ok(alarm.includes('versaoAgenda:3'),'alarm payload identifies dated schema');
           ok(alarm.includes('JANELA_DISPARO_MS=5*60*1000'),'foreground timer tolerates short mobile throttling');
+          ok(alarm.includes('LIMITE_TOQUE_MS=2*60*1000')&&alarm.includes('autoStopTimer=setTimeout'),'ringing always stops automatically');
+          ok(alarm.includes("actions:[{action:'stop-alarm'")&&sw.includes("event.action==='stop-alarm'"),'notification exposes a working Stop action');
+          ok(sw.includes("addEventListener('notificationclose'")&&sw.includes('ROTINA_FAMILY_ALARM_STOP'),'dismissing the notification stops the page alarm');
+          ok(alarm.includes('const proximos={}')&&alarm.includes("origem:s.metadata.fromCache?'cache':'servidor'"),'remote snapshot replaces stale device state');
+          ok(index.includes('OneSignal.User.PushSubscription.optIn()')&&index.includes('OneSignal.login(`rotina_family__'),'OneSignal subscription is enabled and linked to the Client profile');
+          ok(index.includes('oneSignalBasePath')&&index.includes('push/onesignal/OneSignalSDKWorker.js'),'OneSignal worker uses the deployed GitHub Pages base path');
           ok(alarm.includes('showNotification')&&alarm.includes('nomeTarefa'),'system notification identifies the task');
           ok(sw.includes("addEventListener('notificationclick'"),'notification opens or focuses Client');
           ok(!alarm.includes('familyAlarmClientBtn'),'disconnected global alarm button stays removed');

@@ -18,18 +18,48 @@
     <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
     <script>
         window.OneSignalDeferred = window.OneSignalDeferred || [];
+        const oneSignalBasePath = new URL('./', window.location.href).pathname;
+        const oneSignalWorkerPath = `${oneSignalBasePath.replace(/^\/+/, '')}push/onesignal/OneSignalSDKWorker.js`;
+        window.identificarClienteNoPush = function(grupo,perfilId) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return;
+            window.OneSignalDeferred.push(async function(OneSignal) {
+                await OneSignal.login(`rotina_family__${g}__${p}`);
+                await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'cliente'});
+            });
+        };
+        window.ativarPushRotina = function() {
+            return new Promise(resolve=>{
+                let concluido=false;
+                const concluir=estado=>{if(!concluido){concluido=true;resolve(estado)}};
+                window.OneSignalDeferred.push(async function(OneSignal) {
+                    try{await OneSignal.User.PushSubscription.optIn();concluir({optedIn:OneSignal.User.PushSubscription.optedIn,id:OneSignal.User.PushSubscription.id||''})}
+                    catch(e){concluir({optedIn:false,id:'',erro:String(e?.message||e)})}
+                });
+                setTimeout(()=>concluir({optedIn:false,id:'',erro:'tempo-esgotado'}),6000);
+            });
+        };
+        window.obterStatusPushRotina = function(callback) {
+            window.OneSignalDeferred.push(function(OneSignal) { callback?.({optedIn:OneSignal.User.PushSubscription.optedIn,id:OneSignal.User.PushSubscription.id||''}); });
+        };
+        window.desvincularClienteDoPush = function() {
+            window.OneSignalDeferred.push(async function(OneSignal) { await OneSignal.logout(); });
+        };
+        window.addEventListener('rotina-client-session-ready',e=>window.identificarClienteNoPush(e.detail?.grupo,e.detail?.perfilId));
         window.OneSignalDeferred.push(async function(OneSignal) {
             await OneSignal.init({
                 appId: "356292b3-a763-4a89-b0e5-21bf54bf0424",
                 safari_web_id: "web.onesignal.auto.3a07767d-f8c5-4ebf-965b-cb322da40f9f",
-                serviceWorkerPath: "push/onesignal/OneSignalSDKWorker.js",
+                serviceWorkerPath: oneSignalWorkerPath,
                 serviceWorkerParam: {
-                    scope: "/Rotina_Family_Cliente/push/onesignal/"
+                    scope: `${oneSignalBasePath}push/onesignal/`
                 },
                 notifyButton: {
                     enable: true
                 }
             });
+            const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+            if(g&&p){await OneSignal.login(`rotina_family__${g}__${p}`);await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'cliente'});}
         });
     </script>
 
@@ -428,21 +458,25 @@
             document.getElementById('telaAuth').style.display='none'; document.getElementById('telaApp').style.display='block';
             document.getElementById('tituloSaudacao').innerText=`${clienteNome}, hoje é ${diaAtualExibicao}!`;
             document.getElementById('txtDiaSemana').innerText='Acompanhe suas janelas de prazos diários!';
-            await verificarEExecutarResetSemanal(codigoGrupo); inicializarEscutasFirebase();
+            inicializarEscutasFirebase();
+            window.dispatchEvent(new CustomEvent('rotina-client-session-ready',{detail:{grupo:codigoGrupo,perfilId:clientePerfilId}}));
+            verificarEExecutarResetSemanal(codigoGrupo).catch(e=>console.error('Falha ao conferir a virada semanal',e));
         }
 
-        window.sairCliente=()=>{ [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u()); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
+        window.sairCliente=()=>{ [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u()); window.desvincularClienteDoPush?.(); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
 
         window.addEventListener('DOMContentLoaded',()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g) iniciarSessaoCliente(n,g,s,p||''); });
 
         function inicializarEscutasFirebase() {
             // Busca por grupo e filtra por perfilId; assim registros antigos por nome continuam compatíveis.
-            unsubscribeTarefas = onSnapshot(query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo)), snapshot=>{
+            [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u());
+            unsubscribeTarefas = onSnapshot(query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo)),{includeMetadataChanges:true}, snapshot=>{
                 const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome));
                 cacheTarefasTodas=lista; cacheTarefasHoje=lista.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
                 renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
+                window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem:snapshot.metadata.fromCache?'cache':'servidor'}}));
             });
-            unsubscribeHistorico = onSnapshot(query(collection(db,'historico'),where('grupoId','==',codigoGrupo)), snapshot=>{
+            unsubscribeHistorico = onSnapshot(query(collection(db,'historico'),where('grupoId','==',codigoGrupo)),{includeMetadataChanges:true}, snapshot=>{
                 cacheHistorico=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(h=>(h.perfilId ? h.perfilId===clientePerfilId : h.perfilNome===clienteNome));
                 atualizarPainelPontos(); atualizarConquistas(); renderizarRecompensasCliente(); renderizarJustificativasCliente();
             });
@@ -720,11 +754,11 @@
         }
         window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
     </script>
-    <script src="./client-ui-pro.js?v=25"></script>
+    <script src="./client-ui-pro.js?v=26"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js?v=26')
+          navigator.serviceWorker.register('./sw.js?v=27')
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });
