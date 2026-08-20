@@ -33,6 +33,7 @@ jobs:
           node --check src/commercial-preview-entry.js
           node --check src/master-user-actions-fallback.js
           node --check src/master-user-actions-preview.js
+          node --check src/master-groups-index.js
           node --check src/master-group-summary.js
           node --check src/master-rate-limit-entry.js
           node --check src/test-console.js
@@ -46,12 +47,16 @@ jobs:
           preview = Path('src/commercial-preview-entry.js').read_text(encoding='utf-8')
           policy = Path('src/commercial-policy.js').read_text(encoding='utf-8')
           entry = Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
+          index = Path('src/master-groups-index.js').read_text(encoding='utf-8')
           summary = Path('src/master-group-summary.js').read_text(encoding='utf-8')
+          console = Path('src/test-console.js').read_text(encoding='utf-8')
           client = Path('../commercial-access-client.js').read_text(encoding='utf-8')
           wrangler = Path('wrangler.jsonc').read_text(encoding='utf-8')
 
           assert "import app from './commercial-preview-entry.js'" in entry
-          assert "handleMasterGroupSummary" in entry
+          assert 'handleMasterGroupsIndex' in entry
+          assert 'handleMasterGroupSummary' in entry
+          assert "'/admin-master/groups'" in entry
           assert "'/admin-master/group'" in entry
           assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
           assert 'return false' in policy.split('mustMutateFirebaseAuthForFamilyBlock',1)[1]
@@ -69,7 +74,7 @@ jobs:
           assert 'familyBlockPatch' in text
           assert 'upsertConfig' in text
 
-          # Fase atual: decisão comercial é SOMENTE configGrupos/<grupoId>.grupoBloqueado.
+          # Decisão comercial somente pelo grupo.
           assert "config.grupoBloqueado === true" in policy
           assert 'individualBlocked' not in policy
           assert 'profileBlocked' not in policy
@@ -78,13 +83,31 @@ jobs:
           assert "'perfis'" not in client
           assert 'desativadoMaster' not in client
 
-          # Consulta do Master é UM grupo por vez e identifica somente tipoAcesso=proprietario como responsável.
-          assert "queryByString(env, 'administradores', 'grupoId', groupId" in summary
+          # Lista global leve: somente proprietários, com cache, e sem varrer perfis/configs.
+          assert "fieldPath: 'tipoAcesso'" in index
+          assert "stringValue: 'proprietario'" in index
+          assert '5 * 60 * 1000' in index
+          assert "collectionId: 'administradores'" in index
+          assert "collectionId: 'perfis'" not in index
+          assert "collectionId: 'configGrupos'" not in index
+          assert 'isMasterEmail(env, email)' in index
+
+          # Detalhe é um grupo por vez e aceita retorno parcial em 429.
           assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
           assert "queryByString(env, 'perfis', 'grupoId', groupId" in summary
-          assert "tipoAcesso || '') === 'proprietario'" in summary
+          assert "Promise.allSettled" in summary
           assert 'administradorPrincipal' in summary
-          assert "listDocs(env, 'administradores'" not in summary
+          assert 'avisos' in summary
+
+          # Console: Master fixo, navegação por grupos e sem tela de usuários/árvore global.
+          assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
+          assert 'readonly autocomplete="username"' in console
+          assert 'id="groupSelect"' in console
+          assert 'id="groupSearch"' in console
+          assert "api('/admin-master/groups')" in console
+          assert "api('/admin-master/group?" not in console or '/admin-master/group?grupoId=' in console
+          assert "/admin-master/users" not in console
+          assert "/admin-master/tree" not in console
 
           assert 'COMMERCIAL_TEST_DRY_RUN' in preview
           assert '"preview_urls": true' in wrangler
@@ -92,7 +115,7 @@ jobs:
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
               assert secret in wrangler, f'Secret obrigatório não declarado: {secret}'
 
-          print('Arquitetura comercial segura — grupo único + proprietário: OK')
+          print('Arquitetura comercial segura — seletor de grupos + Master fixo: OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
