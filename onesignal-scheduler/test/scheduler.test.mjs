@@ -35,6 +35,32 @@ assert.equal(weekStartInZone(new Date('2026-08-20T15:00:00Z'), timeZone), '2026-
 assert.equal(weekStartInZone(new Date('2026-08-24T03:00:00Z'), timeZone), '2026-08-24');
 assert.equal(isLocalMidnight(new Date('2026-08-24T03:00:00Z'), timeZone), true);
 
+const weekDays = [
+  ['Segunda', '2026-08-17'],
+  ['Terça', '2026-08-18'],
+  ['Quarta', '2026-08-19'],
+  ['Quinta', '2026-08-20'],
+  ['Sexta', '2026-08-21'],
+  ['Sábado', '2026-08-22'],
+  ['Domingo', '2026-08-23']
+];
+for (const [dayName, date] of weekDays) {
+  const occurrences = plannedOccurrences({
+    ...baseAlarm,
+    diaSemana: dayName,
+    dataAgendada: date,
+    inicioEm: `${date}T06:00:00`,
+    fimEm: `${date}T06:10:00`,
+    acionadoEm: `${date}T08:00:00Z`,
+    momentos: ['inicio']
+  }, {
+    now: new Date(`${date}T08:55:00Z`),
+    timeZone
+  });
+  assert.equal(occurrences.length, 1, `${dayName} gera exatamente um alarme`);
+  assert.equal(occurrences[0].sendAfter, `${date}T09:00:00.000Z`, `${dayName} conserva data e fuso`);
+}
+
 const future = plannedOccurrences(baseAlarm, {
   now: new Date('2026-08-20T08:55:00Z'),
   timeZone
