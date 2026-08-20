@@ -8,12 +8,16 @@ Nunca coloque estes valores no repositório ou no navegador:
 
 - `ONESIGNAL_REST_API_KEY`: chave REST do aplicativo OneSignal.
 - `GOOGLE_SERVICE_ACCOUNT_JSON`: JSON completo de uma conta de serviço Google com acesso somente ao Firestore necessário.
+- `MASTER_ADMIN_EMAILS`: lista privada, separada por vírgulas, dos e-mails autorizados como ADM Master.
+- `APP_LOG_ENCRYPTION_KEY`: segredo longo e aleatório usado para criptografar os logs do aplicativo.
 
 Cadastre-os pelo painel do Cloudflare Worker em **Settings > Variables and Secrets** como `Secret`, ou pelo terminal:
 
 ```sh
 npx wrangler secret put ONESIGNAL_REST_API_KEY
 npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
+npx wrangler secret put MASTER_ADMIN_EMAILS
+npx wrangler secret put APP_LOG_ENCRYPTION_KEY
 ```
 
 ## Publicação
@@ -33,7 +37,9 @@ O mesmo Worker envia notificações de solicitações de recompensa ao ADM e de 
 
 - `GET /monitoramento` apresenta o estado sanitizado do Worker, os últimos 30 ciclos e as versões ativas.
 - Cada mensagem de alarme é consultada novamente no OneSignal após o envio. O Firestore registra quantas entregas chegaram ao serviço push, quantas foram confirmadas pelos aparelhos e quantas falharam.
-- Cliente e ADM registram ações, sincronização, conectividade e erros JavaScript na coleção `appLogs`, sem senhas, PINs, e-mails, justificativas ou textos digitados.
+- Cliente e ADM enviam ações, sincronização, conectividade e erros JavaScript para `POST /app-log`, sem senhas, PINs, e-mails, justificativas ou textos digitados.
+- O Worker sanitiza novamente os eventos e persiste somente conteúdo AES-GCM na coleção `appLogsSecure`. Logs legados são migrados para o formato criptografado e removidos da coleção antiga durante a varredura completa.
+- `GET /admin-master/logs` exige um ID token Firebase válido e um e-mail presente em `MASTER_ADMIN_EMAILS`. A mesma proteção é aplicada às rotas de gerenciamento de usuários.
 - Os logs do aplicativo expiram em sete dias e o Worker remove registros vencidos a cada hora.
 - Os logs estruturados do Cloudflare continuam disponíveis em **Worker > Observability > Logs**.
 
@@ -42,6 +48,7 @@ Os logs estruturados do Worker ficam habilitados no Cloudflare para auditoria da
 ## Segurança e repetição
 
 - A chave REST do OneSignal e a chave da conta de serviço ficam criptografadas como Secrets no Cloudflare.
+- A autoridade Master é definida somente no Secret do Cloudflare, não por campos públicos ou editáveis no Firestore.
 - Cada ocorrência usa uma chave de idempotência estável, impedindo mensagens duplicadas durante retentativas.
 - Alterar ou retirar um alarme cancela os IDs ainda agendados.
 - Alarmes de uma semana anterior são desativados pelo próprio Worker, sem depender da abertura do aplicativo.

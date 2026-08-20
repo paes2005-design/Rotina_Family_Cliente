@@ -58,6 +58,7 @@
                     enable: true,
                     size: 'medium',
                     position: 'bottom-right',
+                    offset: { bottom: '88px', right: '14px' },
                     showCredit: false,
                     text: {
                         'launcher.button.aria-label': 'Gerenciar notificações',
@@ -75,6 +76,24 @@
                         'dialog.blocked.message': 'Siga estas instruções para permitir notificações:'
                     }
                 }
+            });
+            const pushDetails = event => {
+                const notification = event?.notification || {};
+                const data = notification.additionalData || notification.data || {};
+                return {
+                    tipo: String(data.tipo || 'push').slice(0, 60),
+                    momento: String(data.momento || '').slice(0, 20),
+                    paginaVisivel: document.visibilityState === 'visible'
+                };
+            };
+            OneSignal.Notifications.addEventListener('foregroundWillDisplay', event => {
+                window.rotinaLog?.('push.onesignal_primeiro_plano', pushDetails(event));
+            });
+            OneSignal.Notifications.addEventListener('click', event => {
+                window.rotinaLog?.('push.onesignal_clicado', pushDetails(event));
+            });
+            OneSignal.Notifications.addEventListener('dismiss', event => {
+                window.rotinaLog?.('push.onesignal_dispensado', pushDetails(event));
             });
             const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
             if(g&&p){await OneSignal.login(`rotina_family__${g}__${p}`);await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'cliente'});}
@@ -772,12 +791,12 @@
         }
         window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
     </script>
-    <script type="module" src="./app-monitoring.js?v=1"></script>
+    <script type="module" src="./app-monitoring.js?v=2"></script>
     <script src="./client-ui-pro.js?v=27"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js?v=29')
+          navigator.serviceWorker.register('./sw.js?v=30')
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });

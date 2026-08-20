@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import { firestoreFieldsToJs } from '../src/core.js';
+import worker from '../src/index.js';
 import {
   auditAlarmDelivery,
   auditRewardDelivery,
+  decryptLogEvent,
+  encryptLogEvent,
+  isMasterEmail,
   reconcileAlarm,
-  reconcileRewardNotification
+  reconcileRewardNotification,
+  sanitizeLogEvent,
+  verifyFirebaseIdToken
 } from '../src/index.js';
 
 function pem(bytes) {
@@ -26,6 +32,8 @@ const env = {
   CLIENT_APP_URL: 'https://example.com/cliente/',
   ADMIN_APP_URL: 'https://example.com/adm/',
   ALARM_TIME_ZONE: 'America/Bahia',
+  APP_LOG_ENCRYPTION_KEY: 'segredo-de-log-exclusivo-do-teste',
+  MASTER_ADMIN_EMAILS: 'master@example.com',
   GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
     client_email: 'worker-test@projeto-teste.iam.gserviceaccount.com',
     private_key: pem(privateKey)
@@ -33,6 +41,7 @@ const env = {
 };
 
 const creates = [];
+const secureLogCreates = [];
 const cancels = [];
 const patches = [];
 let messageSequence = 0;
@@ -72,10 +81,62 @@ async function fetchMock(input, init = {}) {
     patches.push(firestoreFieldsToJs(JSON.parse(init.body).fields));
     return Response.json({ updateTime: new Date().toISOString() });
   }
+  if (url.includes('/documents/appLogsSecure?') && init.method === 'POST') {
+    assert.equal(init.headers.authorization, 'Bearer google-token');
+    secureLogCreates.push(firestoreFieldsToJs(JSON.parse(init.body).fields));
+    return Response.json({ name: `secure-log-${secureLogCreates.length}` });
+  }
   throw new Error(`Requisição inesperada no teste: ${init.method || 'GET'} ${url}`);
 }
 
 const now = new Date('2026-08-20T08:55:00Z');
+
+const base64UrlJson = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+const firebaseHeader = base64UrlJson({ alg: 'RS256', typ: 'JWT', kid: 'firebase-test-key' });
+const firebasePayload = base64UrlJson({
+  aud: env.FIREBASE_PROJECT_ID,
+  iss: `https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}`,
+  sub: 'master-uid',
+  email: 'master@example.com',
+  iat: Math.floor(now.getTime() / 1000) - 30,
+  exp: Math.floor(now.getTime() / 1000) + 3600
+});
+const firebaseSignature = await crypto.subtle.sign(
+  'RSASSA-PKCS1-v1_5',
+  keyPair.privateKey,
+  new TextEncoder().encode(`${firebaseHeader}.${firebasePayload}`)
+);
+const firebaseToken = `${firebaseHeader}.${firebasePayload}.${Buffer.from(firebaseSignature).toString('base64url')}`;
+const firebaseJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+const verifiedIdentity = await verifyFirebaseIdToken(env, firebaseToken, async url => {
+  assert.match(String(url), /securetoken@system\.gserviceaccount\.com/);
+  return Response.json({ keys: [{ ...firebaseJwk, kid: 'firebase-test-key', alg: 'RS256', use: 'sig' }] }, {
+    headers: { 'cache-control': 'public, max-age=3600' }
+  });
+}, now);
+assert.equal(verifiedIdentity.uid, 'master-uid');
+assert.equal(verifiedIdentity.email, 'master@example.com');
+assert.equal(isMasterEmail(env, verifiedIdentity.email), true);
+assert.equal(isMasterEmail(env, 'normal@example.com'), false);
+
+const sanitizedLog = sanitizeLogEvent({
+  aplicativo: 'adm',
+  evento: 'teste master',
+  grupoId: 'CLI-TESTE',
+  detalhes: { acao: 'editar', email: 'nao-pode-vazar@example.com', senhaTemporaria: '123456' }
+});
+assert.equal(sanitizedLog.evento, 'teste_master');
+assert.deepEqual(sanitizedLog.detalhes, { acao: 'editar' });
+const encryptedLog = await encryptLogEvent(env, sanitizedLog);
+assert.equal(encryptedLog.payload.includes('CLI-TESTE'), false);
+assert.deepEqual(await decryptLogEvent(env, encryptedLog), sanitizedLog);
+
+const deniedMasterRequest = await worker.fetch(new Request('https://worker.test/admin-master/session', {
+  headers: { origin: 'https://paes2005-design.github.io' }
+}), env);
+assert.equal(deniedMasterRequest.status, 403, 'rota Master recusa chamadas sem token Firebase');
+assert.match((await deniedMasterRequest.json()).error, /Token de sessão inválido|Acesso ADM Master negado/);
+
 const activeDocument = {
   name: 'projects/projeto-teste/databases/(default)/documents/despertadores/familia__perfil__tarefa',
   data: {
@@ -130,6 +191,8 @@ const audited = await auditAlarmDelivery(env, {
 assert.equal(audited.state, 'RECEBIDO_NO_APARELHO');
 assert.equal(audited.successful, 4);
 assert.equal(audited.received, 2);
+assert.equal(secureLogCreates.length, 2, 'cada ocorrência auditada gera um log criptografado correlacionável');
+assert.equal(secureLogCreates.every(log => !JSON.stringify(log).includes('familia')), true);
 assert.equal(audited.pending, false);
 assert.equal(patches.at(-1).oneSignalEntregaEstado, 'RECEBIDO_NO_APARELHO');
 
@@ -234,6 +297,7 @@ const clientRewardAudit = await auditRewardDelivery(env, {
 assert.equal(clientRewardAudit.state, 'RECEBIDO_NO_APARELHO');
 assert.equal(clientRewardAudit.successful, 2);
 assert.equal(clientRewardAudit.received, 1);
+assert.equal(secureLogCreates.length, 3, 'a auditoria do push de recompensa também gera log seguro');
 assert.equal(patches.at(-1).pushClienteAuditoriaPendente, false);
 assert.equal(patches.at(-1).pushClienteEntregaEstado, 'RECEBIDO_NO_APARELHO');
 

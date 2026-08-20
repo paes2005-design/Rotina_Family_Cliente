@@ -12,10 +12,18 @@ import {
   zonedParts
 } from './core.js';
 
-const FIRESTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
+const GOOGLE_SCOPES = [
+  'https://www.googleapis.com/auth/datastore',
+  'https://www.googleapis.com/auth/identitytoolkit'
+].join(' ');
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ONESIGNAL_API_URL = 'https://api.onesignal.com/notifications';
+const IDENTITY_TOOLKIT_URL = 'https://identitytoolkit.googleapis.com/v1';
+const FIREBASE_JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+const ALLOWED_APP_ORIGIN = 'https://paes2005-design.github.io';
+const SENSITIVE_LOG_KEY = /senha|password|pin|email|justificativa|token|secret|chave|api/i;
 let cachedGoogleToken = { email: '', value: '', expiresAt: 0 };
+let cachedFirebaseKeys = { values: [], expiresAt: 0 };
 
 function required(value, name) {
   if (!value) throw new Error(`Configuração obrigatória ausente: ${name}`);
@@ -26,6 +34,17 @@ function base64Url(bytes) {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
+}
+
+function decodeBase64Url(value) {
+  const normalized = String(value || '').replaceAll('-', '+').replaceAll('_', '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  return Uint8Array.from(binary, character => character.charCodeAt(0));
+}
+
+function decodeJsonSegment(value) {
+  return JSON.parse(new TextDecoder().decode(decodeBase64Url(value)));
 }
 
 function encodeJson(value) {
@@ -47,7 +66,7 @@ async function serviceAccountAssertion(credentials, now = new Date()) {
   const unsigned = `${encodeJson({ alg: 'RS256', typ: 'JWT' })}.${encodeJson({
     iss: credentials.client_email,
     sub: credentials.client_email,
-    scope: FIRESTORE_SCOPE,
+    scope: GOOGLE_SCOPES,
     aud: GOOGLE_TOKEN_URL,
     iat: issuedAt,
     exp: issuedAt + 3600
@@ -65,6 +84,61 @@ async function serviceAccountAssertion(credentials, now = new Date()) {
     new TextEncoder().encode(unsigned)
   );
   return `${unsigned}.${base64Url(new Uint8Array(signature))}`;
+}
+
+async function firebaseJwks(fetchImpl = fetch, now = new Date()) {
+  if (cachedFirebaseKeys.values.length && cachedFirebaseKeys.expiresAt > now.getTime()) {
+    return cachedFirebaseKeys.values;
+  }
+  const response = await fetchImpl(FIREBASE_JWKS_URL);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(body.keys)) {
+    throw new Error(`Chaves públicas do Firebase indisponíveis (${response.status}).`);
+  }
+  const maxAge = Number(response.headers.get('cache-control')?.match(/max-age=(\d+)/)?.[1] || 3600);
+  cachedFirebaseKeys = {
+    values: body.keys,
+    expiresAt: now.getTime() + Math.max(300, maxAge) * 1000
+  };
+  return body.keys;
+}
+
+export async function verifyFirebaseIdToken(env, idToken, fetchImpl = fetch, now = new Date()) {
+  const token = String(idToken || '').trim();
+  const segments = token.split('.');
+  if (segments.length !== 3) throw new Error('Token de sessão inválido.');
+  const [encodedHeader, encodedPayload, encodedSignature] = segments;
+  const header = decodeJsonSegment(encodedHeader);
+  const payload = decodeJsonSegment(encodedPayload);
+  const projectId = required(env.FIREBASE_PROJECT_ID, 'FIREBASE_PROJECT_ID');
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+  if (header.alg !== 'RS256' || !header.kid) throw new Error('Assinatura de sessão inválida.');
+  if (payload.aud !== projectId || payload.iss !== `https://securetoken.google.com/${projectId}`) {
+    throw new Error('Sessão emitida para outro projeto.');
+  }
+  if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.length > 128) {
+    throw new Error('Identificador da sessão inválido.');
+  }
+  if (Number(payload.exp) <= nowSeconds || Number(payload.iat) > nowSeconds + 60) {
+    throw new Error('Sessão expirada ou emitida no futuro.');
+  }
+  const jwk = (await firebaseJwks(fetchImpl, now)).find(key => key.kid === header.kid);
+  if (!jwk) throw new Error('Chave de assinatura da sessão não encontrada.');
+  const publicKey = await crypto.subtle.importKey(
+    'jwk',
+    jwk,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['verify']
+  );
+  const verified = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5',
+    publicKey,
+    decodeBase64Url(encodedSignature),
+    new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`)
+  );
+  if (!verified) throw new Error('Assinatura da sessão não confere.');
+  return { uid: payload.sub, email: String(payload.email || '').trim().toLowerCase(), claims: payload };
 }
 
 function serviceAccount(env) {
@@ -148,7 +222,66 @@ async function queryDocuments(env, collectionId, field, fetchImpl = fetch, now =
     }));
 }
 
-async function queryExpiredAppLogs(env, fetchImpl = fetch, now = new Date()) {
+async function queryDocumentsByString(env, collectionId, field, value, fetchImpl = fetch, now = new Date(), limit = 200) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const response = await fetchImpl(`${firestoreBaseUrl(env)}:runQuery`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: field },
+            op: 'EQUAL',
+            value: { stringValue: String(value || '') }
+          }
+        },
+        limit
+      }
+    })
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok) throw new Error(`Consulta Firestore recusada (${response.status}).`);
+  return (Array.isArray(rows) ? rows : []).filter(row => row.document).map(row => ({
+    name: row.document.name,
+    createTime: row.document.createTime,
+    updateTime: row.document.updateTime,
+    data: firestoreFieldsToJs(row.document.fields || {})
+  }));
+}
+
+async function listDocuments(env, collectionId, fetchImpl = fetch, now = new Date(), pageSize = 200) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const url = new URL(`${firestoreBaseUrl(env)}/${encodeURIComponent(collectionId)}`);
+  url.searchParams.set('pageSize', String(Math.min(200, Math.max(1, pageSize))));
+  const response = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` } });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Listagem Firestore recusada (${response.status}).`);
+  return (body.documents || []).map(document => ({
+    name: document.name,
+    createTime: document.createTime,
+    updateTime: document.updateTime,
+    data: firestoreFieldsToJs(document.fields || {})
+  }));
+}
+
+async function createDocument(env, collectionId, documentId, data, fetchImpl = fetch, now = new Date()) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const url = new URL(`${firestoreBaseUrl(env)}/${encodeURIComponent(collectionId)}`);
+  if (documentId) url.searchParams.set('documentId', documentId);
+  const response = await fetchImpl(url, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ fields: jsToFirestoreFields(data) })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.status === 409) return `${firestoreBaseUrl(env)}/${collectionId}/${documentId}`;
+  if (!response.ok) throw new Error(`Criação Firestore recusada (${response.status}): ${JSON.stringify(body).slice(0, 200)}`);
+  return body.name || '';
+}
+
+async function queryExpiredAppLogs(env, collectionId, fetchImpl = fetch, now = new Date()) {
   const token = await googleAccessToken(env, fetchImpl, now);
   const response = await fetchImpl(`${firestoreBaseUrl(env)}:runQuery`, {
     method: 'POST',
@@ -158,7 +291,7 @@ async function queryExpiredAppLogs(env, fetchImpl = fetch, now = new Date()) {
     },
     body: JSON.stringify({
       structuredQuery: {
-        from: [{ collectionId: 'appLogs' }],
+        from: [{ collectionId }],
         where: {
           fieldFilter: {
             field: { fieldPath: 'expiraEm' },
@@ -192,7 +325,10 @@ export async function cleanupExpiredAppLogs(env, {
   fetchImpl = fetch,
   now = new Date()
 } = {}) {
-  const documentNames = await queryExpiredAppLogs(env, fetchImpl, now);
+  const documentNames = [
+    ...(await queryExpiredAppLogs(env, 'appLogs', fetchImpl, now)),
+    ...(await queryExpiredAppLogs(env, 'appLogsSecure', fetchImpl, now))
+  ];
   for (const documentName of documentNames) {
     await deleteDocument(env, documentName, fetchImpl, now);
   }
@@ -233,6 +369,125 @@ async function getDocument(env, documentName, fetchImpl = fetch, now = new Date(
   };
 }
 
+function cleanLogScalar(value) {
+  if (typeof value === 'boolean' || typeof value === 'number') return value;
+  return String(value ?? '').replace(/\s+/g, ' ').slice(0, 180);
+}
+
+export function sanitizeLogEvent(value = {}) {
+  const details = {};
+  for (const [key, item] of Object.entries(value.detalhes || {})) {
+    if (SENSITIVE_LOG_KEY.test(key) || typeof item === 'object') continue;
+    details[String(key).slice(0, 50)] = cleanLogScalar(item);
+  }
+  return {
+    aplicativo: ['cliente', 'adm', 'master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido',
+    versaoMonitor: Number(value.versaoMonitor) || 1,
+    evento: String(value.evento || 'evento').replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 80),
+    nivel: ['info', 'warning', 'error'].includes(value.nivel) ? value.nivel : 'info',
+    detalhes: details,
+    grupoId: String(value.grupoId || '').trim().slice(0, 80),
+    perfilId: String(value.perfilId || '').trim().slice(0, 128),
+    sessaoId: String(value.sessaoId || '').slice(0, 128),
+    clienteEm: String(value.clienteEm || new Date().toISOString()).slice(0, 40),
+    pagina: String(value.pagina || '').slice(0, 100),
+    navegador: String(value.navegador || '').slice(0, 40),
+    online: value.online !== false,
+    visibilidade: String(value.visibilidade || '').slice(0, 30),
+    instalado: value.instalado === true
+  };
+}
+
+async function logEncryptionKey(env) {
+  const secret = required(env.APP_LOG_ENCRYPTION_KEY, 'APP_LOG_ENCRYPTION_KEY');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function secureGroupHash(env, groupId) {
+  const secret = required(env.APP_LOG_ENCRYPTION_KEY, 'APP_LOG_ENCRYPTION_KEY');
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${secret}|grupo|${String(groupId || '').trim()}`)
+  );
+  return base64Url(new Uint8Array(digest));
+}
+
+export async function encryptLogEvent(env, value) {
+  const event = sanitizeLogEvent(value);
+  if (!event.grupoId) throw new Error('Log sem grupo.');
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    await logEncryptionKey(env),
+    new TextEncoder().encode(JSON.stringify(event))
+  );
+  return {
+    grupoHash: await secureGroupHash(env, event.grupoId),
+    iv: base64Url(iv),
+    payload: base64Url(new Uint8Array(encrypted)),
+    versao: 1
+  };
+}
+
+export async function decryptLogEvent(env, envelope) {
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: decodeBase64Url(envelope.iv) },
+    await logEncryptionKey(env),
+    decodeBase64Url(envelope.payload)
+  );
+  return sanitizeLogEvent(JSON.parse(new TextDecoder().decode(decrypted)));
+}
+
+async function storeSecureLog(env, value, fetchImpl = fetch, now = new Date(), documentId = '') {
+  const envelope = await encryptLogEvent(env, value);
+  const id = documentId || crypto.randomUUID();
+  await createDocument(env, 'appLogsSecure', id, {
+    ...envelope,
+    criadoEm: now,
+    expiraEm: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+  }, fetchImpl, now);
+  return id;
+}
+
+async function readSecureLogs(env, groupId, fetchImpl = fetch, now = new Date()) {
+  const documents = await queryDocumentsByString(
+    env,
+    'appLogsSecure',
+    'grupoHash',
+    await secureGroupHash(env, groupId),
+    fetchImpl,
+    now,
+    200
+  );
+  const logs = [];
+  for (const document of documents) {
+    try {
+      logs.push({ id: document.name.split('/').at(-1), ...(await decryptLogEvent(env, document.data)) });
+    } catch (_) {}
+  }
+  return logs.sort((a, b) => String(b.clienteEm || '').localeCompare(String(a.clienteEm || ''))).slice(0, 100);
+}
+
+export async function migrateLegacyAppLogs(env, {
+  fetchImpl = fetch,
+  now = new Date(),
+  limit = 100
+} = {}) {
+  const legacy = await listDocuments(env, 'appLogs', fetchImpl, now, limit);
+  let migrated = 0;
+  for (const document of legacy) {
+    const id = document.name.split('/').at(-1) || crypto.randomUUID();
+    const event = sanitizeLogEvent(document.data);
+    if (event.grupoId) {
+      await storeSecureLog(env, event, fetchImpl, now, `legacy-${id}`);
+      migrated += 1;
+    }
+    await deleteDocument(env, document.name, fetchImpl, now);
+  }
+  return { state: 'LOGS_MIGRADOS', migrated };
+}
+
 function monitoringDocumentName(env) {
   const projectId = required(env.FIREBASE_PROJECT_ID, 'FIREBASE_PROJECT_ID');
   return `projects/${projectId}/databases/(default)/documents/monitoramento/rotina-family-runtime`;
@@ -258,6 +513,7 @@ async function recordMonitoringCycle(env, cycle, fetchImpl = fetch, now = new Da
     alarmAudits: Number(cycle.alarmAudits) || 0,
     rewardAudits: Number(cycle.rewardAudits) || 0,
     logsDeleted: Number(cycle.logsDeleted) || 0,
+    logsMigrated: Number(cycle.logsMigrated) || 0,
     states: cycle.states || {}
   };
   await patchDocument(env, documentName, {
@@ -269,7 +525,8 @@ async function recordMonitoringCycle(env, cycle, fetchImpl = fetch, now = new Da
     schedulerVersion: SCHEDULER_VERSION,
     rewardPushVersion: 1,
     deliveryAuditVersion: 1,
-    appLogVersion: 1
+    appLogVersion: 2,
+    masterAdminVersion: 1
   }, fetchImpl, now);
   return entry;
 }
@@ -287,9 +544,193 @@ async function publicMonitoringStatus(env, fetchImpl = fetch, now = new Date()) 
       scheduler: data.schedulerVersion || SCHEDULER_VERSION,
       rewardPush: data.rewardPushVersion || 1,
       deliveryAudit: data.deliveryAuditVersion || 1,
-      appLogs: data.appLogVersion || 1
+      appLogs: data.appLogVersion || 2,
+      masterAdmin: data.masterAdminVersion || 1
     }
   };
+}
+
+function appCorsHeaders(request, extra = {}) {
+  const origin = request.headers.get('origin') || '';
+  return {
+    'access-control-allow-origin': origin === ALLOWED_APP_ORIGIN ? origin : ALLOWED_APP_ORIGIN,
+    'access-control-allow-headers': 'authorization, content-type',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-max-age': '86400',
+    'cache-control': 'no-store',
+    vary: 'Origin',
+    ...extra
+  };
+}
+
+function bearerToken(request) {
+  const match = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] || '';
+}
+
+function masterEmailSet(env) {
+  return new Set(
+    String(env.MASTER_ADMIN_EMAILS || '')
+      .split(',')
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+export function isMasterEmail(env, email) {
+  return masterEmailSet(env).has(String(email || '').trim().toLowerCase());
+}
+
+async function administratorByUid(env, uid, fetchImpl = fetch, now = new Date()) {
+  return (await queryDocumentsByString(env, 'administradores', 'uid', uid, fetchImpl, now, 2))[0] || null;
+}
+
+async function requireMaster(request, env, fetchImpl = fetch, now = new Date()) {
+  const identity = await verifyFirebaseIdToken(env, bearerToken(request), fetchImpl, now);
+  if (!isMasterEmail(env, identity.email)) throw new Error('Acesso exclusivo do ADM Master.');
+  const administrator = await administratorByUid(env, identity.uid, fetchImpl, now);
+  if (!administrator) throw new Error('Cadastro administrativo do Master não encontrado.');
+  if (String(administrator.data.email || '').trim().toLowerCase() !== identity.email) {
+    throw new Error('E-mail autenticado não corresponde ao cadastro administrativo.');
+  }
+  return { ...identity, administrator };
+}
+
+async function identityToolkitAdminRequest(env, path, body, fetchImpl = fetch, now = new Date()) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const response = await fetchImpl(`${IDENTITY_TOOLKIT_URL}/projects/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}${path}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = result.error?.message || result.error?.status || `HTTP ${response.status}`;
+    throw new Error(`Firebase Authentication recusou a operação: ${String(message).slice(0, 180)}`);
+  }
+  return result;
+}
+
+async function listAdministratorUsers(env, fetchImpl = fetch, now = new Date()) {
+  const documents = await listDocuments(env, 'administradores', fetchImpl, now, 200);
+  const uids = documents.map(item => String(item.data.uid || '')).filter(Boolean);
+  const authUsers = uids.length
+    ? (await identityToolkitAdminRequest(env, '/accounts:lookup', { localId: uids }, fetchImpl, now)).users || []
+    : [];
+  const byUid = new Map(authUsers.map(user => [user.localId, user]));
+  return documents.map(document => {
+    const uid = String(document.data.uid || '');
+    const authUser = byUid.get(uid) || {};
+    const email = String(authUser.email || document.data.email || '').trim().toLowerCase();
+    return {
+      uid,
+      email,
+      codigoAdmin: String(document.data.codigoAdmin || ''),
+      grupoId: String(document.data.codigoCliente || document.data.grupoId || ''),
+      papel: isMasterEmail(env, email) ? 'master' : 'admin',
+      desativado: authUser.disabled === true,
+      criadoEm: authUser.createdAt ? new Date(Number(authUser.createdAt)).toISOString() : document.createTime || '',
+      ultimoLoginEm: authUser.lastLoginAt ? new Date(Number(authUser.lastLoginAt)).toISOString() : ''
+    };
+  }).sort((a, b) => a.email.localeCompare(b.email));
+}
+
+async function auditMasterAction(env, caller, action, targetUid, status, fetchImpl = fetch, now = new Date()) {
+  const groupId = caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || 'sistema';
+  await storeSecureLog(env, {
+    aplicativo: 'master',
+    evento: `master.${action}`,
+    nivel: status === 'sucesso' ? 'info' : 'error',
+    detalhes: { alvoUid: String(targetUid || '').slice(0, 128), resultado: status },
+    grupoId,
+    perfilId: '',
+    sessaoId: '',
+    clienteEm: now.toISOString(),
+    pagina: 'adm-master',
+    navegador: 'servidor',
+    online: true,
+    visibilidade: 'servidor',
+    instalado: false
+  }, fetchImpl, now);
+}
+
+async function handleAppLogRequest(request, env, fetchImpl = fetch, now = new Date()) {
+  if (request.headers.get('origin') && request.headers.get('origin') !== ALLOWED_APP_ORIGIN) {
+    return Response.json({ error: 'Origem não permitida.' }, { status: 403, headers: appCorsHeaders(request) });
+  }
+  const length = Number(request.headers.get('content-length') || 0);
+  if (length > 64_000) return Response.json({ error: 'Lote muito grande.' }, { status: 413, headers: appCorsHeaders(request) });
+  const body = await request.json().catch(() => ({}));
+  const events = (Array.isArray(body.events) ? body.events : []).slice(0, 25).map(sanitizeLogEvent).filter(item => item.grupoId);
+  for (const event of events) await storeSecureLog(env, event, fetchImpl, now);
+  return Response.json({ accepted: events.length }, { headers: appCorsHeaders(request) });
+}
+
+async function handleAdminMasterRequest(request, env, fetchImpl = fetch, now = new Date()) {
+  let caller;
+  try {
+    caller = await requireMaster(request, env, fetchImpl, now);
+  } catch (error) {
+    return Response.json({ error: cleanError(error) }, { status: 403, headers: appCorsHeaders(request) });
+  }
+  const url = new URL(request.url);
+  if (request.method === 'GET' && url.pathname.endsWith('/session')) {
+    return Response.json({
+      master: true,
+      uid: caller.uid,
+      email: caller.email,
+      grupoId: caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || ''
+    }, { headers: appCorsHeaders(request) });
+  }
+  if (request.method === 'GET' && url.pathname.endsWith('/users')) {
+    return Response.json({ users: await listAdministratorUsers(env, fetchImpl, now) }, { headers: appCorsHeaders(request) });
+  }
+  if (request.method === 'GET' && url.pathname.endsWith('/logs')) {
+    const groupId = String(url.searchParams.get('grupoId') || caller.administrator.data.codigoCliente || caller.administrator.data.grupoId || '').trim();
+    return Response.json({ logs: await readSecureLogs(env, groupId, fetchImpl, now) }, { headers: appCorsHeaders(request) });
+  }
+  if (request.method !== 'POST' || !url.pathname.endsWith('/users')) {
+    return Response.json({ error: 'Operação não encontrada.' }, { status: 404, headers: appCorsHeaders(request) });
+  }
+  const body = await request.json().catch(() => ({}));
+  const action = String(body.action || '');
+  const targetUid = String(body.targetUid || '').trim();
+  const target = targetUid ? await administratorByUid(env, targetUid, fetchImpl, now) : null;
+  if (!target) return Response.json({ error: 'Administrador não encontrado.' }, { status: 404, headers: appCorsHeaders(request) });
+  const targetEmail = String(target.data.email || '').trim().toLowerCase();
+  if (targetUid === caller.uid || isMasterEmail(env, targetEmail)) {
+    return Response.json({ error: 'O login Master não pode ser alterado por este painel.' }, { status: 409, headers: appCorsHeaders(request) });
+  }
+  try {
+    if (action === 'update-email') {
+      const email = String(body.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error('Informe um e-mail válido.');
+      await identityToolkitAdminRequest(env, '/accounts:update', { localId: targetUid, email }, fetchImpl, now);
+      await patchDocument(env, target.name, { email, atualizadoPorMasterEm: now }, fetchImpl, now);
+    } else if (action === 'send-password-reset') {
+      await identityToolkitAdminRequest(env, '/accounts:sendOobCode', {
+        requestType: 'PASSWORD_RESET',
+        email: targetEmail,
+        userIp: request.headers.get('cf-connecting-ip') || '127.0.0.1'
+      }, fetchImpl, now);
+    } else if (action === 'set-disabled') {
+      await identityToolkitAdminRequest(env, '/accounts:update', {
+        localId: targetUid,
+        disableUser: body.disabled === true,
+        validSince: String(Math.floor(now.getTime() / 1000))
+      }, fetchImpl, now);
+    } else if (action === 'delete-user') {
+      await identityToolkitAdminRequest(env, '/accounts:delete', { localId: targetUid }, fetchImpl, now);
+      await deleteDocument(env, target.name, fetchImpl, now);
+    } else {
+      throw new Error('Ação administrativa inválida.');
+    }
+    await auditMasterAction(env, caller, action, targetUid, 'sucesso', fetchImpl, now);
+    return Response.json({ success: true }, { headers: appCorsHeaders(request) });
+  } catch (error) {
+    await auditMasterAction(env, caller, action || 'desconhecida', targetUid, 'erro', fetchImpl, now).catch(() => {});
+    return Response.json({ error: cleanError(error) }, { status: 400, headers: appCorsHeaders(request) });
+  }
 }
 
 function oneSignalHeaders(env) {
@@ -373,6 +814,8 @@ async function createOneSignalMessage(env, documentName, alarm, fingerprint, occ
     ttl: 300,
     data: {
       tipo: 'alarme-tarefa',
+      grupoId: alarm.grupoId,
+      perfilId: alarm.perfilId,
       tarefaId: alarm.tarefaId,
       dataAgendada: alarm.dataAgendada,
       ocorrencia: occurrence.key,
@@ -509,6 +952,10 @@ export async function auditAlarmDelivery(env, document, {
   const audited = [];
   let pending = false;
   for (const record of records) {
+    if (record.auditoria?.completedAt && Number(record.auditoria?.remaining || 0) === 0) {
+      audited.push(record);
+      continue;
+    }
     const sendAt = Date.parse(record.envioEm || '');
     if (!Number.isFinite(sendAt) || sendAt > now.getTime() - minimumDelayMs) {
       pending = true;
@@ -518,6 +965,31 @@ export async function auditAlarmDelivery(env, document, {
     const message = await viewOneSignalMessage(env, record.mensagemId, fetchImpl);
     const summary = deliverySummary(message);
     if (summary.remaining === null || summary.remaining > 0 || !summary.completedAt) pending = true;
+    if (summary.completedAt) {
+      await storeSecureLog(env, {
+        aplicativo: 'cliente',
+        evento: 'push.onesignal_auditado',
+        nivel: summary.failed || summary.errored ? 'warning' : 'info',
+        detalhes: {
+          tipo: 'alarme',
+          momento: record.momento || '',
+          estado: deliveryState(summary),
+          successful: summary.successful,
+          received: summary.received,
+          failed: summary.failed,
+          errored: summary.errored
+        },
+        grupoId: alarm.grupoId,
+        perfilId: alarm.perfilId,
+        sessaoId: '',
+        clienteEm: summary.completedAt || record.envioEm || now.toISOString(),
+        pagina: 'worker',
+        navegador: Object.keys(summary.platformDeliveryStats || {}).join(',').slice(0, 40),
+        online: true,
+        visibilidade: 'servidor-push',
+        instalado: false
+      }, fetchImpl, now, `push-${await deterministicUuid(`alarm|${record.mensagemId}`)}`);
+    }
     audited.push({
       ...record,
       auditoria: {
@@ -757,6 +1229,30 @@ export async function auditRewardDelivery(env, document, audience, {
     [`${prefix}AuditadoEm`]: now,
     [`${prefix}AuditoriaErro`]: ''
   }, fetchImpl, now);
+  if (summary.completedAt) {
+    await storeSecureLog(env, {
+      aplicativo: audience === 'admin' ? 'adm' : 'cliente',
+      evento: 'push.onesignal_auditado',
+      nivel: summary.failed || summary.errored ? 'warning' : 'info',
+      detalhes: {
+        tipo: audience === 'admin' ? 'recompensa_solicitada' : 'recompensa_decidida',
+        estado: state,
+        successful: summary.successful,
+        received: summary.received,
+        failed: summary.failed,
+        errored: summary.errored
+      },
+      grupoId: reward.grupoId,
+      perfilId: reward.perfilId || '',
+      sessaoId: '',
+      clienteEm: summary.completedAt || reward[`${prefix}EnviadoEm`] || now.toISOString(),
+      pagina: 'worker',
+      navegador: Object.keys(summary.platformDeliveryStats || {}).join(',').slice(0, 40),
+      online: true,
+      visibilidade: 'servidor-push',
+      instalado: false
+    }, fetchImpl, now, `push-${await deterministicUuid(`reward|${audience}|${messageId}`)}`);
+  }
   return { state, audience, pending, ...summary };
 }
 
@@ -844,19 +1340,21 @@ export default {
     const fullScan = isLocalMidnight(now, timeZone) || minute % 5 === 0;
     context.waitUntil((async () => {
       try {
-        const [alarmResults, rewardResults, alarmAuditResults, rewardAuditResults, logCleanup] = await Promise.all([
+        const [alarmResults, rewardResults, alarmAuditResults, rewardAuditResults, logCleanup, logMigration] = await Promise.all([
           runScheduler(env, { now, fullScan }),
           runRewardNotifications(env, { now }),
           runAlarmDeliveryAudits(env, { now }),
           runRewardDeliveryAudits(env, { now }),
-          minute === 0 ? cleanupExpiredAppLogs(env, { now }) : Promise.resolve(null)
+          minute === 0 ? cleanupExpiredAppLogs(env, { now }) : Promise.resolve(null),
+          fullScan ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null)
         ]);
         const results = [
           ...alarmResults,
           ...rewardResults,
           ...alarmAuditResults,
           ...rewardAuditResults,
-          ...(logCleanup ? [logCleanup] : [])
+          ...(logCleanup ? [logCleanup] : []),
+          ...(logMigration ? [logMigration] : [])
         ];
         const summary = results.reduce((counts, result) => {
           counts[result.state] = (counts[result.state] || 0) + 1;
@@ -873,6 +1371,7 @@ export default {
           alarmAudits: alarmAuditResults.length,
           rewardAudits: rewardAuditResults.length,
           logsDeleted: logCleanup?.deleted || 0,
+          logsMigrated: logMigration?.migrated || 0,
           states: summary
         };
         await recordMonitoringCycle(env, cycle, fetch, now);
@@ -891,6 +1390,23 @@ export default {
 
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (request.method === 'OPTIONS' && (url.pathname === '/app-log' || url.pathname.startsWith('/admin-master/'))) {
+      return new Response(null, { status: 204, headers: appCorsHeaders(request) });
+    }
+    if (url.pathname === '/app-log' && request.method === 'POST') {
+      try {
+        return await handleAppLogRequest(request, env);
+      } catch (error) {
+        return Response.json({ error: cleanError(error) }, { status: 400, headers: appCorsHeaders(request) });
+      }
+    }
+    if (url.pathname.startsWith('/admin-master/')) {
+      try {
+        return await handleAdminMasterRequest(request, env);
+      } catch (error) {
+        return Response.json({ error: cleanError(error) }, { status: 500, headers: appCorsHeaders(request) });
+      }
+    }
     if (url.pathname === '/monitoramento' || url.pathname === '/health') {
       try {
         return Response.json(await publicMonitoringStatus(env), {
@@ -913,6 +1429,8 @@ export default {
       schedulerVersion: SCHEDULER_VERSION,
       rewardPushVersion: 1,
       deliveryAuditVersion: 1,
+      masterAdminVersion: 1,
+      secureLogsVersion: 1,
       monitoringUrl: `${url.origin}/monitoramento`
     });
   }

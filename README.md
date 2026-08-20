@@ -38,7 +38,9 @@ O canal de notificação é exclusivamente o OneSignal Web. Ao autorizar notific
 
 Solicitações de recompensa também entram na fila do Worker. O responsável recebe um push no ADM e, depois da decisão, o integrante recebe a aprovação ou recusa no Cliente. Alarmes e recompensas são direcionados pelas tags ativas de grupo, perfil e aplicativo.
 
-O módulo `app-monitoring.js` registra ações importantes, estado de rede, sincronização e erros técnicos por sete dias. Nenhuma senha, PIN, e-mail, justificativa ou texto digitado é incluído nos logs.
+O módulo `app-monitoring.js` registra ações importantes, estado de rede, sincronização e erros técnicos por sete dias. Os eventos passam pelo Worker, são sanitizados e criptografados antes de serem persistidos. Somente o ADM Master autorizado no Cloudflare consegue consultar os logs. Nenhuma senha, PIN, e-mail, justificativa ou texto digitado é incluído.
+
+O monitor também correlaciona a auditoria do OneSignal com a visibilidade da página. Eventos de push em primeiro plano, clique e dispensa são registrados pelo SDK; a auditoria do Worker registra o horário, plataforma e resultado informado pelo OneSignal. Assim é possível identificar se existia uma página visível, uma página aberta em segundo plano ou apenas o service worker no momento do envio.
 
 O toque local possui ação explícita para parar, também encerra ao dispensar a notificação e tem limite automático de dois minutos. Os snapshots do Firestore passam a substituir o estado antigo do aparelho; somente comandos offline ainda pendentes são sobrepostos até a sincronização.
 

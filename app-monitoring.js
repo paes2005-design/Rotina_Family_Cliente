@@ -1,8 +1,6 @@
-import { getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
 const APP_KIND = 'cliente';
-const MONITOR_VERSION = 1;
+const MONITOR_VERSION = 2;
+const LOG_ENDPOINT = 'https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/app-log';
 const QUEUE_KEY = `rotinaFamily.monitorQueue.${APP_KIND}`;
 const SESSION_KEY = `rotinaFamily.monitorSession.${APP_KIND}`;
 const SENSITIVE = /senha|password|pin|email|justificativa|token|secret|chave|api/i;
@@ -65,34 +63,30 @@ function browserFamily() {
 }
 
 async function flush() {
-  if (flushing || !navigator.onLine || !getApps().length) return;
+  if (flushing || !navigator.onLine) return;
   const ctx = context();
   if (!ctx.grupoId) return;
   flushing = true;
   const queue = readQueue();
-  const remaining = [];
+  if (!queue.length) { flushing = false; return; }
   try {
-    const db = getFirestore(getApp());
-    for (let index = 0; index < queue.length; index += 1) {
-      const item = queue[index];
-      if (sentInSession >= 300) { remaining.push(item); continue; }
-      try {
-        const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-        await addDoc(collection(db, 'appLogs'), {
-          ...item,
-          grupoId: item.grupoId || ctx.grupoId,
-          perfilId: item.perfilId || ctx.perfilId,
-          servidorEm: serverTimestamp(),
-          expiraEm: expires
-        });
-        sentInSession += 1;
-      } catch (_) {
-        remaining.push(...queue.slice(index));
-        break;
-      }
-    }
+    if (sentInSession >= 300) return;
+    const batch = queue.slice(0, Math.min(25, 300 - sentInSession)).map(item => ({
+      ...item,
+      grupoId: item.grupoId || ctx.grupoId,
+      perfilId: item.perfilId || ctx.perfilId
+    }));
+    const response = await fetch(LOG_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ events: batch })
+    });
+    if (!response.ok) throw new Error(`Log HTTP ${response.status}`);
+    writeQueue(queue.slice(batch.length));
+    sentInSession += batch.length;
+  } catch (_) {
+    writeQueue(queue);
   } finally {
-    writeQueue(remaining);
     flushing = false;
   }
 }
