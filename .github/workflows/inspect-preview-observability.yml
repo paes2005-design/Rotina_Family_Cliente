@@ -1,0 +1,108 @@
+name: Inspecionar preview manual
+
+on:
+  push:
+    branches:
+      - teste-arvore-comercial-segura-2026-08-20
+    paths:
+      - .github/workflows/inspect-preview-observability.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Cloudflare Workers Observability
+        shell: python
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          import json, os, time, urllib.request, urllib.error
+
+          account = os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token = os.environ['CLOUDFLARE_API_TOKEN']
+          now = int(time.time() * 1000)
+          start = now - 60 * 60 * 1000
+          endpoint = f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/observability/telemetry/query'
+          payload = {
+              'queryId': 'rotina-family-preview-manual-audit',
+              'timeframe': {'from': start, 'to': now},
+              'limit': 200,
+              'dry': True,
+              'parameters': {
+                  'datasets': [],
+                  'filterCombination': 'and',
+                  'filters': [
+                      {
+                          'key': '$metadata.service',
+                          'operation': 'eq',
+                          'type': 'string',
+                          'value': 'rotina-family-onesignal-scheduler'
+                      }
+                  ],
+                  'view': 'events'
+              }
+          }
+          req = urllib.request.Request(
+              endpoint,
+              data=json.dumps(payload).encode('utf-8'),
+              method='POST',
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json'
+              }
+          )
+
+          def redact(value, key=''):
+              forbidden = ('authorization','token','secret','password','senha','credential','cookie')
+              if any(word in key.lower() for word in forbidden):
+                  return '[REDACTED]'
+              if isinstance(value, dict):
+                  return {k: redact(v, k) for k, v in value.items()}
+              if isinstance(value, list):
+                  return [redact(v, key) for v in value[:50]]
+              if isinstance(value, str) and len(value) > 600:
+                  return value[:600] + '…'
+              return value
+
+          try:
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = json.loads(response.read().decode('utf-8'))
+          except urllib.error.HTTPError as error:
+              body = error.read().decode('utf-8', 'replace')
+              print(f'OBSERVABILITY_HTTP={error.code}')
+              print(body[:2000])
+              raise
+
+          result = raw.get('result') or {}
+          events = result.get('events') or []
+          print(f'OBSERVABILITY_OK=true')
+          print(f'WINDOW_FROM_MS={start}')
+          print(f'WINDOW_TO_MS={now}')
+          print(f'EVENT_COUNT={len(events)}')
+
+          interesting = []
+          for event in events:
+              text = json.dumps(event, ensure_ascii=False).lower()
+              if any(term in text for term in [
+                  '/test-console', '/admin-master/session', '/admin-master/users',
+                  '/admin-master/tree', '/admin-master/logs', '/admin-master/groups',
+                  '/admin-master/admin-access', '/admin-master/profiles', 'dryrun',
+                  'safe-commercial'
+              ]):
+                  interesting.append(event)
+
+          print(f'INTERESTING_COUNT={len(interesting)}')
+          for index, event in enumerate(interesting[:60], 1):
+              print(f'--- PREVIEW_EVENT_{index} ---')
+              print(json.dumps(redact(event), ensure_ascii=False, sort_keys=True))
+
+          if not interesting and events:
+              print('No endpoint-specific events matched. Showing redacted shape of first 5 events.')
+              for index, event in enumerate(events[:5], 1):
+                  print(f'--- SAMPLE_EVENT_{index} ---')
+                  print(json.dumps(redact(event), ensure_ascii=False, sort_keys=True))
