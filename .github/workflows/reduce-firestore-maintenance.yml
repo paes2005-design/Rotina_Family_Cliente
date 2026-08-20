@@ -1,0 +1,58 @@
+name: Reduce Firestore maintenance load
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reduce-firestore-maintenance.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Reduce maintenance reads
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('onesignal-scheduler/src/index.js')
+          s=p.read_text(encoding='utf-8')
+          old="    const fullScan = isLocalMidnight(now, timeZone) || minute % 5 === 0;"
+          new="    const dailyMaintenance = isLocalMidnight(now, timeZone);\n    const fullScan = dailyMaintenance || minute % 5 === 0;"
+          if s.count(old)!=1: raise SystemExit(f'fullScan marker count={s.count(old)}')
+          s=s.replace(old,new,1)
+          old="          fullScan ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null),"
+          new="          dailyMaintenance ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null),"
+          if s.count(old)!=1: raise SystemExit(f'migration marker count={s.count(old)}')
+          s=s.replace(old,new,1)
+          old="          cleanupKnownOrphanTestAdmin(env, fetch, now)"
+          new="          dailyMaintenance ? cleanupKnownOrphanTestAdmin(env, fetch, now) : Promise.resolve(null)"
+          if s.count(old)!=1: raise SystemExit(f'orphan marker count={s.count(old)}')
+          s=s.replace(old,new,1)
+          marker='+ 7 * 24 * 60 * 60 * 1000'
+          if marker not in s: raise SystemExit('7-day log retention marker not found')
+          s=s.replace(marker,'+ 30 * 24 * 60 * 60 * 1000')
+          p.write_text(s,encoding='utf-8')
+      - name: Validate
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+          grep -F 'const dailyMaintenance = isLocalMidnight(now, timeZone);' src/index.js
+          grep -F 'dailyMaintenance ? migrateLegacyAppLogs' src/index.js
+          grep -F 'dailyMaintenance ? cleanupKnownOrphanTestAdmin' src/index.js
+          grep -F '+ 30 * 24 * 60 * 60 * 1000' src/index.js
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/index.js
+          git commit -m "Reduce Firestore maintenance reads and retain logs 30 days"
+          git push origin main
