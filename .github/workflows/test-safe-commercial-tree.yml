@@ -1,0 +1,74 @@
+name: Teste comercial seguro
+
+on:
+  push:
+    branches:
+      - teste-arvore-comercial-segura-2026-08-20
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Existing regression suite
+        run: npm run check && npm test
+
+      - name: Commercial policy tests
+        run: node test/commercial-safety.test.mjs
+
+      - name: Syntax check safe modules
+        run: |
+          node --check src/commercial-policy.js
+          node --check src/commercial-safe-entry.js
+          node --check src/master-user-actions-fallback.js
+          node --check src/master-rate-limit-entry.js
+
+      - name: Architecture invariants
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          safe = Path('src/commercial-safe-entry.js').read_text(encoding='utf-8')
+          policy = Path('src/commercial-policy.js').read_text(encoding='utf-8')
+          entry = Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
+          actions = Path('src/master-user-actions-fallback.js').read_text(encoding='utf-8')
+
+          assert "import app from './commercial-safe-entry.js'" in entry
+          assert 'handleMasterUserActionFallback' in entry
+          assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
+          assert 'return false' in policy.split('mustMutateFirebaseAuthForFamilyBlock',1)[1]
+
+          master = re.search(r'async function requireMasterSafe\(.*?\n\}', safe, re.S)
+          assert master, 'requireMasterSafe ausente'
+          assert 'adminByUid' not in master.group(0), 'Master voltou a depender de administradores'
+          assert 'isMasterEmail' in master.group(0)
+
+          group = re.search(r"if \(request.method === 'POST' && url.pathname.endsWith\('/groups'\)\) \{.*?\n  \}", safe, re.S)
+          assert group, 'rota /groups ausente'
+          text = group.group(0)
+          for forbidden in ['disableUser', "'/accounts:update'", 'setGroupDisabled']:
+              assert forbidden not in text, f'Bloqueio familiar toca Auth: {forbidden}'
+          assert 'familyBlockPatch' in text
+          assert 'upsertConfig' in text
+
+          assert "url.pathname === '/admin-master/admin-access'" in safe
+          assert 'bloqueadoComercialIndividual' in safe
+          assert "'/accounts:lookup'" in actions, 'Ações Master devem usar Authentication como fonte'
+
+          print('Arquitetura comercial segura: OK')
+
+      - name: No deployment from test branch
+        run: |
+          echo "Branch de teste validada. Nenhum wrangler deploy é executado por este workflow."
