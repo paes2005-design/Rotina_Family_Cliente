@@ -6,6 +6,11 @@ on:
       - teste-arvore-comercial-segura-2026-08-20
     paths:
       - .github/workflows/diagnose-firestore-429.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/diagnose-firestore-429.yml
   workflow_dispatch:
 
 permissions:
