@@ -57,7 +57,7 @@ async function googleToken(env, now = new Date()) {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth-type:jwt-bearer', assertion })
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.access_token) throw new Error(`OAuth Google recusado (${response.status}).`);
@@ -83,28 +83,52 @@ async function fetchQuery(url, options = {}) {
   if (response.status !== 429) return response;
   const firstBody = await response.clone().json().catch(() => ({}));
   const summary = firestoreError(firstBody, response.status);
-  // RESOURCE_EXHAUSTED/quota não melhora com quatro chamadas seguidas; evita piorar a pressão.
   if (/RESOURCE_EXHAUSTED|quota|exhaust/i.test(summary)) return response;
   const retryAfter = Number(response.headers.get('retry-after') || 0);
   await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : 1200));
   return fetch(url, options);
 }
 
+function createdTime(data = {}, fallback = '') {
+  const raw = data.criadoEm || data.createdAt || data.dataCriacao || fallback || '';
+  const parsed = new Date(raw).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function normalizeAdmin(row, env) {
+  const data = firestoreFieldsToJs(row.document?.fields || {});
+  const email = String(data.email || '').trim().toLowerCase();
+  const grupoId = String(data.codigoCliente || data.grupoId || '').trim().toUpperCase();
+  return {
+    grupoId,
+    email,
+    uid: String(data.uid || ''),
+    tipoAcesso: String(data.tipoAcesso || '').trim().toLowerCase(),
+    criadoEmMs: createdTime(data, row.document?.createTime || ''),
+    master: isMasterEmail(env, email)
+  };
+}
+
+function chooseOwner(records = []) {
+  const nonMaster = records.filter(item => !item.master);
+  const explicit = nonMaster.find(item => item.tipoAcesso === 'proprietario');
+  if (explicit) return { ...explicit, origemPrincipal: 'tipoAcesso' };
+  const legacy = [...nonMaster].sort((a, b) => a.criadoEmMs - b.criadoEmMs)[0] || null;
+  return legacy ? { ...legacy, origemPrincipal: 'legado-mais-antigo' } : null;
+}
+
 async function loadOwnerGroups(env, now = new Date()) {
   if (groupsCache.value && groupsCache.expiresAt > now.getTime()) return groupsCache.value;
+
+  // Compatibilidade histórica: grupos antigos podem não possuir tipoAcesso='proprietario'.
+  // Faz uma única leitura manual da coleção de administradores, agrupa por CLI e identifica
+  // o proprietário explicitamente quando possível; caso contrário usa o cadastro mais antigo.
   const response = await fetchQuery(firestoreRunQueryUrl(env), {
     method: 'POST',
     headers: { authorization: `Bearer ${await googleToken(env, now)}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       structuredQuery: {
         from: [{ collectionId: 'administradores' }],
-        where: {
-          fieldFilter: {
-            field: { fieldPath: 'tipoAcesso' },
-            op: 'EQUAL',
-            value: { stringValue: 'proprietario' }
-          }
-        },
         limit: 200
       }
     })
@@ -117,20 +141,41 @@ async function loadOwnerGroups(env, now = new Date()) {
     throw new Error(`Lista de grupos recusada (${response.status}): ${cause}`);
   }
 
-  const map = new Map();
+  const grouped = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
     if (!row.document) continue;
-    const data = firestoreFieldsToJs(row.document.fields || {});
-    const email = String(data.email || '').trim().toLowerCase();
-    if (isMasterEmail(env, email)) continue;
-    const grupoId = String(data.codigoCliente || data.grupoId || '').trim().toUpperCase();
-    if (!grupoId) continue;
-    if (!map.has(grupoId)) {
-      map.set(grupoId, { grupoId, proprietarioEmail: email, proprietarioUid: String(data.uid || '') });
-    }
+    const admin = normalizeAdmin(row, env);
+    if (!admin.grupoId) continue;
+    if (!grouped.has(admin.grupoId)) grouped.set(admin.grupoId, []);
+    grouped.get(admin.grupoId).push(admin);
   }
-  const value = { groups: [...map.values()].sort((a, b) => a.grupoId.localeCompare(b.grupoId)), aviso: '' };
-  groupsCache = { value, expiresAt: now.getTime() + 5 * 60 * 1000 };
+
+  const groups = [];
+  for (const [grupoId, records] of grouped.entries()) {
+    const owner = chooseOwner(records);
+    if (!owner) continue;
+    groups.push({
+      grupoId,
+      proprietarioEmail: owner.email,
+      proprietarioUid: owner.uid,
+      origemPrincipal: owner.origemPrincipal,
+      totalAdministradores: records.filter(item => !item.master).length
+    });
+  }
+  groups.sort((a, b) => a.grupoId.localeCompare(b.grupoId));
+
+  console.log(JSON.stringify({
+    event: 'master_groups_index_loaded',
+    groups: groups.length,
+    adminsRead: Array.isArray(rows) ? rows.filter(row => row.document).length : 0,
+    legacyOwners: groups.filter(group => group.origemPrincipal === 'legado-mais-antigo').length
+  }));
+
+  const value = {
+    groups,
+    aviso: groups.length ? '' : 'Nenhum grupo foi identificado nos registros administrativos disponíveis.'
+  };
+  groupsCache = { value, expiresAt: now.getTime() + 10 * 60 * 1000 };
   return value;
 }
 
