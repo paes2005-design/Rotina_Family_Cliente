@@ -1,6 +1,7 @@
 import app from './commercial-safe-entry.js';
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { testConsoleHtml } from './test-console.js';
+import { loadMasterGroupSummaryData } from './master-group-summary.js';
 
 function bearer(request) {
   return request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1] || '';
@@ -61,6 +62,33 @@ async function dryRunTrial(request, env) {
   }, { headers: cors(request) });
 }
 
+async function liveGroupSelfTest(request, env) {
+  if (String(env.COMMERCIAL_TEST_DRY_RUN || '') !== '1') {
+    return new Response('Not found', { status: 404 });
+  }
+  const url = new URL(request.url);
+  const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
+  if (!groupId) return Response.json({ ok: false, error: 'grupoId ausente' }, { status: 400 });
+  const startedAt = Date.now();
+  try {
+    const grupo = await loadMasterGroupSummaryData(env, groupId, '', new Date());
+    return Response.json({
+      ok: true,
+      groupId: grupo.grupoId,
+      elapsedMs: Date.now() - startedAt,
+      principalFound: Boolean(grupo.administradorPrincipal?.email),
+      administratorCount: Array.isArray(grupo.administradores) ? grupo.administradores.length : 0,
+      clientCount: Array.isArray(grupo.clientes) ? grupo.clientes.length : 0,
+      commercialStateReadable: grupo.statusComercialDisponivel === true,
+      partial: grupo.parcial === true,
+      warningStages: (grupo.avisos || []).map(item => String(item).split(':', 1)[0]).slice(0, 10)
+    }, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
+  } catch (error) {
+    const reason = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 400);
+    return Response.json({ ok: false, groupId, elapsedMs: Date.now() - startedAt, reason }, { status: 500, headers: { 'cache-control': 'no-store' } });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -76,6 +104,9 @@ export default {
     }
     if (dryRun && request.method === 'GET' && url.pathname === '/preview-health') {
       return Response.json(previewHealth(env), { headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-store' } });
+    }
+    if (dryRun && request.method === 'GET' && url.pathname === '/preview-selftest/group') {
+      return liveGroupSelfTest(request, env);
     }
     if (dryRun && request.method === 'POST') {
       if ([
