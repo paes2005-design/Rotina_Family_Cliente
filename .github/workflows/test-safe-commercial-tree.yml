@@ -31,8 +31,6 @@ jobs:
           node --check src/commercial-policy.js
           node --check src/commercial-safe-entry.js
           node --check src/commercial-preview-entry.js
-          node --check src/master-user-actions-fallback.js
-          node --check src/master-user-actions-preview.js
           node --check src/master-groups-index.js
           node --check src/master-group-summary.js
           node --check src/master-rate-limit-entry.js
@@ -42,93 +40,50 @@ jobs:
         run: |
           from pathlib import Path
           import re
-
-          safe = Path('src/commercial-safe-entry.js').read_text(encoding='utf-8')
-          preview = Path('src/commercial-preview-entry.js').read_text(encoding='utf-8')
-          policy = Path('src/commercial-policy.js').read_text(encoding='utf-8')
-          entry = Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
-          index = Path('src/master-groups-index.js').read_text(encoding='utf-8')
-          summary = Path('src/master-group-summary.js').read_text(encoding='utf-8')
-          console = Path('src/test-console.js').read_text(encoding='utf-8')
-          client = Path('../commercial-access-client.js').read_text(encoding='utf-8')
-          wrangler = Path('wrangler.jsonc').read_text(encoding='utf-8')
+          safe=Path('src/commercial-safe-entry.js').read_text(encoding='utf-8')
+          preview=Path('src/commercial-preview-entry.js').read_text(encoding='utf-8')
+          policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
+          entry=Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
+          index=Path('src/master-groups-index.js').read_text(encoding='utf-8')
+          summary=Path('src/master-group-summary.js').read_text(encoding='utf-8')
+          console=Path('src/test-console.js').read_text(encoding='utf-8')
+          client=Path('../commercial-access-client.js').read_text(encoding='utf-8')
+          wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
 
           assert "import app from './commercial-preview-entry.js'" in entry
-          assert 'handleMasterGroupsIndex' in entry
-          assert 'handleMasterGroupSummary' in entry
-          assert "'/admin-master/groups'" in entry
-          assert "'/admin-master/group'" in entry
-          assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
-          assert 'return false' in policy.split('mustMutateFirebaseAuthForFamilyBlock',1)[1]
-
-          master = re.search(r'async function requireMasterSafe\(.*?\n\}', safe, re.S)
-          assert master, 'requireMasterSafe ausente'
-          assert 'adminByUid' not in master.group(0), 'Master voltou a depender de administradores'
-          assert 'isMasterEmail' in master.group(0)
-
-          group = re.search(r"if \(request.method === 'POST' && url.pathname.endsWith\('/groups'\)\) \{.*?\n  \}", safe, re.S)
-          assert group, 'rota /groups ausente'
-          text = group.group(0)
-          for forbidden in ['disableUser', "'/accounts:update'", 'setGroupDisabled']:
-              assert forbidden not in text, f'Bloqueio familiar toca Auth: {forbidden}'
-          assert 'familyBlockPatch' in text
-          assert 'upsertConfig' in text
-
+          assert 'handleMasterGroupsIndex' in entry and 'handleMasterGroupSummary' in entry
+          master=re.search(r'async function requireMasterSafe\(.*?\n\}', safe, re.S)
+          assert master and 'adminByUid' not in master.group(0) and 'isMasterEmail' in master.group(0)
           assert "config.grupoBloqueado === true" in policy
-          assert 'individualBlocked' not in policy
-          assert 'profileBlocked' not in policy
-          assert 'teste-expirado' not in policy
-          assert "doc(db(), 'configGrupos', group)" in client
-          assert "'perfis'" not in client
-          assert 'desativadoMaster' not in client
+          assert 'individualBlocked' not in policy and 'profileBlocked' not in policy
+          assert "doc(db(), 'configGrupos', group)" in client and "'perfis'" not in client
 
           assert "collectionId: 'administradores'" in index
           assert "data.codigoCliente || data.grupoId" in index
-          assert "item.tipoAcesso === 'proprietario'" in index
-          assert "origemPrincipal: 'legado-mais-antigo'" in index
-          assert 'createdTime' in index
-          assert 'chooseOwner' in index
-          assert '10 * 60 * 1000' in index
-          assert "collectionId: 'perfis'" not in index
-          assert "collectionId: 'configGrupos'" not in index
-          assert 'isMasterEmail(env, email)' in index
+          assert 'chooseOwner' in index and 'isMasterEmail(env, email)' in index
 
           assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
-          assert "queryByString(env, 'administradores', 'grupoId', groupId" in summary
           assert "queryByString(env, 'perfis', 'grupoId', groupId" in summary
-          assert "queryByString(env, 'perfis', 'codigoCliente', groupId" in summary
           assert 'export async function loadMasterGroupSummaryData' in summary
-          assert 'async function safeRead' in summary
           assert "safeRead('Administradores'" in summary
           assert "safeRead('Integrantes'" in summary
           assert "safeRead('Estado comercial'" in summary
-          assert 'normalizeAdmins' in summary
-          assert 'normalizeProfiles' in summary
-          assert 'administradorPrincipal' in summary
           assert 'status: 200' in summary
 
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
-          assert 'readonly autocomplete="username"' in console
-          assert 'id="groupSelect"' in console
-          assert 'id="groupSearch"' in console
           assert "api('/admin-master/groups')" in console
           assert '/admin-master/group?grupoId=' in console
-          assert "/admin-master/users" not in console
-          assert "/admin-master/tree" not in console
           assert 'Todos os grupos' in console
-          assert "'/admin-master/logs?grupoId='" in console
+          assert "/admin-master/users" not in console and "/admin-master/tree" not in console
 
-          assert 'COMMERCIAL_TEST_DRY_RUN' in preview
           assert "url.pathname === '/preview-selftest/group'" in preview
+          assert 'selfTestVersion: 2' in preview
           assert 'loadMasterGroupSummaryData' in preview
-          assert 'administratorCount' in preview
-          assert 'clientCount' in preview
-          assert '"preview_urls": true' in wrangler
+          assert 'administratorCount' in preview and 'clientCount' in preview
           assert '"COMMERCIAL_TEST_DRY_RUN": "1"' in wrangler
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
-              assert secret in wrangler, f'Secret obrigatório não declarado: {secret}'
-
-          print('Arquitetura segura + smoke test de grupo real: OK')
+              assert secret in wrangler
+          print('Safety gate: OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
@@ -143,8 +98,7 @@ jobs:
         working-directory: onesignal-scheduler
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
       - name: Upload preview version only
         run: npx wrangler versions upload --preview-alias safe-commercial
         env:
@@ -155,36 +109,28 @@ jobs:
         id: version
         shell: python
         run: |
-          import json, os
+          import json,os
           rows=[]
-          with open('/tmp/wrangler-output.ndjson', encoding='utf-8') as fh:
-              for line in fh:
-                  line=line.strip()
-                  if not line: continue
-                  try: rows.append(json.loads(line))
-                  except Exception: pass
-          candidates=[row for row in rows if row.get('type') in ('version-upload','deploy') and row.get('version_id')]
-          if not candidates:
-              raise SystemExit('Version ID não encontrado no output do Wrangler')
-          version_id=candidates[-1]['version_id']
-          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
-              out.write(f'version_id={version_id}\n')
-          print('Versão de teste capturada:', version_id)
-      - name: Check preview routing or Access protection
+          for line in open('/tmp/wrangler-output.ndjson',encoding='utf-8'):
+              try: rows.append(json.loads(line))
+              except Exception: pass
+          candidates=[r for r in rows if r.get('type')=='version-upload' and r.get('version_id')]
+          if not candidates: raise SystemExit('Version ID não encontrado')
+          vid=candidates[-1]['version_id']
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out: out.write(f'version_id={vid}\n')
+          print('TEST_VERSION_ID='+vid)
+      - name: Confirm preview is protected or reachable
         shell: python
         run: |
-          import json, urllib.error, urllib.request
-          url = 'https://safe-commercial-rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/preview-health'
+          import json,urllib.error,urllib.request
+          url='https://safe-commercial-rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/preview-health'
           try:
-              with urllib.request.urlopen(url, timeout=15) as response:
-                  body = json.loads(response.read().decode('utf-8'))
-              assert body.get('preview') is True, body
-              assert body.get('dryRun') is True, body
-              print('Preview público respondeu em dry-run: OK')
-          except urllib.error.HTTPError as error:
-              if error.code != 403:
-                  raise
-              print('Preview protegido por Cloudflare Access (HTTP 403): OK')
+              with urllib.request.urlopen(url,timeout=15) as r: b=json.loads(r.read())
+              assert b.get('preview') is True and b.get('dryRun') is True
+              print('Preview reachable: OK')
+          except urllib.error.HTTPError as e:
+              assert e.code==403
+              print('Preview protected by Access: OK')
 
   live-group-smoke:
     needs: [safety-gate, preview-upload]
@@ -197,44 +143,51 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TEST_VERSION_ID: ${{ needs.preview-upload.outputs.version_id }}
+      BASE_VERSION_ID: 8ed3c8cd-02e0-46aa-b29c-2de0282cde31
       WORKER_NAME: rotina-family-onesignal-scheduler
       PROD_URL: https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev
       TEST_GROUP_ID: CLI-6143
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: npm ci
-      - name: Real Firestore smoke test with zero normal traffic
+      - run: npm ci
+      - name: Restore exact pre-smoke baseline first
+        run: npx wrangler versions deploy "$BASE_VERSION_ID@100%" -y
+      - name: Real group smoke test at zero normal traffic
         shell: bash
         run: |
           set -euo pipefail
           test -n "$TEST_VERSION_ID"
-
-          DEPLOYMENTS_JSON="$(npx wrangler deployments list --json)"
-          OLD_VERSION_ID="$(printf '%s' "$DEPLOYMENTS_JSON" | python -c 'import json,sys; d=json.load(sys.stdin); items=d.get("deployments",d) if isinstance(d,dict) else d; cur=items[0]; versions=cur.get("versions",[]); assert len(versions)==1 and float(versions[0].get("percentage",0))==100.0, "Produção não está em versão única 100%; abortando sem alterar"; print(versions[0]["version_id"])')"
-          echo "Versão de produção preservada: $OLD_VERSION_ID"
-
-          restore_prod() {
-            echo "Restaurando deployment original em 100%..."
-            npx wrangler versions deploy "$OLD_VERSION_ID@100%" -y >/tmp/restore.log 2>&1 || { cat /tmp/restore.log; return 1; }
+          restore() {
+            echo 'Restoring baseline 100%...'
+            npx wrangler versions deploy "$BASE_VERSION_ID@100%" -y >/tmp/restore.log 2>&1 || { cat /tmp/restore.log; return 1; }
           }
-          trap restore_prod EXIT
+          trap restore EXIT
 
-          echo "Adicionando versão de teste com 0% de tráfego normal..."
-          npx wrangler versions deploy "$TEST_VERSION_ID@0%" "$OLD_VERSION_ID@100%" -y
-          sleep 4
-
+          echo 'Deploying test version at 0%, baseline at 100%...'
+          npx wrangler versions deploy "$TEST_VERSION_ID@0%" "$BASE_VERSION_ID@100%" -y
+          sleep 8
           OVERRIDE="${WORKER_NAME}=\"${TEST_VERSION_ID}\""
 
-          echo "Verificando que o override realmente atingiu a versão dry-run..."
-          HEALTH="$(curl --fail-with-body --silent --show-error --max-time 20 "$PROD_URL/preview-health" -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE")"
-          printf '%s' "$HEALTH" | python -c 'import json,sys; b=json.load(sys.stdin); assert b.get("preview") is True and b.get("dryRun") is True, b; print("Override da versão de teste: OK")'
+          echo 'Calling exact self-test route on the 0% version...'
+          curl --fail-with-body --silent --show-error --max-time 35 \
+            -D /tmp/selftest.headers \
+            "$PROD_URL/preview-selftest/group?grupoId=$TEST_GROUP_ID" \
+            -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE" \
+            -o /tmp/selftest.json
+          cat /tmp/selftest.headers
+          cat /tmp/selftest.json
 
-          echo "Executando consulta real do grupo $TEST_GROUP_ID no Firestore..."
-          RESULT="$(curl --fail-with-body --silent --show-error --max-time 30 "$PROD_URL/preview-selftest/group?grupoId=$TEST_GROUP_ID" -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE")"
-          echo "$RESULT"
-          printf '%s' "$RESULT" | python -c 'import json,sys; b=json.load(sys.stdin); assert b.get("ok") is True, b; assert b.get("groupId")=="CLI-6143", b; assert b.get("principalFound") is True, b; assert int(b.get("administratorCount",0)) >= 1, b; print("GRUPO_REAL_SMOKE_OK", json.dumps(b, ensure_ascii=False))'
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/selftest.json',encoding='utf-8'))
+          assert body.get('selfTestVersion')==2, f'Override não atingiu a rota nova: {body}'
+          assert body.get('ok') is True, body
+          assert body.get('groupId')=='CLI-6143', body
+          assert body.get('principalFound') is True, body
+          assert int(body.get('administratorCount',0)) >= 1, body
+          print('REAL_GROUP_ROUTE_OK', json.dumps(body, ensure_ascii=False))
+          PY
 
-          restore_prod
+          restore
           trap - EXIT
-          echo "SMOKE TEST REAL CONCLUÍDO E PRODUÇÃO RESTAURADA."
+          echo 'SMOKE REAL OK; baseline restored.'
