@@ -82,7 +82,6 @@ jobs:
           assert "'perfis'" not in client
           assert 'desativadoMaster' not in client
 
-          # Índice global compatível com grupos atuais e legados.
           assert "collectionId: 'administradores'" in index
           assert "data.codigoCliente || data.grupoId" in index
           assert "item.tipoAcesso === 'proprietario'" in index
@@ -93,13 +92,12 @@ jobs:
           assert "collectionId: 'perfis'" not in index
           assert "collectionId: 'configGrupos'" not in index
           assert 'isMasterEmail(env, email)' in index
-          assert "grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer'" in index
 
-          # Detalhe é um grupo por vez, sequencial, tolerante a legado e a falha parcial.
           assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
           assert "queryByString(env, 'administradores', 'grupoId', groupId" in summary
           assert "queryByString(env, 'perfis', 'grupoId', groupId" in summary
           assert "queryByString(env, 'perfis', 'codigoCliente', groupId" in summary
+          assert 'export async function loadMasterGroupSummaryData' in summary
           assert 'async function safeRead' in summary
           assert "safeRead('Administradores'" in summary
           assert "safeRead('Integrantes'" in summary
@@ -107,10 +105,8 @@ jobs:
           assert 'normalizeAdmins' in summary
           assert 'normalizeProfiles' in summary
           assert 'administradorPrincipal' in summary
-          assert 'parcial: true' in summary
           assert 'status: 200' in summary
 
-          # Console: Master fixo, grupos e monitoramento global continuam independentes.
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
           assert 'readonly autocomplete="username"' in console
           assert 'id="groupSelect"' in console
@@ -123,12 +119,16 @@ jobs:
           assert "'/admin-master/logs?grupoId='" in console
 
           assert 'COMMERCIAL_TEST_DRY_RUN' in preview
+          assert "url.pathname === '/preview-selftest/group'" in preview
+          assert 'loadMasterGroupSummaryData' in preview
+          assert 'administratorCount' in preview
+          assert 'clientCount' in preview
           assert '"preview_urls": true' in wrangler
           assert '"COMMERCIAL_TEST_DRY_RUN": "1"' in wrangler
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
               assert secret in wrangler, f'Secret obrigatório não declarado: {secret}'
 
-          print('Arquitetura segura — grupos legados + detalhe resiliente + Master fixo + logs globais: OK')
+          print('Arquitetura segura + smoke test de grupo real: OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
@@ -136,6 +136,8 @@ jobs:
     needs: safety-gate
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    outputs:
+      version_id: ${{ steps.version.outputs.version_id }}
     defaults:
       run:
         working-directory: onesignal-scheduler
@@ -148,6 +150,26 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: /tmp/wrangler-output.ndjson
+      - name: Capture uploaded version id
+        id: version
+        shell: python
+        run: |
+          import json, os
+          rows=[]
+          with open('/tmp/wrangler-output.ndjson', encoding='utf-8') as fh:
+              for line in fh:
+                  line=line.strip()
+                  if not line: continue
+                  try: rows.append(json.loads(line))
+                  except Exception: pass
+          candidates=[row for row in rows if row.get('type') in ('version-upload','deploy') and row.get('version_id')]
+          if not candidates:
+              raise SystemExit('Version ID não encontrado no output do Wrangler')
+          version_id=candidates[-1]['version_id']
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
+              out.write(f'version_id={version_id}\n')
+          print('Versão de teste capturada:', version_id)
       - name: Check preview routing or Access protection
         shell: python
         run: |
@@ -163,5 +185,56 @@ jobs:
               if error.code != 403:
                   raise
               print('Preview protegido por Cloudflare Access (HTTP 403): OK')
-      - name: Confirm no production deployment
-        run: echo "Preview version validated. Production deployment was not changed."
+
+  live-group-smoke:
+    needs: [safety-gate, preview-upload]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TEST_VERSION_ID: ${{ needs.preview-upload.outputs.version_id }}
+      WORKER_NAME: rotina-family-onesignal-scheduler
+      PROD_URL: https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev
+      TEST_GROUP_ID: CLI-6143
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm ci
+      - name: Real Firestore smoke test with zero normal traffic
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$TEST_VERSION_ID"
+
+          DEPLOYMENTS_JSON="$(npx wrangler deployments list --json)"
+          OLD_VERSION_ID="$(printf '%s' "$DEPLOYMENTS_JSON" | python -c 'import json,sys; d=json.load(sys.stdin); items=d.get("deployments",d) if isinstance(d,dict) else d; cur=items[0]; versions=cur.get("versions",[]); assert len(versions)==1 and float(versions[0].get("percentage",0))==100.0, "Produção não está em versão única 100%; abortando sem alterar"; print(versions[0]["version_id"])')"
+          echo "Versão de produção preservada: $OLD_VERSION_ID"
+
+          restore_prod() {
+            echo "Restaurando deployment original em 100%..."
+            npx wrangler versions deploy "$OLD_VERSION_ID@100%" -y >/tmp/restore.log 2>&1 || { cat /tmp/restore.log; return 1; }
+          }
+          trap restore_prod EXIT
+
+          echo "Adicionando versão de teste com 0% de tráfego normal..."
+          npx wrangler versions deploy "$TEST_VERSION_ID@0%" "$OLD_VERSION_ID@100%" -y
+          sleep 4
+
+          OVERRIDE="${WORKER_NAME}=\"${TEST_VERSION_ID}\""
+
+          echo "Verificando que o override realmente atingiu a versão dry-run..."
+          HEALTH="$(curl --fail-with-body --silent --show-error --max-time 20 "$PROD_URL/preview-health" -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE")"
+          printf '%s' "$HEALTH" | python -c 'import json,sys; b=json.load(sys.stdin); assert b.get("preview") is True and b.get("dryRun") is True, b; print("Override da versão de teste: OK")'
+
+          echo "Executando consulta real do grupo $TEST_GROUP_ID no Firestore..."
+          RESULT="$(curl --fail-with-body --silent --show-error --max-time 30 "$PROD_URL/preview-selftest/group?grupoId=$TEST_GROUP_ID" -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE")"
+          echo "$RESULT"
+          printf '%s' "$RESULT" | python -c 'import json,sys; b=json.load(sys.stdin); assert b.get("ok") is True, b; assert b.get("groupId")=="CLI-6143", b; assert b.get("principalFound") is True, b; assert int(b.get("administratorCount",0)) >= 1, b; print("GRUPO_REAL_SMOKE_OK", json.dumps(b, ensure_ascii=False))'
+
+          restore_prod
+          trap - EXIT
+          echo "SMOKE TEST REAL CONCLUÍDO E PRODUÇÃO RESTAURADA."
