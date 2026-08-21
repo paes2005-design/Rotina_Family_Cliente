@@ -94,27 +94,43 @@ function firestoreRunQueryUrl(env) {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:runQuery`;
 }
 
+function firestoreError(body, httpStatus) {
+  const error = body?.error || (Array.isArray(body) ? body.find(item => item?.error)?.error : null) || {};
+  const status = String(error.status || '').trim();
+  const message = String(error.message || '').replace(/\s+/g, ' ').trim();
+  const category = status || (httpStatus === 429 ? 'RESOURCE_EXHAUSTED' : 'FIRESTORE_ERROR');
+  return `${category}${message ? ` — ${message.slice(0, 260)}` : ''}`;
+}
+
 async function recentSecureDocuments(env, fetchImpl = fetch, now = new Date()) {
   const token = await accessToken(env, fetchImpl, now);
-  let response = null;
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
-    response = await fetchImpl(firestoreRunQueryUrl(env), {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        structuredQuery: {
-          from: [{ collectionId: 'appLogsSecure' }],
-          orderBy: [{ field: { fieldPath: 'criadoEm' }, direction: 'DESCENDING' }],
-          limit: 100
-        }
-      })
-    });
-    if (response.status !== 429 || attempt === 4) break;
-    const retryAfter = Number(response.headers.get('retry-after') || 0);
-    await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : 900 * attempt));
+  const requestOptions = {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: 'appLogsSecure' }],
+        orderBy: [{ field: { fieldPath: 'criadoEm' }, direction: 'DESCENDING' }],
+        limit: 100
+      }
+    })
+  };
+  let response = await fetchImpl(firestoreRunQueryUrl(env), requestOptions);
+  if (response.status === 429) {
+    const firstBody = await response.clone().json().catch(() => ({}));
+    const cause = firestoreError(firstBody, response.status);
+    if (!/RESOURCE_EXHAUSTED|quota|exhaust/i.test(cause)) {
+      const retryAfter = Number(response.headers.get('retry-after') || 0);
+      await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : 1200));
+      response = await fetchImpl(firestoreRunQueryUrl(env), requestOptions);
+    }
   }
   const rows = await response.json().catch(() => []);
-  if (!response.ok) throw new Error(`Leitura de logs recusada (${response.status}).`);
+  if (!response.ok) {
+    const cause = firestoreError(rows, response.status);
+    console.warn(JSON.stringify({ event: 'master_logs_read_failure', httpStatus: response.status, cause }));
+    throw new Error(`Leitura de logs recusada (${response.status}): ${cause}`);
+  }
   return (Array.isArray(rows) ? rows : []).filter(row => row.document).map(row => ({
     id: String(row.document.name || '').split('/').at(-1) || '',
     data: row.document.fields || {}
