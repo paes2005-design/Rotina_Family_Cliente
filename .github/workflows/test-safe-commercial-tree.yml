@@ -74,7 +74,6 @@ jobs:
           assert 'familyBlockPatch' in text
           assert 'upsertConfig' in text
 
-          # Decisão comercial somente pelo grupo.
           assert "config.grupoBloqueado === true" in policy
           assert 'individualBlocked' not in policy
           assert 'profileBlocked' not in policy
@@ -96,12 +95,20 @@ jobs:
           assert 'isMasterEmail(env, email)' in index
           assert "grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer'" in index
 
-          # Detalhe é um grupo por vez e aceita retorno parcial em 429.
+          # Detalhe é um grupo por vez, sequencial, tolerante a legado e a falha parcial.
           assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
+          assert "queryByString(env, 'administradores', 'grupoId', groupId" in summary
           assert "queryByString(env, 'perfis', 'grupoId', groupId" in summary
-          assert "Promise.allSettled" in summary
+          assert "queryByString(env, 'perfis', 'codigoCliente', groupId" in summary
+          assert 'async function safeRead' in summary
+          assert "safeRead('Administradores'" in summary
+          assert "safeRead('Integrantes'" in summary
+          assert "safeRead('Estado comercial'" in summary
+          assert 'normalizeAdmins' in summary
+          assert 'normalizeProfiles' in summary
           assert 'administradorPrincipal' in summary
-          assert 'avisos' in summary
+          assert 'parcial: true' in summary
+          assert 'status: 200' in summary
 
           # Console: Master fixo, grupos e monitoramento global continuam independentes.
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
@@ -121,7 +128,7 @@ jobs:
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
               assert secret in wrangler, f'Secret obrigatório não declarado: {secret}'
 
-          print('Arquitetura segura — grupos legados + Master fixo + logs globais: OK')
+          print('Arquitetura segura — grupos legados + detalhe resiliente + Master fixo + logs globais: OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
