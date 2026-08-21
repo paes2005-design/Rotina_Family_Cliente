@@ -68,12 +68,13 @@ async function liveGroupSelfTest(request, env) {
   }
   const url = new URL(request.url);
   const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
-  if (!groupId) return Response.json({ ok: false, error: 'grupoId ausente' }, { status: 400 });
+  if (!groupId) return Response.json({ ok: false, selfTestVersion: 2, error: 'grupoId ausente' }, { status: 400 });
   const startedAt = Date.now();
   try {
     const grupo = await loadMasterGroupSummaryData(env, groupId, '', new Date());
     return Response.json({
       ok: true,
+      selfTestVersion: 2,
       groupId: grupo.grupoId,
       elapsedMs: Date.now() - startedAt,
       principalFound: Boolean(grupo.administradorPrincipal?.email),
@@ -82,10 +83,10 @@ async function liveGroupSelfTest(request, env) {
       commercialStateReadable: grupo.statusComercialDisponivel === true,
       partial: grupo.parcial === true,
       warningStages: (grupo.avisos || []).map(item => String(item).split(':', 1)[0]).slice(0, 10)
-    }, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
+    }, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-rotina-selftest': 'group-v2' } });
   } catch (error) {
     const reason = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 400);
-    return Response.json({ ok: false, groupId, elapsedMs: Date.now() - startedAt, reason }, { status: 500, headers: { 'cache-control': 'no-store' } });
+    return Response.json({ ok: false, selfTestVersion: 2, groupId, elapsedMs: Date.now() - startedAt, reason }, { status: 500, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'group-v2' } });
   }
 }
 
