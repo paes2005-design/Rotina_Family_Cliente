@@ -121,7 +121,6 @@ async function groupAdmins(env, groupId, now = new Date()) {
 async function groupProfiles(env, groupId, now = new Date()) {
   const byGroup = await queryByString(env, 'perfis', 'grupoId', groupId, 100, now);
   if (byGroup.length) return byGroup;
-  // Compatibilidade para perfis antigos que guardaram o CLI em codigoCliente.
   return queryByString(env, 'perfis', 'codigoCliente', groupId, 100, now);
 }
 
@@ -203,55 +202,60 @@ async function safeRead(label, operation, fallback, avisos) {
   }
 }
 
-export async function handleMasterGroupSummary(request, env, now = new Date()) {
-  const identity = await verifyFirebaseIdToken(env, bearer(request), fetch, now);
-  if (!isMasterEmail(env, identity.email)) {
-    return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
-  }
+export async function loadMasterGroupSummaryData(env, groupIdInput, ownerHintInput = '', now = new Date()) {
+  const groupId = String(groupIdInput || '').trim().toUpperCase();
+  const ownerHint = String(ownerHintInput || '').trim().toLowerCase();
+  if (!groupId) throw new Error('Informe o código do grupo.');
 
+  const avisos = [];
+  const admins = await safeRead('Administradores', () => groupAdmins(env, groupId, now), [], avisos);
+  const profiles = await safeRead('Integrantes', () => groupProfiles(env, groupId, now), [], avisos);
+  const config = await safeRead('Estado comercial', () => groupConfig(env, groupId, now), {}, avisos);
+
+  const normalizedAdmins = normalizeAdmins(admins, env);
+  const clientes = normalizeProfiles(profiles);
+  const owner = normalizedAdmins.find(a => a.principal && !a.master)
+    || (ownerHint ? { uid: '', email: ownerHint } : null)
+    || normalizedAdmins.find(a => !a.master)
+    || null;
+
+  const grupo = {
+    grupoId,
+    grupoBloqueado: config?.grupoBloqueado === true,
+    statusComercialDisponivel: !avisos.some(item => item.startsWith('Estado comercial:')),
+    administradorPrincipal: owner ? { uid: owner.uid || '', email: owner.email || '' } : null,
+    administradores: normalizedAdmins,
+    clientes,
+    parcial: avisos.length > 0,
+    avisos
+  };
+
+  console.log(JSON.stringify({
+    event: 'master_group_summary_loaded',
+    grupoId,
+    administradores: normalizedAdmins.length,
+    integrantes: clientes.length,
+    parcial: grupo.parcial
+  }));
+  return grupo;
+}
+
+export async function handleMasterGroupSummary(request, env, now = new Date()) {
   const url = new URL(request.url);
   const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
   const ownerHint = String(url.searchParams.get('ownerEmail') || '').trim().toLowerCase();
   if (!groupId) return Response.json({ error: 'Informe o código do grupo.' }, { status: 400, headers: cors(request) });
 
   try {
-    const avisos = [];
-
-    // Sequencial de propósito: reduz pico de leituras/OAuth e evita novo 429.
-    const admins = await safeRead('Administradores', () => groupAdmins(env, groupId, now), [], avisos);
-    const profiles = await safeRead('Integrantes', () => groupProfiles(env, groupId, now), [], avisos);
-    const config = await safeRead('Estado comercial', () => groupConfig(env, groupId, now), {}, avisos);
-
-    const normalizedAdmins = normalizeAdmins(admins, env);
-    const clientes = normalizeProfiles(profiles);
-    const owner = normalizedAdmins.find(a => a.principal && !a.master)
-      || (ownerHint ? { uid: '', email: ownerHint } : null)
-      || normalizedAdmins.find(a => !a.master)
-      || null;
-
-    console.log(JSON.stringify({
-      event: 'master_group_summary_loaded',
-      grupoId: groupId,
-      administradores: normalizedAdmins.length,
-      integrantes: clientes.length,
-      parcial: avisos.length > 0
-    }));
-
-    return Response.json({
-      grupo: {
-        grupoId,
-        grupoBloqueado: config?.grupoBloqueado === true,
-        statusComercialDisponivel: !avisos.some(item => item.startsWith('Estado comercial:')),
-        administradorPrincipal: owner ? { uid: owner.uid || '', email: owner.email || '' } : null,
-        administradores: normalizedAdmins,
-        clientes,
-        parcial: avisos.length > 0,
-        avisos
-      }
-    }, { headers: cors(request) });
+    const identity = await verifyFirebaseIdToken(env, bearer(request), fetch, now);
+    if (!isMasterEmail(env, identity.email)) {
+      return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
+    }
+    const grupo = await loadMasterGroupSummaryData(env, groupId, ownerHint, now);
+    return Response.json({ grupo }, { status: 200, headers: cors(request) });
   } catch (error) {
-    const message = String(error?.message || error).slice(0, 320);
-    console.error(JSON.stringify({ event: 'master_group_summary_failure', grupoId: groupId, reason: message }));
+    const message = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 320);
+    console.error(JSON.stringify({ event: 'master_group_summary_failure', grupoId, reason: message }));
     return Response.json({
       grupo: {
         grupoId,
@@ -262,7 +266,8 @@ export async function handleMasterGroupSummary(request, env, now = new Date()) {
         clientes: [],
         parcial: true,
         avisos: [`Detalhe do grupo indisponível: ${message}`]
-      }
+      },
+      diagnostico: { etapa: 'autenticacao-ou-detalhe', motivo: message }
     }, { status: 200, headers: cors(request) });
   }
 }
