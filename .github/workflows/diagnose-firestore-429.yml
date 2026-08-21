@@ -1,0 +1,58 @@
+name: Diagnosticar Firestore 429
+
+on:
+  push:
+    branches:
+      - teste-arvore-comercial-segura-2026-08-20
+    paths:
+      - .github/workflows/diagnose-firestore-429.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consulta minima e erro sanitizado
+        shell: bash
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_PROJECT_ID: sistema-de-metas-diarias
+        run: |
+          node <<'NODE'
+          const crypto = require('crypto');
+          const sa = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}');
+          const project = process.env.FIREBASE_PROJECT_ID;
+          if (!sa.client_email || !sa.private_key) throw new Error('Conta de serviço ausente');
+          const b64 = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+          const now = Math.floor(Date.now()/1000);
+          const unsigned = `${b64({alg:'RS256',typ:'JWT'})}.${b64({iss:sa.client_email,sub:sa.client_email,scope:'https://www.googleapis.com/auth/datastore',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600})}`;
+          const sig = crypto.sign('RSA-SHA256', Buffer.from(unsigned), sa.private_key).toString('base64url');
+          const assertion = `${unsigned}.${sig}`;
+          const tokenResp = await fetch('https://oauth2.googleapis.com/token', {method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
+          const tokenBody = await tokenResp.json();
+          if (!tokenResp.ok || !tokenBody.access_token) throw new Error(`OAuth status ${tokenResp.status}`);
+          const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents:runQuery`;
+          async function probe(label, structuredQuery) {
+            const r = await fetch(url,{method:'POST',headers:{authorization:`Bearer ${tokenBody.access_token}`,'content-type':'application/json'},body:JSON.stringify({structuredQuery})});
+            const body = await r.json().catch(()=>({}));
+            const err = body?.error || (Array.isArray(body) ? body.find(x=>x?.error)?.error : null) || {};
+            console.log(`PROBE ${label}: HTTP ${r.status}`);
+            if (!r.ok) {
+              console.log(`STATUS ${String(err.status||'').slice(0,80)}`);
+              console.log(`MESSAGE ${String(err.message||'').replace(/\s+/g,' ').slice(0,500)}`);
+              if (err.details) {
+                const safe = JSON.stringify(err.details).replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]');
+                console.log(`DETAILS ${safe.slice(0,1000)}`);
+              }
+            } else {
+              const docs = Array.isArray(body) ? body.filter(x=>x.document).length : 0;
+              console.log(`RESULT documents=${docs}`);
+            }
+          }
+          await probe('grupo-proprietario', {from:[{collectionId:'administradores'}],where:{fieldFilter:{field:{fieldPath:'tipoAcesso'},op:'EQUAL',value:{stringValue:'proprietario'}}},limit:1});
+          await probe('logs-seguros', {from:[{collectionId:'appLogsSecure'}],orderBy:[{field:{fieldPath:'criadoEm'},direction:'DESCENDING'}],limit:1});
+          await probe('despertadores-pendentes', {from:[{collectionId:'despertadores'}],where:{fieldFilter:{field:{fieldPath:'schedulerPendente'},op:'EQUAL',value:{booleanValue:true}}},limit:1});
+          NODE
