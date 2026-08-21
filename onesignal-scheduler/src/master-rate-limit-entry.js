@@ -86,6 +86,39 @@ async function rememberResponse(request, response) {
   return response;
 }
 
+function safeCorsHeaders(request) {
+  const origin = request.headers.get('origin') || '';
+  const allowed = origin === 'https://paes2005-design.github.io' ? origin : 'https://paes2005-design.github.io';
+  return {
+    'access-control-allow-origin': allowed,
+    'access-control-allow-headers': 'authorization, content-type',
+    'access-control-allow-methods': 'GET, OPTIONS',
+    'cache-control': 'no-store',
+    vary: 'Origin'
+  };
+}
+
+function groupEmergencyResponse(request, error) {
+  const url = new URL(request.url);
+  const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
+  const ownerEmail = String(url.searchParams.get('ownerEmail') || '').trim().toLowerCase();
+  const reason = String(error?.message || error || 'Falha desconhecida').replace(/\s+/g, ' ').slice(0, 320);
+  console.error(JSON.stringify({ event: 'master_group_router_failure', grupoId: groupId, reason }));
+  return Response.json({
+    grupo: {
+      grupoId,
+      grupoBloqueado: false,
+      statusComercialDisponivel: false,
+      administradorPrincipal: ownerEmail ? { uid: '', email: ownerEmail } : null,
+      administradores: [],
+      clientes: [],
+      parcial: true,
+      avisos: [`Falha na abertura do grupo: ${reason}`]
+    },
+    diagnostico: { etapa: 'roteamento-ou-autenticacao', motivo: reason }
+  }, { status: 200, headers: safeCorsHeaders(request) });
+}
+
 async function executeMasterRead(request, env, ctx) {
   if (isMasterUsersRead(request)) {
     try { return await handleMasterUsersFallback(request, env); }
@@ -95,7 +128,11 @@ async function executeMasterRead(request, env, ctx) {
     return handleMasterGroupsIndex(request, env);
   }
   if (isMasterGroupRead(request)) {
-    return handleMasterGroupSummary(request, env);
+    try {
+      return await handleMasterGroupSummary(request, env);
+    } catch (error) {
+      return groupEmergencyResponse(request, error);
+    }
   }
   if (isMasterLogsRead(request)) {
     try { return await handleMasterLogsFallback(request, env); }
@@ -111,7 +148,12 @@ async function queuedMasterRead(request, env, ctx) {
     const secondHit = cachedResponse(request);
     if (secondHit) return secondHit;
     await sleep(MIN_SPACING_MS);
-    return rememberResponse(request, await executeMasterRead(request, env, ctx));
+    try {
+      return rememberResponse(request, await executeMasterRead(request, env, ctx));
+    } catch (error) {
+      if (isMasterGroupRead(request)) return groupEmergencyResponse(request, error);
+      throw error;
+    }
   });
   masterReadQueue = run.then(() => undefined, () => undefined);
   return run;
@@ -119,9 +161,14 @@ async function queuedMasterRead(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
-    if (isMasterUsersWrite(request)) return handleMasterUserActionPreview(request, env);
-    if (isMasterRead(request)) return queuedMasterRead(request, env, ctx);
-    return app.fetch(request, env, ctx);
+    try {
+      if (isMasterUsersWrite(request)) return handleMasterUserActionPreview(request, env);
+      if (isMasterRead(request)) return queuedMasterRead(request, env, ctx);
+      return app.fetch(request, env, ctx);
+    } catch (error) {
+      if (isMasterGroupRead(request)) return groupEmergencyResponse(request, error);
+      throw error;
+    }
   },
   async scheduled(controller, env, ctx) {
     return app.scheduled(controller, env, ctx);
