@@ -57,7 +57,7 @@ async function googleToken(env, now = new Date()) {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth-type:jwt-bearer', assertion })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.access_token) throw new Error(`OAuth Google recusado (${response.status}).`);
@@ -120,18 +120,10 @@ function chooseOwner(records = []) {
 async function loadOwnerGroups(env, now = new Date()) {
   if (groupsCache.value && groupsCache.expiresAt > now.getTime()) return groupsCache.value;
 
-  // Compatibilidade histórica: grupos antigos podem não possuir tipoAcesso='proprietario'.
-  // Faz uma única leitura manual da coleção de administradores, agrupa por CLI e identifica
-  // o proprietário explicitamente quando possível; caso contrário usa o cadastro mais antigo.
   const response = await fetchQuery(firestoreRunQueryUrl(env), {
     method: 'POST',
     headers: { authorization: `Bearer ${await googleToken(env, now)}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      structuredQuery: {
-        from: [{ collectionId: 'administradores' }],
-        limit: 200
-      }
-    })
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'administradores' }], limit: 200 } })
   });
   const rows = await response.json().catch(() => []);
   if (!response.ok) {
@@ -171,10 +163,7 @@ async function loadOwnerGroups(env, now = new Date()) {
     legacyOwners: groups.filter(group => group.origemPrincipal === 'legado-mais-antigo').length
   }));
 
-  const value = {
-    groups,
-    aviso: groups.length ? '' : 'Nenhum grupo foi identificado nos registros administrativos disponíveis.'
-  };
+  const value = { groups, aviso: groups.length ? '' : 'Nenhum grupo foi identificado nos registros administrativos disponíveis.' };
   groupsCache = { value, expiresAt: now.getTime() + 10 * 60 * 1000 };
   return value;
 }
