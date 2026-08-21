@@ -20,8 +20,7 @@ jobs:
         working-directory: onesignal-scheduler
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
       - name: Existing regression suite
         run: npm run check && npm test
       - name: Commercial group-only policy tests
@@ -49,7 +48,6 @@ jobs:
           console=Path('src/test-console.js').read_text(encoding='utf-8')
           client=Path('../commercial-access-client.js').read_text(encoding='utf-8')
           wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
-
           assert "import app from './commercial-preview-entry.js'" in entry
           assert 'handleMasterGroupsIndex' in entry and 'handleMasterGroupSummary' in entry
           master=re.search(r'async function requireMasterSafe\(.*?\n\}', safe, re.S)
@@ -57,11 +55,9 @@ jobs:
           assert "config.grupoBloqueado === true" in policy
           assert 'individualBlocked' not in policy and 'profileBlocked' not in policy
           assert "doc(db(), 'configGrupos', group)" in client and "'perfis'" not in client
-
           assert "collectionId: 'administradores'" in index
           assert "data.codigoCliente || data.grupoId" in index
           assert 'chooseOwner' in index and 'isMasterEmail(env, email)' in index
-
           assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
           assert "queryByString(env, 'perfis', 'grupoId', groupId" in summary
           assert 'export async function loadMasterGroupSummaryData' in summary
@@ -69,15 +65,13 @@ jobs:
           assert "safeRead('Integrantes'" in summary
           assert "safeRead('Estado comercial'" in summary
           assert 'status: 200' in summary
-
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
           assert "api('/admin-master/groups')" in console
           assert '/admin-master/group?grupoId=' in console
           assert 'Todos os grupos' in console
           assert "/admin-master/users" not in console and "/admin-master/tree" not in console
-
           assert "url.pathname === '/preview-selftest/group'" in preview
-          assert 'selfTestVersion: 2' in preview
+          assert 'selfTestVersion: 3' in preview
           assert 'loadMasterGroupSummaryData' in preview
           assert 'administratorCount' in preview and 'clientCount' in preview
           assert '"COMMERCIAL_TEST_DRY_RUN": "1"' in wrangler
@@ -150,7 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm ci
-      - name: Restore exact pre-smoke baseline first
+      - name: Restore exact baseline first
         run: npx wrangler versions deploy "$BASE_VERSION_ID@100%" -y
       - name: Real group smoke test at zero normal traffic
         shell: bash
@@ -162,26 +156,26 @@ jobs:
             npx wrangler versions deploy "$BASE_VERSION_ID@100%" -y >/tmp/restore.log 2>&1 || { cat /tmp/restore.log; return 1; }
           }
           trap restore EXIT
-
-          echo 'Deploying test version at 0%, baseline at 100%...'
           npx wrangler versions deploy "$TEST_VERSION_ID@0%" "$BASE_VERSION_ID@100%" -y
-          sleep 8
+          sleep 10
           OVERRIDE="${WORKER_NAME}=\"${TEST_VERSION_ID}\""
 
-          echo 'Calling exact self-test route on the 0% version...'
-          curl --fail-with-body --silent --show-error --max-time 35 \
+          HTTP_CODE="$(curl --silent --show-error --max-time 35 -w '%{http_code}' \
             -D /tmp/selftest.headers \
             "$PROD_URL/preview-selftest/group?grupoId=$TEST_GROUP_ID" \
             -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE" \
-            -o /tmp/selftest.json
+            -o /tmp/selftest.json)"
+          echo "HTTP_CODE=$HTTP_CODE"
           cat /tmp/selftest.headers
           cat /tmp/selftest.json
+          echo
 
           python - <<'PY'
           import json
           body=json.load(open('/tmp/selftest.json',encoding='utf-8'))
-          assert body.get('selfTestVersion')==2, f'Override não atingiu a rota nova: {body}'
-          assert body.get('ok') is True, body
+          assert body.get('selfTestVersion')==3, f'Override não atingiu a rota v3: {body}'
+          if body.get('ok') is not True:
+              raise AssertionError('SELFTEST_FAILURE: '+json.dumps(body, ensure_ascii=False))
           assert body.get('groupId')=='CLI-6143', body
           assert body.get('principalFound') is True, body
           assert int(body.get('administratorCount',0)) >= 1, body
