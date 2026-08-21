@@ -220,7 +220,7 @@ export async function loadMasterGroupSummaryData(env, groupIdInput, ownerHintInp
     || null;
 
   const grupo = {
-    grupoId,
+    grupoId: groupId,
     grupoBloqueado: config?.grupoBloqueado === true,
     statusComercialDisponivel: !avisos.some(item => item.startsWith('Estado comercial:')),
     administradorPrincipal: owner ? { uid: owner.uid || '', email: owner.email || '' } : null,
@@ -232,7 +232,7 @@ export async function loadMasterGroupSummaryData(env, groupIdInput, ownerHintInp
 
   console.log(JSON.stringify({
     event: 'master_group_summary_loaded',
-    grupoId,
+    grupoId: groupId,
     administradores: normalizedAdmins.length,
     integrantes: clientes.length,
     parcial: grupo.parcial
@@ -255,10 +255,10 @@ export async function handleMasterGroupSummary(request, env, now = new Date()) {
     return Response.json({ grupo }, { status: 200, headers: cors(request) });
   } catch (error) {
     const message = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 320);
-    console.error(JSON.stringify({ event: 'master_group_summary_failure', grupoId, reason: message }));
+    console.error(JSON.stringify({ event: 'master_group_summary_failure', grupoId: groupId, reason: message }));
     return Response.json({
       grupo: {
-        grupoId,
+        grupoId: groupId,
         grupoBloqueado: false,
         statusComercialDisponivel: false,
         administradorPrincipal: ownerHint ? { uid: '', email: ownerHint } : null,
