@@ -70,20 +70,29 @@ function firestoreRunQueryUrl(env) {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:runQuery`;
 }
 
-async function fetchRetry(url, options = {}, attempts = 4) {
-  let response;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    response = await fetch(url, options);
-    if (response.status !== 429 || attempt === attempts) break;
-    const retryAfter = Number(response.headers.get('retry-after') || 0);
-    await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : attempt * 900));
-  }
-  return response;
+function firestoreError(body, httpStatus) {
+  const error = body?.error || (Array.isArray(body) ? body.find(item => item?.error)?.error : null) || {};
+  const status = String(error.status || '').trim();
+  const message = String(error.message || '').replace(/\s+/g, ' ').trim();
+  const category = status || (httpStatus === 429 ? 'RESOURCE_EXHAUSTED' : 'FIRESTORE_ERROR');
+  return `${category}${message ? ` — ${message.slice(0, 260)}` : ''}`;
+}
+
+async function fetchQuery(url, options = {}) {
+  let response = await fetch(url, options);
+  if (response.status !== 429) return response;
+  const firstBody = await response.clone().json().catch(() => ({}));
+  const summary = firestoreError(firstBody, response.status);
+  // RESOURCE_EXHAUSTED/quota não melhora com quatro chamadas seguidas; evita piorar a pressão.
+  if (/RESOURCE_EXHAUSTED|quota|exhaust/i.test(summary)) return response;
+  const retryAfter = Number(response.headers.get('retry-after') || 0);
+  await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : 1200));
+  return fetch(url, options);
 }
 
 async function loadOwnerGroups(env, now = new Date()) {
   if (groupsCache.value && groupsCache.expiresAt > now.getTime()) return groupsCache.value;
-  const response = await fetchRetry(firestoreRunQueryUrl(env), {
+  const response = await fetchQuery(firestoreRunQueryUrl(env), {
     method: 'POST',
     headers: { authorization: `Bearer ${await googleToken(env, now)}`, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -102,8 +111,10 @@ async function loadOwnerGroups(env, now = new Date()) {
   });
   const rows = await response.json().catch(() => []);
   if (!response.ok) {
-    if (groupsCache.value) return { ...groupsCache.value, aviso: `Lista em cache; Firestore respondeu ${response.status}.` };
-    throw new Error(`Lista de grupos recusada (${response.status}).`);
+    const cause = firestoreError(rows, response.status);
+    console.warn(JSON.stringify({ event: 'master_groups_read_failure', httpStatus: response.status, cause }));
+    if (groupsCache.value) return { ...groupsCache.value, aviso: `Lista em cache; Firestore respondeu ${response.status} (${cause}).` };
+    throw new Error(`Lista de grupos recusada (${response.status}): ${cause}`);
   }
 
   const map = new Map();
@@ -147,6 +158,6 @@ export async function handleMasterGroupsIndex(request, env, now = new Date()) {
     const result = await loadOwnerGroups(env, now);
     return Response.json(result, { headers: cors(request) });
   } catch (error) {
-    return Response.json({ error: String(error?.message || error).slice(0, 180) }, { status: 503, headers: cors(request) });
+    return Response.json({ error: String(error?.message || error).slice(0, 420) }, { status: 503, headers: cors(request) });
   }
 }
