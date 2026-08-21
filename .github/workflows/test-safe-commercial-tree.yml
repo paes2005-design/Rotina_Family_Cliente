@@ -83,14 +83,18 @@ jobs:
           assert "'perfis'" not in client
           assert 'desativadoMaster' not in client
 
-          # Lista global leve: somente proprietários, com cache, e sem varrer perfis/configs.
-          assert "fieldPath: 'tipoAcesso'" in index
-          assert "stringValue: 'proprietario'" in index
-          assert '5 * 60 * 1000' in index
+          # Índice global compatível com grupos atuais e legados.
           assert "collectionId: 'administradores'" in index
+          assert "data.codigoCliente || data.grupoId" in index
+          assert "item.tipoAcesso === 'proprietario'" in index
+          assert "origemPrincipal: 'legado-mais-antigo'" in index
+          assert 'createdTime' in index
+          assert 'chooseOwner' in index
+          assert '10 * 60 * 1000' in index
           assert "collectionId: 'perfis'" not in index
           assert "collectionId: 'configGrupos'" not in index
           assert 'isMasterEmail(env, email)' in index
+          assert "grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer'" in index
 
           # Detalhe é um grupo por vez e aceita retorno parcial em 429.
           assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
@@ -99,15 +103,17 @@ jobs:
           assert 'administradorPrincipal' in summary
           assert 'avisos' in summary
 
-          # Console: Master fixo, navegação por grupos e sem tela de usuários/árvore global.
+          # Console: Master fixo, grupos e monitoramento global continuam independentes.
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
           assert 'readonly autocomplete="username"' in console
           assert 'id="groupSelect"' in console
           assert 'id="groupSearch"' in console
           assert "api('/admin-master/groups')" in console
-          assert "api('/admin-master/group?" not in console or '/admin-master/group?grupoId=' in console
+          assert '/admin-master/group?grupoId=' in console
           assert "/admin-master/users" not in console
           assert "/admin-master/tree" not in console
+          assert 'Todos os grupos' in console
+          assert "'/admin-master/logs?grupoId='" in console
 
           assert 'COMMERCIAL_TEST_DRY_RUN' in preview
           assert '"preview_urls": true' in wrangler
@@ -115,7 +121,7 @@ jobs:
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
               assert secret in wrangler, f'Secret obrigatório não declarado: {secret}'
 
-          print('Arquitetura comercial segura — seletor de grupos + Master fixo: OK')
+          print('Arquitetura segura — grupos legados + Master fixo + logs globais: OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
