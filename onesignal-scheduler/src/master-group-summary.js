@@ -66,13 +66,20 @@ function firestoreBase(env) {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(required(env.FIREBASE_PROJECT_ID, 'FIREBASE_PROJECT_ID'))}/databases/(default)/documents`;
 }
 
-async function fetchRetry(url, options = {}, attempts = 4) {
+function firestoreError(body, httpStatus) {
+  const error = body?.error || (Array.isArray(body) ? body.find(item => item?.error)?.error : null) || {};
+  const status = String(error.status || '').trim();
+  const message = String(error.message || '').replace(/\s+/g, ' ').trim();
+  return `${status || `HTTP_${httpStatus}`}${message ? ` — ${message.slice(0, 220)}` : ''}`;
+}
+
+async function fetchRetry(url, options = {}, attempts = 2) {
   let response;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     response = await fetch(url, options);
     if (response.status !== 429 || attempt === attempts) break;
     const retryAfter = Number(response.headers.get('retry-after') || 0);
-    await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : attempt * 900));
+    await new Promise(resolve => setTimeout(resolve, retryAfter > 0 ? retryAfter * 1000 : 1000));
   }
   return response;
 }
@@ -88,23 +95,34 @@ async function queryByString(env, collectionId, field, value, limit = 100, now =
     } })
   });
   const rows = await response.json().catch(() => []);
-  if (!response.ok) throw new Error(`${collectionId}:${field} recusado (${response.status}).`);
-  return (Array.isArray(rows) ? rows : []).filter(r => r.document).map(r => ({
-    id: String(r.document.name || '').split('/').at(-1) || '',
-    data: firestoreFieldsToJs(r.document.fields || {})
-  }));
+  if (!response.ok) throw new Error(`${collectionId}:${field} recusado (${response.status}): ${firestoreError(rows, response.status)}`);
+
+  const result = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row?.document) continue;
+    try {
+      result.push({
+        id: String(row.document.name || '').split('/').at(-1) || '',
+        data: firestoreFieldsToJs(row.document.fields || {}) || {}
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'master_group_document_parse_skipped', collectionId, field, reason: String(error?.message || error).slice(0, 180) }));
+    }
+  }
+  return result;
 }
 
 async function groupAdmins(env, groupId, now = new Date()) {
-  // O cadastro atual grava codigoCliente e grupoId com o mesmo CLI. Usar apenas codigoCliente
-  // reduz uma consulta por abertura de grupo. Se não houver resultado, tenta o campo legado grupoId.
   const byCode = await queryByString(env, 'administradores', 'codigoCliente', groupId, 50, now);
   if (byCode.length) return byCode;
   return queryByString(env, 'administradores', 'grupoId', groupId, 50, now);
 }
 
 async function groupProfiles(env, groupId, now = new Date()) {
-  return queryByString(env, 'perfis', 'grupoId', groupId, 100, now);
+  const byGroup = await queryByString(env, 'perfis', 'grupoId', groupId, 100, now);
+  if (byGroup.length) return byGroup;
+  // Compatibilidade para perfis antigos que guardaram o CLI em codigoCliente.
+  return queryByString(env, 'perfis', 'codigoCliente', groupId, 100, now);
 }
 
 async function groupConfig(env, groupId, now = new Date()) {
@@ -113,8 +131,8 @@ async function groupConfig(env, groupId, now = new Date()) {
   });
   if (response.status === 404) return {};
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`configGrupos recusado (${response.status}).`);
-  return firestoreFieldsToJs(body.fields || {});
+  if (!response.ok) throw new Error(`configGrupos recusado (${response.status}): ${firestoreError(body, response.status)}`);
+  return firestoreFieldsToJs(body.fields || {}) || {};
 }
 
 function bearer(request) {
@@ -132,57 +150,119 @@ function cors(request) {
   };
 }
 
+function safeData(item) {
+  return item?.data && typeof item.data === 'object' ? item.data : {};
+}
+
+function normalizeAdmins(admins, env) {
+  const result = [];
+  for (const item of Array.isArray(admins) ? admins : []) {
+    try {
+      const data = safeData(item);
+      const email = String(data.email || '').trim().toLowerCase();
+      result.push({
+        id: String(item?.id || ''),
+        uid: String(data.uid || ''),
+        email,
+        tipoAcesso: String(data.tipoAcesso || 'admin'),
+        principal: String(data.tipoAcesso || '').trim().toLowerCase() === 'proprietario',
+        master: isMasterEmail(env, email)
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'master_group_admin_normalize_skipped', reason: String(error?.message || error).slice(0, 180) }));
+    }
+  }
+  return result;
+}
+
+function normalizeProfiles(profiles) {
+  const result = [];
+  for (const item of Array.isArray(profiles) ? profiles : []) {
+    try {
+      const data = safeData(item);
+      result.push({
+        id: String(item?.id || ''),
+        perfilId: String(data.perfilId || item?.id || ''),
+        nome: String(data.nome || data.apelido || 'Integrante')
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'master_group_profile_normalize_skipped', reason: String(error?.message || error).slice(0, 180) }));
+    }
+  }
+  return result;
+}
+
+async function safeRead(label, operation, fallback, avisos) {
+  try {
+    return await operation();
+  } catch (error) {
+    const message = String(error?.message || error).slice(0, 320);
+    avisos.push(`${label}: ${message}`);
+    console.warn(JSON.stringify({ event: 'master_group_partial_read', stage: label, reason: message }));
+    return fallback;
+  }
+}
+
 export async function handleMasterGroupSummary(request, env, now = new Date()) {
   const identity = await verifyFirebaseIdToken(env, bearer(request), fetch, now);
-  if (!isMasterEmail(env, identity.email)) return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
+  if (!isMasterEmail(env, identity.email)) {
+    return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
+  }
 
   const url = new URL(request.url);
   const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
   const ownerHint = String(url.searchParams.get('ownerEmail') || '').trim().toLowerCase();
   if (!groupId) return Response.json({ error: 'Informe o código do grupo.' }, { status: 400, headers: cors(request) });
 
-  const [adminsResult, profilesResult, configResult] = await Promise.allSettled([
-    groupAdmins(env, groupId, now),
-    groupProfiles(env, groupId, now),
-    groupConfig(env, groupId, now)
-  ]);
+  try {
+    const avisos = [];
 
-  const avisos = [];
-  const admins = adminsResult.status === 'fulfilled' ? adminsResult.value : [];
-  const profiles = profilesResult.status === 'fulfilled' ? profilesResult.value : [];
-  const config = configResult.status === 'fulfilled' ? configResult.value : {};
-  if (adminsResult.status === 'rejected') avisos.push(String(adminsResult.reason?.message || 'Administradores indisponíveis.'));
-  if (profilesResult.status === 'rejected') avisos.push(String(profilesResult.reason?.message || 'Integrantes indisponíveis.'));
-  if (configResult.status === 'rejected') avisos.push(String(configResult.reason?.message || 'Estado comercial indisponível.'));
+    // Sequencial de propósito: reduz pico de leituras/OAuth e evita novo 429.
+    const admins = await safeRead('Administradores', () => groupAdmins(env, groupId, now), [], avisos);
+    const profiles = await safeRead('Integrantes', () => groupProfiles(env, groupId, now), [], avisos);
+    const config = await safeRead('Estado comercial', () => groupConfig(env, groupId, now), {}, avisos);
 
-  const normalizedAdmins = admins.map(item => ({
-    id: item.id,
-    uid: String(item.data.uid || ''),
-    email: String(item.data.email || '').trim().toLowerCase(),
-    tipoAcesso: String(item.data.tipoAcesso || 'admin'),
-    principal: String(item.data.tipoAcesso || '') === 'proprietario',
-    master: isMasterEmail(env, String(item.data.email || '').trim().toLowerCase())
-  }));
-  const owner = normalizedAdmins.find(a => a.principal && !a.master)
-    || normalizedAdmins.find(a => a.principal)
-    || (ownerHint ? { uid: '', email: ownerHint } : null);
+    const normalizedAdmins = normalizeAdmins(admins, env);
+    const clientes = normalizeProfiles(profiles);
+    const owner = normalizedAdmins.find(a => a.principal && !a.master)
+      || (ownerHint ? { uid: '', email: ownerHint } : null)
+      || normalizedAdmins.find(a => !a.master)
+      || null;
 
-  const clientes = profiles.map(item => ({
-    id: item.id,
-    perfilId: String(item.data.perfilId || item.id),
-    nome: String(item.data.nome || 'Integrante')
-  }));
+    console.log(JSON.stringify({
+      event: 'master_group_summary_loaded',
+      grupoId: groupId,
+      administradores: normalizedAdmins.length,
+      integrantes: clientes.length,
+      parcial: avisos.length > 0
+    }));
 
-  return Response.json({
-    grupo: {
-      grupoId,
-      grupoBloqueado: config.grupoBloqueado === true,
-      statusComercialDisponivel: configResult.status === 'fulfilled',
-      administradorPrincipal: owner ? { uid: owner.uid || '', email: owner.email || '' } : null,
-      administradores: normalizedAdmins,
-      clientes,
-      parcial: avisos.length > 0,
-      avisos
-    }
-  }, { headers: cors(request) });
+    return Response.json({
+      grupo: {
+        grupoId,
+        grupoBloqueado: config?.grupoBloqueado === true,
+        statusComercialDisponivel: !avisos.some(item => item.startsWith('Estado comercial:')),
+        administradorPrincipal: owner ? { uid: owner.uid || '', email: owner.email || '' } : null,
+        administradores: normalizedAdmins,
+        clientes,
+        parcial: avisos.length > 0,
+        avisos
+      }
+    }, { headers: cors(request) });
+  } catch (error) {
+    const message = String(error?.message || error).slice(0, 320);
+    console.error(JSON.stringify({ event: 'master_group_summary_failure', grupoId: groupId, reason: message }));
+    return Response.json({
+      grupo: {
+        grupoId,
+        grupoBloqueado: false,
+        statusComercialDisponivel: false,
+        administradorPrincipal: ownerHint ? { uid: '', email: ownerHint } : null,
+        administradores: [],
+        clientes: [],
+        parcial: true,
+        avisos: [`Detalhe do grupo indisponível: ${message}`]
+      }
+    }, { status: 200, headers: cors(request) });
+  }
 }
