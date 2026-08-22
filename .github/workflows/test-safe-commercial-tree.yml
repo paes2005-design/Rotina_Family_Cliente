@@ -25,25 +25,28 @@ jobs:
         run: npm run check && npm test
       - name: Commercial policy tests
         run: node test/commercial-safety.test.mjs
-      - name: Syntax check safe modules
+      - name: Syntax check production and preview modules
         run: |
           node --check src/commercial-policy.js
-          node --check src/commercial-safe-entry.js
+          node --check src/commercial-safe-v2-entry.js
           node --check src/commercial-preview-entry.js
           node --check src/master-groups-index.js
           node --check src/master-group-summary.js
+          node --check src/master-rate-limit-production-entry.js
           node --check src/master-rate-limit-entry.js
+          node --check src/master-logs-fallback.js
           node --check src/test-console.js
+          node --check ../commercial-access-client.js
           node --check ../client-reviewed-points.js
       - name: Architecture invariants
         shell: python
         run: |
           from pathlib import Path
-          import re
-          safe=Path('src/commercial-safe-entry.js').read_text(encoding='utf-8')
-          preview=Path('src/commercial-preview-entry.js').read_text(encoding='utf-8')
           policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
-          entry=Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
+          safe=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
+          preview=Path('src/commercial-preview-entry.js').read_text(encoding='utf-8')
+          prod=Path('src/master-rate-limit-production-entry.js').read_text(encoding='utf-8')
+          preview_entry=Path('src/master-rate-limit-entry.js').read_text(encoding='utf-8')
           index=Path('src/master-groups-index.js').read_text(encoding='utf-8')
           summary=Path('src/master-group-summary.js').read_text(encoding='utf-8')
           console=Path('src/test-console.js').read_text(encoding='utf-8')
@@ -51,48 +54,78 @@ jobs:
           reviewed=Path('../client-reviewed-points.js').read_text(encoding='utf-8')
           wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
 
-          assert "import app from './commercial-preview-entry.js'" in entry
-          assert 'handleMasterGroupsIndex' in entry and 'handleMasterGroupSummary' in entry
-          master=re.search(r'async function requireMasterSafe\(.*?\n\}', safe, re.S)
-          assert master and 'adminByUid' not in master.group(0) and 'isMasterEmail' in master.group(0)
-          assert "config.grupoBloqueado === true" in policy
+          # Política comercial v2: grupo único, 15 dias, Master protegido e sem Firebase Auth.
+          assert 'COMMERCIAL_TRIAL_VERSION = 2' in policy
           assert 'COMMERCIAL_TRIAL_DAYS = 15' in policy
           assert "'teste-expirado'" in policy
-          assert 'startFamilyTrialPatch' in policy
-          assert 'confirmFamilyPatch' in policy
-          assert 'individualBlocked' not in policy and 'profileBlocked' not in policy
-          assert "doc(db(), 'configGrupos', group)" in client and "'perfis'" not in client
+          assert 'startFamilyTrialPatch' in policy and 'confirmFamilyPatch' in policy
+          assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
+          assert "return false" in policy[policy.index('mustMutateFirebaseAuthForFamilyBlock'):]
+          assert 'IDENTITY_TOOLKIT' not in safe
+          assert 'disableUser' not in safe
+          assert 'Firebase Authentication' not in safe
+          assert "body.action === 'set-group-blocked'" in safe
+          assert "body.action === 'confirm-group'" in safe
+          assert "url.pathname === '/commercial/trial'" in safe
+          assert 'owner?.data?.criadoEm' in safe or 'owner?.createTime' in safe
+          assert 'commercialStorageSelfTest' in safe
+          assert "url.pathname === '/admin-master/tree'" in safe and 'status: 410' in safe
+
+          # Acesso Cliente aplica bloqueio manual e expiração v2, sem bloquear por falha técnica.
+          assert "state === 'teste-expirado'" in client
+          assert "state === 'bloqueado'" in client
+          assert "Number(config.trialVersao || 0) === 2" in client
+          assert "doc(db(), 'configGrupos', group)" in client
+          assert "'perfis'" not in client
+          assert 'acesso preservado' in client
+
+          # Entrada de produção é distinta do preview e usa somente os módulos seguros.
+          assert "import app from './commercial-safe-v2-entry.js'" in prod
+          assert 'handleMasterGroupsIndex' in prod and 'handleMasterGroupSummary' in prod
+          assert 'handleMasterLogsFallback' in prod and 'handleMasterUsersFallback' in prod
+          assert 'responseCache.clear()' in prod
+          assert 'commercial-preview-entry' not in prod
+          assert 'master-user-actions-preview' not in prod
+          assert '/admin-master/tree' not in prod
+          assert "import app from './commercial-preview-entry.js'" in preview_entry
+
+          # Índice de grupos: proprietário explícito + compatibilidade legado, nunca Master.
           assert "collectionId: 'administradores'" in index
           assert "data.codigoCliente || data.grupoId" in index
           assert 'chooseOwner' in index and 'isMasterEmail(env, email)' in index
+
+          # Detalhe de um grupo por vez, com estado comercial completo.
           assert "queryByString(env, 'administradores', 'codigoCliente', groupId" in summary
           assert "queryByString(env, 'perfis', 'grupoId', groupId" in summary
           assert 'export async function loadMasterGroupSummaryData' in summary
           assert "safeRead('Administradores'" in summary
           assert "safeRead('Integrantes'" in summary
           assert "safeRead('Estado comercial'" in summary
+          assert 'estado: commercialState' in summary
+          assert 'trialFimEm' in summary and 'grupoConfirmado' in summary
           assert 'status: 200' in summary
+
+          # Revisão de pontos permanece individualizada por tarefaId.
           assert 'familyTaskId' in reviewed
           assert "String(h.tarefaId||'')===tarefaId" in reviewed
           compact=''.join(reviewed.split())
           assert '||candidatos[0]||null' not in compact
           assert 'candidatos.length===1' in compact
-          assert 'loadHistoryByGroupForPreview' in summary
+
+          # Preview testa leitura real e transições comerciais em documento descartável.
+          assert "url.pathname === '/preview-selftest/group'" in preview
+          assert "url.pathname === '/preview-selftest/commercial-storage'" in preview
+          assert 'commercialStorageSelfTest' in preview
           assert "url.pathname === '/preview-selftest/score-review'" in preview
-          assert 'scoreReviewSelfTest' in preview
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
           assert "api('/admin-master/groups')" in console
           assert '/admin-master/group?grupoId=' in console
           assert 'Todos os grupos' in console
           assert "/admin-master/users" not in console and "/admin-master/tree" not in console
-          assert "url.pathname === '/preview-selftest/group'" in preview
-          assert 'selfTestVersion: 3' in preview
-          assert 'loadMasterGroupSummaryData' in preview
-          assert 'administratorCount' in preview and 'clientCount' in preview
           assert '"COMMERCIAL_TEST_DRY_RUN": "1"' in wrangler
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
               assert secret in wrangler
-          print('Safety gate: group + trial + task-id score review OK')
+          print('Safety gate: produção v2 + grupos + logs + trial 15d + task-id OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
@@ -164,7 +197,7 @@ jobs:
       - run: npm ci
       - name: Restore exact baseline first
         run: npx wrangler versions deploy "$BASE_VERSION_ID@100%" -y
-      - name: Real read-only smoke tests at zero normal traffic
+      - name: Real smoke tests at zero normal traffic
         shell: bash
         run: |
           set -euo pipefail
@@ -178,7 +211,7 @@ jobs:
           sleep 10
           OVERRIDE="${WORKER_NAME}=\"${TEST_VERSION_ID}\""
 
-          echo 'Testing group detail...'
+          echo '1/3 — Testing real group detail...'
           curl --silent --show-error --max-time 35 \
             "$PROD_URL/preview-selftest/group?grupoId=$TEST_GROUP_ID" \
             -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE" \
@@ -194,7 +227,23 @@ jobs:
           print('REAL_GROUP_ROUTE_OK')
           PY
 
-          echo 'Inspecting real same-name score reviews in CLI-4071...'
+          echo '2/3 — Testing real commercial storage transitions in disposable group...'
+          curl --silent --show-error --max-time 35 \
+            "$PROD_URL/preview-selftest/commercial-storage" \
+            -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE" \
+            -o /tmp/commercial.json
+          cat /tmp/commercial.json; echo
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/commercial.json',encoding='utf-8'))
+          assert body.get('ok') is True, body
+          assert body.get('expiredState')=='teste-expirado', body
+          assert body.get('confirmedState')=='confirmado', body
+          assert body.get('blockedState')=='bloqueado', body
+          print('REAL_COMMERCIAL_STORAGE_OK')
+          PY
+
+          echo '3/3 — Inspecting real same-name score reviews in CLI-4071...'
           curl --silent --show-error --max-time 35 --get \
             "$PROD_URL/preview-selftest/score-review" \
             --data-urlencode "grupoId=$SCORE_GROUP_ID" \
@@ -213,4 +262,4 @@ jobs:
 
           restore
           trap - EXIT
-          echo 'READ-ONLY SMOKE OK; baseline restored.'
+          echo 'SMOKE REAL COMPLETO OK; baseline restaurado.'
