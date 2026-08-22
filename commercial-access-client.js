@@ -9,17 +9,29 @@ function db() {
   return getFirestore(getApp());
 }
 
-function isGroupBlocked(config = {}) {
-  return config.grupoBloqueado === true;
+function commercialState(config = {}, now = Date.now()) {
+  if (config.grupoBloqueado === true) return 'bloqueado';
+  if (config.grupoConfirmado === true) return 'confirmado';
+  if (Number(config.trialVersao || 0) === 2 && config.trialAtivo === true) {
+    const expires = Date.parse(String(config.trialFimEm || ''));
+    if (Number.isFinite(expires) && now >= expires) return 'teste-expirado';
+    return 'teste';
+  }
+  return 'liberado-legado';
 }
 
-function blockMessage() {
+function blockedState(state) {
+  return state === 'bloqueado' || state === 'teste-expirado';
+}
+
+function blockMessage(state) {
+  if (state === 'teste-expirado') return 'O período de teste de 15 dias deste grupo terminou. O administrador principal precisa da liberação do ADM Master.';
   return 'Este grupo familiar está temporariamente desativado.';
 }
 
-async function groupAllowed(groupId) {
+async function groupState(groupId) {
   const snap = await getDoc(doc(db(), 'configGrupos', groupId));
-  return !isGroupBlocked(snap.exists() ? snap.data() : {});
+  return commercialState(snap.exists() ? snap.data() : {});
 }
 
 function logoutWith(text) {
@@ -36,12 +48,13 @@ async function enforce(groupId) {
   const group = String(groupId || '').trim();
   if (!group) return true;
   try {
-    if (!(await groupAllowed(group))) {
-      logoutWith(blockMessage());
+    const state = await groupState(group);
+    if (blockedState(state)) {
+      logoutWith(blockMessage(state));
       return false;
     }
   } catch (error) {
-    // Comercial não é mecanismo de segurança. Em 429/rede, preserva a sessão válida.
+    // Em 429/rede, preserva a sessão válida; o comercial não deve gerar indisponibilidade técnica.
     console.warn('Estado comercial da família indisponível; acesso preservado.', error);
   }
   return true;
@@ -55,7 +68,8 @@ function watchGroup(groupId) {
   stopConfig = onSnapshot(
     doc(db(), 'configGrupos', group),
     snap => {
-      if (isGroupBlocked(snap.exists() ? snap.data() : {})) logoutWith(blockMessage());
+      const state = commercialState(snap.exists() ? snap.data() : {});
+      if (blockedState(state)) logoutWith(blockMessage(state));
     },
     error => console.warn('Listener comercial do grupo indisponível; sessão preservada.', error)
   );
@@ -68,8 +82,9 @@ function installLoginGuard() {
     const group = String(document.getElementById('authCodigo')?.value || '').trim().toUpperCase();
     if (group) {
       try {
-        if (!(await groupAllowed(group))) {
-          alert(blockMessage());
+        const state = await groupState(group);
+        if (blockedState(state)) {
+          alert(blockMessage(state));
           return;
         }
       } catch (error) {
