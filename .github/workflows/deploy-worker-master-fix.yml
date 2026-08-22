@@ -1,12 +1,17 @@
-name: Deploy Worker ADM Master fix
+name: Deploy Worker ADM Master e Comercial v2
 
 on:
   push:
+    branches:
+      - main
     paths:
       - '.github/workflows/deploy-worker-master-fix.yml'
       - 'onesignal-scheduler/src/index.js'
-      - 'onesignal-scheduler/src/commercial-entry.js'
-      - 'onesignal-scheduler/src/master-rate-limit-entry.js'
+      - 'onesignal-scheduler/src/commercial-policy.js'
+      - 'onesignal-scheduler/src/commercial-safe-v2-entry.js'
+      - 'onesignal-scheduler/src/master-rate-limit-production-entry.js'
+      - 'onesignal-scheduler/src/master-groups-index.js'
+      - 'onesignal-scheduler/src/master-group-summary.js'
       - 'onesignal-scheduler/src/master-users-fallback.js'
       - 'onesignal-scheduler/src/master-logs-fallback.js'
       - 'onesignal-scheduler/wrangler.jsonc'
@@ -25,22 +30,44 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: npm ci
-      - name: Validate Worker
+      - name: Validate existing Worker regressions
         run: npm run check && npm test
-      - name: Syntax check commercial entry
-        run: node --check src/commercial-entry.js
-      - name: Syntax check Master rate-limit entry
-        run: node --check src/master-rate-limit-entry.js
-      - name: Syntax check Master Auth fallback
-        run: node --check src/master-users-fallback.js
-      - name: Syntax check Master log fallback
-        run: node --check src/master-logs-fallback.js
+      - name: Validate commercial policy
+        run: node test/commercial-safety.test.mjs
+      - name: Syntax check production modules
+        run: |
+          node --check src/commercial-policy.js
+          node --check src/commercial-safe-v2-entry.js
+          node --check src/master-rate-limit-production-entry.js
+          node --check src/master-groups-index.js
+          node --check src/master-group-summary.js
+          node --check src/master-users-fallback.js
+          node --check src/master-logs-fallback.js
+      - name: Production invariants
+        shell: python
+        run: |
+          from pathlib import Path
+          prod=Path('src/master-rate-limit-production-entry.js').read_text(encoding='utf-8')
+          safe=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
+          policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
+          wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
+          assert "import app from './commercial-safe-v2-entry.js'" in prod
+          assert 'commercial-preview-entry' not in prod
+          assert 'master-user-actions-preview' not in prod
+          assert "body.action==='set-group-blocked'" in safe or "body.action === 'set-group-blocked'" in safe
+          assert "body.action==='confirm-group'" in safe or "body.action === 'confirm-group'" in safe
+          assert 'COMMERCIAL_TRIAL_DAYS = 15' in policy
+          assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
+          assert 'IDENTITY_TOOLKIT' not in safe and 'disableUser' not in safe
+          assert '"main": "src/master-rate-limit-production-entry.js"' in wrangler
+          assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
+          print('Produção segura: Master + grupos + logs + trial 15 dias OK')
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-# Publicação 2026-08-20: autoridade do ADM Master separada de grupo/comercial.
-# Usuários usam Firebase Authentication como fonte independente do Firestore.
-# Logs são consultados globalmente e somente sob demanda pelo ADM Master.
+# O ADM Master continua independente de CLI/grupo/comercial.
+# Bloqueio familiar altera somente configGrupos/<CLI>; nunca Firebase Authentication.
+# Logs globais permanecem sob demanda no ADM Master.

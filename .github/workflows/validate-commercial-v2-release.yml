@@ -1,0 +1,73 @@
+name: Validar release comercial v2
+
+on:
+  push:
+    branches:
+      - release-comercial-v2-2026-08-22
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - name: Existing regression suite
+        run: npm run check && npm test
+      - name: Commercial v2 policy
+        run: node test/commercial-safety.test.mjs
+      - name: Syntax
+        run: |
+          node --check src/commercial-policy.js
+          node --check src/commercial-safe-v2-entry.js
+          node --check src/master-rate-limit-production-entry.js
+          node --check src/master-groups-index.js
+          node --check src/master-group-summary.js
+          node --check src/master-logs-fallback.js
+          node --check ../commercial-access-client.js
+          node --check ../client-reviewed-points.js
+          node --check ../sw.js
+      - name: Production architecture gate
+        shell: python
+        run: |
+          from pathlib import Path
+          policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
+          safe=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
+          prod=Path('src/master-rate-limit-production-entry.js').read_text(encoding='utf-8')
+          groups=Path('src/master-groups-index.js').read_text(encoding='utf-8')
+          summary=Path('src/master-group-summary.js').read_text(encoding='utf-8')
+          logs=Path('src/master-logs-fallback.js').read_text(encoding='utf-8')
+          client=Path('../commercial-access-client.js').read_text(encoding='utf-8')
+          reviewed=Path('../client-reviewed-points.js').read_text(encoding='utf-8')
+          sw=Path('../sw.js').read_text(encoding='utf-8')
+          wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
+          assert 'COMMERCIAL_TRIAL_DAYS = 15' in policy
+          assert "'teste-expirado'" in policy and 'confirmFamilyPatch' in policy
+          assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
+          assert 'IDENTITY_TOOLKIT' not in safe and 'disableUser' not in safe
+          assert '/commercial/trial' in safe
+          assert 'confirm-group' in safe and 'set-group-blocked' in safe
+          assert "import app from './commercial-safe-v2-entry.js'" in prod
+          assert 'commercial-preview-entry' not in prod
+          assert 'handleMasterGroupsIndex' in prod and 'handleMasterGroupSummary' in prod and 'handleMasterLogsFallback' in prod
+          assert 'responseCache.clear()' in prod
+          assert 'chooseOwner' in groups and 'isMasterEmail(env, email)' in groups
+          assert 'estado: commercialState' in summary and 'trialFimEm' in summary
+          assert 'globalMode' in logs
+          assert "state === 'teste-expirado'" in client and "state === 'bloqueado'" in client
+          assert 'familyTaskId' in reviewed and "String(h.tarefaId||'')===tarefaId" in reviewed
+          assert "CACHE_NAME='rotina-family-cliente-v40'" in sw and 'commercial-access-client.js?v=2' in sw
+          assert '"main": "src/master-rate-limit-production-entry.js"' in wrangler
+          assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
+          print('RELEASE COMERCIAL V2: OK')
+      - name: Wrangler bundle dry-run
+        run: npx wrangler versions upload --dry-run
