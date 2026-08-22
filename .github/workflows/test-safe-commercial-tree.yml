@@ -55,8 +55,6 @@ jobs:
           assert 'handleMasterGroupsIndex' in entry and 'handleMasterGroupSummary' in entry
           master=re.search(r'async function requireMasterSafe\(.*?\n\}', safe, re.S)
           assert master and 'adminByUid' not in master.group(0) and 'isMasterEmail' in master.group(0)
-
-          # Comercial: Master protegido, bloqueio de grupo e teste de 15 dias.
           assert "config.grupoBloqueado === true" in policy
           assert 'COMMERCIAL_TRIAL_DAYS = 15' in policy
           assert "'teste-expirado'" in policy
@@ -64,8 +62,6 @@ jobs:
           assert 'confirmFamilyPatch' in policy
           assert 'individualBlocked' not in policy and 'profileBlocked' not in policy
           assert "doc(db(), 'configGrupos', group)" in client and "'perfis'" not in client
-
-          # Índice e detalhe de grupos.
           assert "collectionId: 'administradores'" in index
           assert "data.codigoCliente || data.grupoId" in index
           assert 'chooseOwner' in index and 'isMasterEmail(env, email)' in index
@@ -76,19 +72,14 @@ jobs:
           assert "safeRead('Integrantes'" in summary
           assert "safeRead('Estado comercial'" in summary
           assert 'status: 200' in summary
-
-          # Revisão de pontos deve ser individual por tarefaId, nunca pelo primeiro nome igual.
           assert 'familyTaskId' in reviewed
           assert "String(h.tarefaId||'')===tarefaId" in reviewed
           compact=''.join(reviewed.split())
           assert '||candidatos[0]||null' not in compact
           assert 'candidatos.length===1' in compact
-
-          # Diagnóstico read-only do caso real em preview.
           assert 'loadHistoryByGroupForPreview' in summary
           assert "url.pathname === '/preview-selftest/score-review'" in preview
           assert 'scoreReviewSelfTest' in preview
-
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
           assert "api('/admin-master/groups')" in console
           assert '/admin-master/group?grupoId=' in console
@@ -165,7 +156,7 @@ jobs:
       WORKER_NAME: rotina-family-onesignal-scheduler
       PROD_URL: https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev
       TEST_GROUP_ID: CLI-6143
-      SCORE_GROUP_ID: CLI-7041
+      SCORE_GROUP_ID: CLI-4071
       SCORE_DATE: '2026-08-21'
       SCORE_NAME: Estudar
     steps:
@@ -203,7 +194,7 @@ jobs:
           print('REAL_GROUP_ROUTE_OK')
           PY
 
-          echo 'Inspecting real same-name score reviews in CLI-7041...'
+          echo 'Inspecting real same-name score reviews in CLI-4071...'
           curl --silent --show-error --max-time 35 --get \
             "$PROD_URL/preview-selftest/score-review" \
             --data-urlencode "grupoId=$SCORE_GROUP_ID" \
@@ -216,7 +207,7 @@ jobs:
           import json
           body=json.load(open('/tmp/score-review.json',encoding='utf-8'))
           assert body.get('ok') is True, body
-          assert body.get('groupId')=='CLI-7041', body
+          assert body.get('groupId')=='CLI-4071', body
           print('SCORE_REVIEW_DIAGNOSTIC_OK count=', body.get('count'))
           PY
 
