@@ -1,0 +1,36 @@
+name: Temp test Master users family link
+
+on:
+  push:
+    branches: [fix-master-users-family-link-2026-08-22]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Existing regressions
+        run: npm run check && npm test
+      - name: Syntax
+        run: node --check src/master-users-fallback.js
+      - name: Family-link contract
+        shell: python
+        run: |
+          from pathlib import Path
+          text=Path('src/master-users-fallback.js').read_text(encoding='utf-8')
+          assert "collectionId: 'administradores'" in text
+          assert "links.byUid.get(uid) || links.byEmail.get(email)" in text
+          assert "grupoId: master ? '' : String(admin?.grupoId || '')" in text
+          assert "scope: 'https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore'" in text
+          assert "papel: master ? 'master' : 'administrador'" in text
+          print('OK: Firebase Auth enriquecido com grupo do Firestore')
