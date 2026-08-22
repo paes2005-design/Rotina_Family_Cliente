@@ -1,6 +1,15 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
+
+  // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
+  // carregamento do módulo novo, bloqueia somente esse gatilho. Se o módulo não
+  // carregar, remove a trava para manter o comportamento anterior como fallback.
+  const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
+  const marcadorMascote='mascote-pontos-carregando';
+  sessionStorage.setItem(chave100Legado,marcadorMascote);
+
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
@@ -8,6 +17,10 @@
   import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
+  import('./client-mascot-rewards.js').catch(e=>{
+    if(sessionStorage.getItem(chave100Legado)===marcadorMascote)sessionStorage.removeItem(chave100Legado);
+    console.error('Recompensas do mascote:',e);
+  });
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
   // muito rápido caia nas funções legadas do HTML.
@@ -57,6 +70,7 @@
     window.aplicarPontosRevisadosCliente?.();
     window.aplicarInicioAntecipadoCliente?.();
     window.prepararCronometrosTolerancia?.();
+    window.avaliarMetaDiariaMascote?.();
   }
   function iniciar(){
     decorar();
