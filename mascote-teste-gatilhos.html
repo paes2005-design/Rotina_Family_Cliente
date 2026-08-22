@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#fff4f6" />
+  <title>Rotina Family — Teste de gatilhos do mascote</title>
+  <style>
+    :root{--bg:#fff7f8;--card:#fff;--ink:#4a1220;--muted:#7a5b63;--brand:#d7264f;--brand2:#ff6b7f;--line:#f2d7dd;--shadow:0 18px 55px rgba(89,13,34,.14)}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:radial-gradient(circle at 12% 10%,#ffe6eb 0 15%,transparent 34%),radial-gradient(circle at 88% 86%,#fff0d8 0 13%,transparent 32%),var(--bg);padding:22px}
+    .shell{width:min(1180px,100%);margin:0 auto}.header{display:flex;justify-content:space-between;gap:18px;align-items:flex-end;margin:0 0 14px}.eyebrow{font-size:.78rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--brand)}h1{font-size:clamp(1.45rem,4vw,2.35rem);line-height:1.05;margin:.35rem 0 .4rem}.subtitle{margin:0;color:var(--muted);font-size:.98rem}.badge{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 11px;font-size:.78rem;color:var(--muted);white-space:nowrap}
+    .layout{display:grid;grid-template-columns:360px 1fr;gap:16px;align-items:start}.card{background:rgba(255,255,255,.92);border:1px solid rgba(255,255,255,.8);box-shadow:var(--shadow);border-radius:28px;overflow:hidden}.panel{padding:18px}.panel h2{font-size:1.05rem;margin:0 0 6px}.panel p{color:var(--muted);margin:0 0 12px;font-size:.92rem}.actions{display:grid;gap:10px}
+    button{appearance:none;border:none;border-radius:16px;padding:13px 12px;min-height:52px;font:inherit;font-weight:800;cursor:pointer;color:var(--ink);background:#fff4f6;border:1px solid #f5d3da;transition:transform .16s ease,box-shadow .16s ease;text-align:left}button:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(89,13,34,.09)}button:active{transform:scale(.98)}button.ok{background:linear-gradient(135deg,#e7fff0,#f5fffa);border-color:#b9e8cb}button.gold{background:linear-gradient(135deg,#fff8df,#fff2bf);border-color:#eed98c}button.primary{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border-color:transparent;text-align:center}
+    .status{background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px;margin:0 18px 12px}.status strong{display:block;margin-bottom:6px}.seq-list,.log{display:grid;gap:8px}.seq,.log-item{padding:10px 12px;background:#fff;border:1px solid var(--line);border-radius:14px;font-size:.9rem}.log-item{color:var(--muted)}iframe{width:100%;height:860px;border:0;background:#fff}.viewer-top{padding:14px 18px;border-bottom:1px solid var(--line);font-weight:800}.pill{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:.82rem;color:var(--muted);margin:0 8px 8px 0}
+    @media(max-width:980px){.layout{grid-template-columns:1fr}.badge{display:none}.header{align-items:flex-start;flex-direction:column}iframe{height:920px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Área isolada de teste</div>
+        <h1>Mascote do Rotina Family — teste com gatilhos</h1>
+        <p class="subtitle">Quatro sequências usando latir, pular, rolar e cambalhota. Ao simular tarefa no horário ou dia 100%, uma sequência aleatória é disparada.</p>
+      </div>
+      <div class="badge">Sem alterar produção</div>
+    </header>
+
+    <section class="layout">
+      <aside class="card">
+        <div class="panel">
+          <h2>Gatilhos</h2>
+          <p>Esses botões simulam os eventos do app. O mascote roda dentro da área de teste à direita.</p>
+          <div class="actions">
+            <button type="button" class="ok" id="taskOnTime">✅ Simular tarefa concluída dentro do horário limite</button>
+            <button type="button" class="gold" id="dayPerfect">🏆 Simular dia com 100%</button>
+            <button type="button" class="primary" id="runAll">▶ Testar as 4 sequências em ordem</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <span class="pill">Evento 1: tarefa no horário</span>
+          <span class="pill">Evento 2: dia 100%</span>
+          <span class="pill">Resposta: sequência aleatória</span>
+        </div>
+
+        <div class="status"><strong id="statusTitle">Aguardando teste</strong><div id="statusText">Clique em um gatilho para disparar uma sequência do mascote.</div></div>
+
+        <div class="panel">
+          <h2>Sequências</h2>
+          <div class="seq-list">
+            <div class="seq"><strong>Sequência 1 — Festa rápida:</strong> latir → pular</div>
+            <div class="seq"><strong>Sequência 2 — Giro feliz:</strong> pular → rolar</div>
+            <div class="seq"><strong>Sequência 3 — Show do mascote:</strong> latir → cambalhota</div>
+            <div class="seq"><strong>Sequência 4 — Super comemoração:</strong> latir → pular → rolar → cambalhota</div>
+          </div>
+        </div>
+
+        <div class="panel"><h2>Últimos disparos</h2><div id="log" class="log"><div class="log-item">Nenhum disparo ainda.</div></div></div>
+      </aside>
+
+      <section class="card">
+        <div class="viewer-top">Área do mascote em teste</div>
+        <iframe id="mascotFrame" src="./mascote-teste.html" title="Teste base do mascote"></iframe>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const frame=document.getElementById('mascotFrame');
+    const statusTitle=document.getElementById('statusTitle');
+    const statusText=document.getElementById('statusText');
+    const logEl=document.getElementById('log');
+    let busy=false,logItems=[];
+
+    const sequences=[
+      {id:1,name:'Festa rápida',steps:['bark','jump']},
+      {id:2,name:'Giro feliz',steps:['jump','roll']},
+      {id:3,name:'Show do mascote',steps:['bark','flip']},
+      {id:4,name:'Super comemoração',steps:['bark','jump','roll','flip']}
+    ];
+    const delays={bark:1280,jump:1060,roll:1370,flip:1270};
+    const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+
+    function getFrameDoc(){return frame.contentDocument||frame.contentWindow.document}
+    function clickAction(action){
+      const btn=getFrameDoc().querySelector(`[data-action="${action}"]`);
+      if(!btn) throw new Error(`Ação ${action} não encontrada no mascote.`);
+      btn.click();
+    }
+    function updateLog(eventLabel,seq){
+      const when=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      logItems.unshift(`${when} — ${eventLabel}: Sequência ${seq.id} (${seq.name})`);
+      logItems=logItems.slice(0,6);
+      logEl.innerHTML=logItems.map(item=>`<div class="log-item">${item}</div>`).join('');
+    }
+    async function runSequence(seq){
+      for(const action of seq.steps){
+        clickAction(action);
+        await sleep((delays[action]||1000)+180);
+      }
+    }
+    async function trigger(eventType,chosenSequence=null){
+      if(busy)return;
+      busy=true;
+      const eventLabel=eventType==='task_on_time'?'Tarefa concluída no horário':'Dia 100%';
+      const seq=chosenSequence||sequences[Math.floor(Math.random()*sequences.length)];
+      statusTitle.textContent=eventLabel;
+      statusText.textContent=`Disparando a Sequência ${seq.id} — ${seq.name}.`;
+      try{
+        await runSequence(seq);
+        updateLog(eventLabel,seq);
+        statusText.textContent=`${eventLabel} acionou a Sequência ${seq.id} — ${seq.name}.`;
+      }catch(err){statusText.textContent=`Falha no teste: ${err.message}`}
+      busy=false;
+    }
+    async function runAll(){
+      if(busy)return;
+      busy=true;
+      statusTitle.textContent='Teste completo';
+      statusText.textContent='Executando as 4 sequências em ordem.';
+      try{
+        for(const seq of sequences){
+          await runSequence(seq);
+          updateLog('Teste manual',seq);
+          await sleep(220);
+        }
+        statusText.textContent='Teste completo finalizado. As 4 sequências foram executadas.';
+      }catch(err){statusText.textContent=`Falha no teste: ${err.message}`}
+      busy=false;
+    }
+
+    frame.addEventListener('load',()=>{
+      statusTitle.textContent='Área pronta';
+      statusText.textContent='A caricatura foi carregada. Agora você já pode testar os gatilhos.';
+    });
+    document.getElementById('taskOnTime').addEventListener('click',()=>trigger('task_on_time'));
+    document.getElementById('dayPerfect').addEventListener('click',()=>trigger('day_100'));
+    document.getElementById('runAll').addEventListener('click',runAll);
+  </script>
+</body>
+</html>
