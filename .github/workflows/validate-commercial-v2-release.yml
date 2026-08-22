@@ -3,7 +3,7 @@ name: Validar release comercial v2
 on:
   push:
     branches:
-      - release-comercial-v2-2026-08-22
+      - release-comercial-v2-current-2026-08-22
   pull_request:
     branches:
       - main
