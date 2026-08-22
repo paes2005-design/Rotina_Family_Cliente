@@ -112,11 +112,23 @@ async function queryByString(env, collectionId, field, value, limit = 100, now =
   return result;
 }
 
-// Somente para diagnóstico em preview: leitura sem mutação dos registros de histórico do grupo.
+// Somente para diagnóstico em preview: leituras sem mutação.
 export async function loadHistoryByGroupForPreview(env, groupIdInput, now = new Date()) {
   const groupId = String(groupIdInput || '').trim().toUpperCase();
   if (!groupId) throw new Error('grupoId ausente');
   return queryByString(env, 'historico', 'grupoId', groupId, 300, now);
+}
+
+export async function loadHistoryByTaskNameForPreview(env, taskNameInput, now = new Date()) {
+  const taskName = String(taskNameInput || '').trim();
+  if (!taskName) throw new Error('nome da tarefa ausente');
+  return queryByString(env, 'historico', 'nomeTarefa', taskName, 500, now);
+}
+
+export async function loadTasksByNameForPreview(env, taskNameInput, now = new Date()) {
+  const taskName = String(taskNameInput || '').trim();
+  if (!taskName) throw new Error('nome da tarefa ausente');
+  return queryByString(env, 'tarefas', 'nome', taskName, 500, now);
 }
 
 async function groupAdmins(env, groupId, now = new Date()) {
