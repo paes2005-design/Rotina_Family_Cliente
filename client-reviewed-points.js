@@ -120,6 +120,7 @@ function aplicarTudo(garantir=true){
   if(garantir)garantirEscuta();
   aplicarDashboard();
   aplicarTarefas();
+  window.dispatchEvent(new CustomEvent('rotina-family-points-updated'));
 }
 
 window.aplicarPontosRevisadosCliente=()=>aplicarTudo(true);
