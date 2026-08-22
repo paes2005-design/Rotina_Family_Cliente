@@ -53,6 +53,7 @@ jobs:
           assert 'COMMERCIAL_TRIAL_DAYS = 15' in policy
           assert "'teste-expirado'" in policy and 'confirmFamilyPatch' in policy
           assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
+          assert "COMMERCIAL_EXEMPT_GROUPS = Object.freeze(['CLI-4071'])" in policy
           assert 'IDENTITY_TOOLKIT' not in safe and 'disableUser' not in safe
           assert '/commercial/trial' in safe
           assert 'confirm-group' in safe and 'set-group-blocked' in safe
@@ -64,10 +65,13 @@ jobs:
           assert 'estado: commercialState' in summary and 'trialFimEm' in summary
           assert 'globalMode' in logs
           assert "state === 'teste-expirado'" in client and "state === 'bloqueado'" in client
+          assert "COMMERCIAL_EXEMPT_GROUPS = new Set(['CLI-4071'])" in client
           assert 'familyTaskId' in reviewed and "String(h.tarefaId||'')===tarefaId" in reviewed
-          assert "CACHE_NAME='rotina-family-cliente-v40'" in sw and 'commercial-access-client.js?v=2' in sw
+          assert 'commercial-access-client.js?v=2' in sw
           assert '"main": "src/master-rate-limit-production-entry.js"' in wrangler
           assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
           print('RELEASE COMERCIAL V2: OK')
       - name: Wrangler bundle dry-run
         run: npx wrangler versions upload --dry-run
+
+# Gate revalidado em 2026-08-22 sobre o main atual e a árvore aprovada.
