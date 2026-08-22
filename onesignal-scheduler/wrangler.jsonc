@@ -5,6 +5,7 @@
   "compatibility_date": "2026-08-20",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "preview_urls": true,
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -12,11 +13,20 @@
   "triggers": {
     "crons": ["* * * * *"]
   },
+  "secrets": {
+    "required": [
+      "MASTER_ADMIN_EMAILS",
+      "GOOGLE_SERVICE_ACCOUNT_JSON",
+      "APP_LOG_ENCRYPTION_KEY",
+      "ONESIGNAL_REST_API_KEY"
+    ]
+  },
   "vars": {
     "FIREBASE_PROJECT_ID": "sistema-de-metas-diarias",
     "ONESIGNAL_APP_ID": "356292b3-a763-4a89-b0e5-21bf54bf0424",
     "CLIENT_APP_URL": "https://paes2005-design.github.io/Rotina_Family_Cliente/",
     "ADMIN_APP_URL": "https://paes2005-design.github.io/Rotina_Family_ADM/",
-    "ALARM_TIME_ZONE": "America/Bahia"
+    "ALARM_TIME_ZONE": "America/Bahia",
+    "COMMERCIAL_TEST_DRY_RUN": "1"
   }
 }

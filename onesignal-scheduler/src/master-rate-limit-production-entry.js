@@ -1,7 +1,6 @@
-import app from './commercial-preview-entry.js';
+import app from './commercial-safe-v2-entry.js';
 import { handleMasterUsersFallback } from './master-users-fallback.js';
 import { handleMasterLogsFallback } from './master-logs-fallback.js';
-import { handleMasterUserActionPreview } from './master-user-actions-preview.js';
 import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
 
@@ -11,13 +10,16 @@ const MIN_SPACING_MS = 1200;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function pathOf(request) {
+  return new URL(request.url).pathname;
+}
+
 function isMasterRead(request) {
   if (request.method !== 'GET') return false;
-  const path = new URL(request.url).pathname;
+  const path = pathOf(request);
   return [
     '/admin-master/session',
     '/admin-master/users',
-    '/admin-master/tree',
     '/admin-master/groups',
     '/admin-master/group',
     '/admin-master/logs'
@@ -25,23 +27,23 @@ function isMasterRead(request) {
 }
 
 function isMasterUsersRead(request) {
-  return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/users');
+  return request.method === 'GET' && pathOf(request).endsWith('/admin-master/users');
 }
 
 function isMasterGroupsIndexRead(request) {
-  return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/groups');
+  return request.method === 'GET' && pathOf(request).endsWith('/admin-master/groups');
 }
 
 function isMasterGroupRead(request) {
-  return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/group');
+  return request.method === 'GET' && pathOf(request).endsWith('/admin-master/group');
 }
 
 function isMasterLogsRead(request) {
-  return request.method === 'GET' && new URL(request.url).pathname.endsWith('/admin-master/logs');
+  return request.method === 'GET' && pathOf(request).endsWith('/admin-master/logs');
 }
 
-function isMasterUsersWrite(request) {
-  return request.method === 'POST' && new URL(request.url).pathname.endsWith('/admin-master/users');
+function isMasterGroupMutation(request) {
+  return request.method === 'POST' && pathOf(request).endsWith('/admin-master/groups');
 }
 
 function ttlFor(path) {
@@ -49,7 +51,6 @@ function ttlFor(path) {
   if (path.endsWith('/users')) return 30_000;
   if (path.endsWith('/groups')) return 5 * 60_000;
   if (path.endsWith('/group')) return 60_000;
-  if (path.endsWith('/tree')) return 10_000;
   if (path.endsWith('/logs')) return 60_000;
   return 0;
 }
@@ -74,7 +75,7 @@ function cachedResponse(request) {
 
 async function rememberResponse(request, response) {
   if (!response.ok) return response;
-  const ttl = ttlFor(new URL(request.url).pathname);
+  const ttl = ttlFor(pathOf(request));
   if (!ttl) return response;
   const body = await response.clone().arrayBuffer();
   responseCache.set(cacheKey(request), {
@@ -106,8 +107,11 @@ function groupEmergencyResponse(request, error) {
   console.error(JSON.stringify({ event: 'master_group_router_failure', grupoId: groupId, reason }));
   return Response.json({
     grupo: {
-      grupoId,
+      grupoId: groupId,
+      estado: 'indisponivel',
       grupoBloqueado: false,
+      grupoConfirmado: false,
+      trialAtivo: false,
       statusComercialDisponivel: false,
       administradorPrincipal: ownerEmail ? { uid: '', email: ownerEmail } : null,
       administradores: [],
@@ -121,12 +125,13 @@ function groupEmergencyResponse(request, error) {
 
 async function executeMasterRead(request, env, ctx) {
   if (isMasterUsersRead(request)) {
-    try { return await handleMasterUsersFallback(request, env); }
-    catch (error) { console.warn('Fallback Firebase Auth indisponível; usando rota base.', String(error?.message || error)); }
+    try {
+      return await handleMasterUsersFallback(request, env);
+    } catch (error) {
+      console.warn('Fallback Firebase Auth indisponível; usando rota base.', String(error?.message || error));
+    }
   }
-  if (isMasterGroupsIndexRead(request)) {
-    return handleMasterGroupsIndex(request, env);
-  }
+  if (isMasterGroupsIndexRead(request)) return handleMasterGroupsIndex(request, env);
   if (isMasterGroupRead(request)) {
     try {
       return await handleMasterGroupSummary(request, env);
@@ -135,8 +140,11 @@ async function executeMasterRead(request, env, ctx) {
     }
   }
   if (isMasterLogsRead(request)) {
-    try { return await handleMasterLogsFallback(request, env); }
-    catch (error) { console.warn('Leitor global de logs indisponível; usando rota base.', String(error?.message || error)); }
+    try {
+      return await handleMasterLogsFallback(request, env);
+    } catch (error) {
+      console.warn('Leitor global de logs indisponível; usando rota base.', String(error?.message || error));
+    }
   }
   return app.fetch(request, env, ctx);
 }
@@ -162,7 +170,11 @@ async function queuedMasterRead(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      if (isMasterUsersWrite(request)) return handleMasterUserActionPreview(request, env);
+      if (isMasterGroupMutation(request)) {
+        const response = await app.fetch(request, env, ctx);
+        if (response.ok) responseCache.clear();
+        return response;
+      }
       if (isMasterRead(request)) return queuedMasterRead(request, env, ctx);
       return app.fetch(request, env, ctx);
     } catch (error) {
