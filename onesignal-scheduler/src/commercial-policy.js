@@ -1,6 +1,15 @@
 export const COMMERCIAL_TRIAL_VERSION = 2;
 export const COMMERCIAL_TRIAL_DAYS = 15;
 export const COMMERCIAL_TRIAL_MS = COMMERCIAL_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+export const COMMERCIAL_EXEMPT_GROUPS = Object.freeze(['CLI-4071']);
+
+function normalizeGroupId(value = '') {
+  return String(value || '').trim().toUpperCase();
+}
+
+export function isCommercialExemptGroup(groupId = '') {
+  return COMMERCIAL_EXEMPT_GROUPS.includes(normalizeGroupId(groupId));
+}
 
 function nowMs(value = Date.now()) {
   if (value instanceof Date) return value.getTime();
@@ -36,13 +45,15 @@ function accessFromState(state) {
   return { allowed: true, reason: 'familia-legada-liberada', state };
 }
 
-export function resolveAdminCommercialAccess({ isMaster = false, config = {}, configAvailable = true, now = Date.now() } = {}) {
+export function resolveAdminCommercialAccess({ isMaster = false, groupId = '', config = {}, configAvailable = true, now = Date.now() } = {}) {
   if (isMaster) return { allowed: true, reason: 'master-sistema', state: 'master' };
+  if (isCommercialExemptGroup(groupId)) return { allowed: true, reason: 'grupo-isento-comercial', state: 'isento' };
   if (!configAvailable) return { allowed: true, reason: 'fail-open-config-indisponivel', state: 'indisponivel' };
   return accessFromState(commercialState(config, now));
 }
 
-export function resolveClientCommercialAccess({ config = {}, configAvailable = true, now = Date.now() } = {}) {
+export function resolveClientCommercialAccess({ groupId = '', config = {}, configAvailable = true, now = Date.now() } = {}) {
+  if (isCommercialExemptGroup(groupId)) return { allowed: true, reason: 'grupo-isento-comercial', state: 'isento' };
   if (!configAvailable) return { allowed: true, reason: 'fail-open-config-indisponivel', state: 'indisponivel' };
   return accessFromState(commercialState(config, now));
 }
