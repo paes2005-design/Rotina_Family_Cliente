@@ -1,5 +1,6 @@
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { firestoreFieldsToJs } from './core.js';
+import { commercialState } from './commercial-policy.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ALLOWED_ORIGIN = 'https://paes2005-design.github.io';
@@ -240,7 +241,15 @@ export async function loadMasterGroupSummaryData(env, groupIdInput, ownerHintInp
 
   const grupo = {
     grupoId: groupId,
+    estado: commercialState(config || {}, now.getTime()),
     grupoBloqueado: config?.grupoBloqueado === true,
+    bloqueioManual: config?.bloqueioManual === true,
+    grupoConfirmado: config?.grupoConfirmado === true,
+    trialVersao: Number(config?.trialVersao || 0),
+    trialAtivo: config?.trialAtivo === true,
+    trialInicioEm: String(config?.trialInicioEm || ''),
+    trialFimEm: String(config?.trialFimEm || ''),
+    confirmadoEm: String(config?.confirmadoEm || ''),
     statusComercialDisponivel: !avisos.some(item => item.startsWith('Estado comercial:')),
     administradorPrincipal: owner ? { uid: owner.uid || '', email: owner.email || '' } : null,
     administradores: normalizedAdmins,
@@ -252,6 +261,7 @@ export async function loadMasterGroupSummaryData(env, groupIdInput, ownerHintInp
   console.log(JSON.stringify({
     event: 'master_group_summary_loaded',
     grupoId: groupId,
+    estado: grupo.estado,
     administradores: normalizedAdmins.length,
     integrantes: clientes.length,
     parcial: grupo.parcial
@@ -278,7 +288,13 @@ export async function handleMasterGroupSummary(request, env, now = new Date()) {
     return Response.json({
       grupo: {
         grupoId: groupId,
+        estado: 'indisponivel',
         grupoBloqueado: false,
+        bloqueioManual: false,
+        grupoConfirmado: false,
+        trialAtivo: false,
+        trialInicioEm: '',
+        trialFimEm: '',
         statusComercialDisponivel: false,
         administradorPrincipal: ownerHint ? { uid: '', email: ownerHint } : null,
         administradores: [],
