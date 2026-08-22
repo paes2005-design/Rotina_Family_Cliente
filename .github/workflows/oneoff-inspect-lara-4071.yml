@@ -73,12 +73,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS \
+          HTTP_CODE=$(curl -sS \
             "$WORKER_URL/__oneoff/inspect-lara-4071" \
             -H "Cloudflare-Workers-Version-Overrides: $WORKER_NAME=\"$ONEOFF\"" \
-            -o /tmp/lara.json
+            -o /tmp/lara.json \
+            -w '%{http_code}')
+          echo "HTTP $HTTP_CODE"
           cat /tmp/lara.json | jq .
-          jq -e '.ok == true and .groupId == "CLI-4071" and (.lara.nome | ascii_downcase) == "lara"' /tmp/lara.json >/dev/null
+          jq -e '.groupId == "CLI-4071"' /tmp/lara.json >/dev/null
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "DIAGNOSTICO_4071_RETORNOU_$HTTP_CODE"
+            exit 1
+          fi
+          jq -e '.ok == true and (.lara.nome | ascii_downcase) == "lara"' /tmp/lara.json >/dev/null
           echo 'LARA_INSPECTION_OK'
 
       - name: Restaurar deployment original
