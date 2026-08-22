@@ -1,6 +1,6 @@
 import worker, { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { firestoreFieldsToJs, jsToFirestoreFields } from './core.js';
-import { commercialState, confirmFamilyPatch, familyBlockPatch, isTrialV2, startFamilyTrialPatch } from './commercial-policy.js';
+import { commercialState, confirmFamilyPatch, familyBlockPatch, isCommercialExemptGroup, isTrialV2, startFamilyTrialPatch } from './commercial-policy.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ALLOWED_ORIGIN = 'https://paes2005-design.github.io';
@@ -58,6 +58,7 @@ async function registerTrial(request,env,now=new Date()){
   if(isMasterEmail(env,identity.email))return{success:true,estado:'master',grupoId:''};
   const administrator=await adminByUid(env,identity.uid,now);if(!administrator)throw new Error('Cadastro administrativo não encontrado.');
   const groupId=groupIdOf(administrator.data);if(!groupId)throw new Error('Grupo não encontrado.');
+  if(isCommercialExemptGroup(groupId))return{success:true,grupoId:groupId,estado:'isento',isento:true,alterado:false};
   const name=`projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/configGrupos/${groupId}`;
   const current=await getDoc(env,name,now);
   if(current?.data?.grupoConfirmado===true)return{success:true,grupoId:groupId,estado:'confirmado',confirmado:true};
@@ -72,6 +73,7 @@ async function registerTrial(request,env,now=new Date()){
 
 async function handleMasterGroupMutation(request,env,now=new Date()){
   const caller=await requireMaster(request,env,now);const body=await request.json().catch(()=>({}));const groupId=String(body.grupoId||'').trim().toUpperCase();if(!groupId)throw new Error('Grupo não informado.');
+  if(isCommercialExemptGroup(groupId))return{success:true,grupoId:groupId,action:body.action,estado:'isento',isento:true,alterado:false,grupoBloqueado:false,grupoConfirmado:false};
   let saved;
   if(body.action==='set-group-blocked')saved=await upsertConfig(env,groupId,familyBlockPatch(body.disabled===true,now.toISOString()),now);
   else if(body.action==='confirm-group')saved=await upsertConfig(env,groupId,{...confirmFamilyPatch(now.toISOString()),confirmadoPorMaster:caller.uid},now);
