@@ -112,6 +112,13 @@ async function queryByString(env, collectionId, field, value, limit = 100, now =
   return result;
 }
 
+// Somente para diagnóstico em preview: leitura sem mutação dos registros de histórico do grupo.
+export async function loadHistoryByGroupForPreview(env, groupIdInput, now = new Date()) {
+  const groupId = String(groupIdInput || '').trim().toUpperCase();
+  if (!groupId) throw new Error('grupoId ausente');
+  return queryByString(env, 'historico', 'grupoId', groupId, 300, now);
+}
+
 async function groupAdmins(env, groupId, now = new Date()) {
   const byCode = await queryByString(env, 'administradores', 'codigoCliente', groupId, 50, now);
   if (byCode.length) return byCode;
