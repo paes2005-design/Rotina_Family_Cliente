@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#fff4f6" />
+  <title>Rotina Family — Mascote Automático</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;background:#fff7f8;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#4a1220}
+    .wrap{min-height:100%;display:flex;flex-direction:column}
+    .notice{padding:10px 14px;text-align:center;background:#fff;border-bottom:1px solid #f2d7dd;font-size:.88rem;color:#7a5b63}
+    .notice strong{color:#d7264f}
+    iframe{border:0;flex:1;width:100%;min-height:760px;background:#fff7f8}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="notice"><strong>Modo automático:</strong> o mascote executa sozinho latir → pular → rolar → cambalhota e repete a sequência.</div>
+    <iframe id="mascote" src="./mascote-teste.html" title="Teste automático do mascote do Rotina Family" allow="autoplay"></iframe>
+  </div>
+  <script>
+    const frame = document.getElementById('mascote');
+    let timer = null;
+
+    function startAutomaticSequence(){
+      clearInterval(timer);
+      const run = () => {
+        try {
+          const doc = frame.contentDocument || frame.contentWindow.document;
+          const demo = doc && doc.querySelector('button[data-action="demo"]');
+          if (demo) demo.click();
+        } catch(e) {}
+      };
+      setTimeout(run, 900);
+      timer = setInterval(run, 6500);
+    }
+
+    frame.addEventListener('load', startAutomaticSequence);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) clearInterval(timer);
+      else startAutomaticSequence();
+    });
+  </script>
+</body>
+</html>
