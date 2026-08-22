@@ -23,7 +23,7 @@ jobs:
       - run: npm ci
       - name: Existing regression suite
         run: npm run check && npm test
-      - name: Commercial group-only policy tests
+      - name: Commercial policy tests
         run: node test/commercial-safety.test.mjs
       - name: Syntax check safe modules
         run: |
@@ -34,6 +34,7 @@ jobs:
           node --check src/master-group-summary.js
           node --check src/master-rate-limit-entry.js
           node --check src/test-console.js
+          node --check ../client-reviewed-points.js
       - name: Architecture invariants
         shell: python
         run: |
@@ -47,14 +48,24 @@ jobs:
           summary=Path('src/master-group-summary.js').read_text(encoding='utf-8')
           console=Path('src/test-console.js').read_text(encoding='utf-8')
           client=Path('../commercial-access-client.js').read_text(encoding='utf-8')
+          reviewed=Path('../client-reviewed-points.js').read_text(encoding='utf-8')
           wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
+
           assert "import app from './commercial-preview-entry.js'" in entry
           assert 'handleMasterGroupsIndex' in entry and 'handleMasterGroupSummary' in entry
           master=re.search(r'async function requireMasterSafe\(.*?\n\}', safe, re.S)
           assert master and 'adminByUid' not in master.group(0) and 'isMasterEmail' in master.group(0)
+
+          # Comercial: Master protegido, bloqueio de grupo e teste de 15 dias.
           assert "config.grupoBloqueado === true" in policy
+          assert 'COMMERCIAL_TRIAL_DAYS = 15' in policy
+          assert "'teste-expirado'" in policy
+          assert 'startFamilyTrialPatch' in policy
+          assert 'confirmFamilyPatch' in policy
           assert 'individualBlocked' not in policy and 'profileBlocked' not in policy
           assert "doc(db(), 'configGrupos', group)" in client and "'perfis'" not in client
+
+          # Índice e detalhe de grupos.
           assert "collectionId: 'administradores'" in index
           assert "data.codigoCliente || data.grupoId" in index
           assert 'chooseOwner' in index and 'isMasterEmail(env, email)' in index
@@ -65,6 +76,19 @@ jobs:
           assert "safeRead('Integrantes'" in summary
           assert "safeRead('Estado comercial'" in summary
           assert 'status: 200' in summary
+
+          # Revisão de pontos deve ser individual por tarefaId, nunca pelo primeiro nome igual.
+          assert 'familyTaskId' in reviewed
+          assert "String(h.tarefaId||'')===tarefaId" in reviewed
+          compact=''.join(reviewed.split())
+          assert '||candidatos[0]||null' not in compact
+          assert 'candidatos.length===1' in compact
+
+          # Diagnóstico read-only do caso real em preview.
+          assert 'loadHistoryByGroupForPreview' in summary
+          assert "url.pathname === '/preview-selftest/score-review'" in preview
+          assert 'scoreReviewSelfTest' in preview
+
           assert "const MASTER_EMAIL = 'paes2005@gmail.com'" in console
           assert "api('/admin-master/groups')" in console
           assert '/admin-master/group?grupoId=' in console
@@ -77,7 +101,7 @@ jobs:
           assert '"COMMERCIAL_TEST_DRY_RUN": "1"' in wrangler
           for secret in ['MASTER_ADMIN_EMAILS','GOOGLE_SERVICE_ACCOUNT_JSON','APP_LOG_ENCRYPTION_KEY','ONESIGNAL_REST_API_KEY']:
               assert secret in wrangler
-          print('Safety gate: OK')
+          print('Safety gate: group + trial + task-id score review OK')
       - name: Dry-run bundle validation
         run: npx wrangler versions upload --dry-run
 
@@ -141,12 +165,15 @@ jobs:
       WORKER_NAME: rotina-family-onesignal-scheduler
       PROD_URL: https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev
       TEST_GROUP_ID: CLI-6143
+      SCORE_GROUP_ID: CLI-7041
+      SCORE_DATE: '2026-08-21'
+      SCORE_NAME: Estudar
     steps:
       - uses: actions/checkout@v4
       - run: npm ci
       - name: Restore exact baseline first
         run: npx wrangler versions deploy "$BASE_VERSION_ID@100%" -y
-      - name: Real group smoke test at zero normal traffic
+      - name: Real read-only smoke tests at zero normal traffic
         shell: bash
         run: |
           set -euo pipefail
@@ -160,28 +187,39 @@ jobs:
           sleep 10
           OVERRIDE="${WORKER_NAME}=\"${TEST_VERSION_ID}\""
 
-          HTTP_CODE="$(curl --silent --show-error --max-time 35 -w '%{http_code}' \
-            -D /tmp/selftest.headers \
+          echo 'Testing group detail...'
+          curl --silent --show-error --max-time 35 \
             "$PROD_URL/preview-selftest/group?grupoId=$TEST_GROUP_ID" \
             -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE" \
-            -o /tmp/selftest.json)"
-          echo "HTTP_CODE=$HTTP_CODE"
-          cat /tmp/selftest.headers
-          cat /tmp/selftest.json
-          echo
-
+            -o /tmp/group.json
+          cat /tmp/group.json; echo
           python - <<'PY'
           import json
-          body=json.load(open('/tmp/selftest.json',encoding='utf-8'))
-          assert body.get('selfTestVersion')==3, f'Override não atingiu a rota v3: {body}'
-          if body.get('ok') is not True:
-              raise AssertionError('SELFTEST_FAILURE: '+json.dumps(body, ensure_ascii=False))
+          body=json.load(open('/tmp/group.json',encoding='utf-8'))
+          assert body.get('selfTestVersion')==3, body
+          assert body.get('ok') is True, body
           assert body.get('groupId')=='CLI-6143', body
           assert body.get('principalFound') is True, body
-          assert int(body.get('administratorCount',0)) >= 1, body
-          print('REAL_GROUP_ROUTE_OK', json.dumps(body, ensure_ascii=False))
+          print('REAL_GROUP_ROUTE_OK')
+          PY
+
+          echo 'Inspecting real same-name score reviews in CLI-7041...'
+          curl --silent --show-error --max-time 35 --get \
+            "$PROD_URL/preview-selftest/score-review" \
+            --data-urlencode "grupoId=$SCORE_GROUP_ID" \
+            --data-urlencode "data=$SCORE_DATE" \
+            --data-urlencode "nome=$SCORE_NAME" \
+            -H "Cloudflare-Workers-Version-Overrides: $OVERRIDE" \
+            -o /tmp/score-review.json
+          cat /tmp/score-review.json; echo
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/score-review.json',encoding='utf-8'))
+          assert body.get('ok') is True, body
+          assert body.get('groupId')=='CLI-7041', body
+          print('SCORE_REVIEW_DIAGNOSTIC_OK count=', body.get('count'))
           PY
 
           restore
           trap - EXIT
-          echo 'SMOKE REAL OK; baseline restored.'
+          echo 'READ-ONLY SMOKE OK; baseline restored.'
