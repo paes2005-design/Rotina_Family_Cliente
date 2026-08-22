@@ -1,4 +1,4 @@
-import app from './commercial-safe-entry.js';
+import app, { commercialStorageSelfTest } from './commercial-safe-v2-entry.js';
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { testConsoleHtml } from './test-console.js';
 import { loadHistoryByGroupForPreview, loadMasterGroupSummaryData } from './master-group-summary.js';
@@ -47,7 +47,7 @@ async function dryRunMasterMutation(request, env) {
     grupoId: String(body.grupoId || ''),
     targetUid: String(body.targetUid || ''),
     profileId: String(body.profileId || ''),
-    message: 'Simulação concluída. Nenhum dado foi alterado.'
+    message: 'Simulação concluída. Nenhum dado de família foi alterado.'
   }, { headers: cors(request) });
 }
 
@@ -58,7 +58,7 @@ async function dryRunTrial(request, env) {
     dryRun: true,
     preview: true,
     estado: 'simulacao',
-    message: 'Teste comercial simulado. Nenhum configGrupos foi alterado.'
+    message: 'Inicialização do teste comercial simulada no console. O smoke técnico valida a gravação em um grupo descartável.'
   }, { headers: cors(request) });
 }
 
@@ -86,6 +86,15 @@ async function liveGroupSelfTest(request, env) {
     const reason = String(error?.stack || error?.message || error).replace(/\s+/g, ' ').slice(0, 700);
     console.error(JSON.stringify({ event: 'group_selftest_failure', groupId, reason }));
     return Response.json({ ok: false, selfTestVersion: 3, groupId, elapsedMs: Date.now() - startedAt, reason }, { status: 200, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'group-v3-failure' } });
+  }
+}
+
+async function commercialStorageTest(env) {
+  if (String(env.COMMERCIAL_TEST_DRY_RUN || '') !== '1') return new Response('Not found', { status: 404 });
+  try {
+    return Response.json(await commercialStorageSelfTest(env, new Date()), { status: 200, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'commercial-storage-v1' } });
+  } catch (error) {
+    return Response.json({ ok: false, reason: String(error?.stack || error?.message || error).replace(/\s+/g, ' ').slice(0, 700) }, { status: 200, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'commercial-storage-v1-failure' } });
   }
 }
 
@@ -134,6 +143,7 @@ export default {
       return Response.json(previewHealth(env), { headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-store' } });
     }
     if (dryRun && request.method === 'GET' && url.pathname === '/preview-selftest/group') return liveGroupSelfTest(request, env);
+    if (dryRun && request.method === 'GET' && url.pathname === '/preview-selftest/commercial-storage') return commercialStorageTest(env);
     if (dryRun && request.method === 'GET' && url.pathname === '/preview-selftest/score-review') return scoreReviewSelfTest(request, env);
     if (dryRun && request.method === 'POST') {
       if (['/admin-master/groups','/admin-master/admin-access','/admin-master/profiles'].includes(url.pathname)) return dryRunMasterMutation(request, env);
