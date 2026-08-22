@@ -45,8 +45,6 @@ function garantirEscuta(){
       historicoPerfil=snap.docs.map(d=>({id:d.id,...d.data()})).filter(h=>h.perfilId?h.perfilId===s.perfilId:h.perfilNome===s.nome);
       historicoCarregado=true;
       aplicarTudo(false);
-      // A tela principal também recebe este snapshot. Reaplica no próximo quadro
-      // para garantir que o total revisado seja o último valor exibido.
       requestAnimationFrame(()=>aplicarTudo(false));
     },
     err=>console.error('Pontos revisados do Cliente:',err)
@@ -71,6 +69,9 @@ function aplicarDashboard(){
 }
 
 function horarioDaLinha(row){
+  const inicio=String(row?.dataset?.familyTaskTime||'').trim();
+  const fim=String(row?.dataset?.familyTaskEnd||'').trim();
+  if(inicio||fim)return{inicio,fim};
   const txt=row.querySelector('.horario-sugerido')?.textContent||row.children?.[0]?.textContent||'';
   const m=txt.match(/(\d{2}:\d{2}).*?(\d{2}:\d{2})/);
   return m?{inicio:m[1],fim:m[2]}:{inicio:'',fim:''};
@@ -78,11 +79,21 @@ function horarioDaLinha(row){
 
 function historicoRevisadoDaLinha(row){
   const hoje=dataISO(new Date());
+  const tarefaId=String(row?.dataset?.familyTaskId||'').trim();
+  if(tarefaId){
+    return historicoPerfil.find(h=>String(h.data||h.dataExecucao||'')===hoje&&String(h.tarefaId||'')===tarefaId&&h.revisaoStatus==='revisado')||null;
+  }
+
+  // Compatibilidade com páginas/cache antigos que ainda não tenham data-family-task-id.
+  // Nunca escolhe arbitrariamente o primeiro registro quando há duas tarefas com o mesmo nome.
   const nome=row.children?.[1]?.querySelector('strong')?.textContent.trim()||'';
   if(!nome)return null;
   const horario=horarioDaLinha(row);
-  const candidatos=historicoPerfil.filter(h=>h.data===hoje&&h.nomeTarefa===nome&&h.revisaoStatus==='revisado');
-  return candidatos.find(h=>(!horario.inicio||!h.horaSugeridaInicio||h.horaSugeridaInicio===horario.inicio)&&(!horario.fim||!h.horaSugeridaFim||h.horaSugeridaFim===horario.fim))||candidatos[0]||null;
+  const candidatos=historicoPerfil.filter(h=>String(h.data||h.dataExecucao||'')===hoje&&h.nomeTarefa===nome&&h.revisaoStatus==='revisado');
+  const exato=candidatos.find(h=>(!horario.inicio||h.horaSugeridaInicio===horario.inicio)&&(!horario.fim||h.horaSugeridaFim===horario.fim));
+  if(exato)return exato;
+  if(!horario.inicio&&!horario.fim&&candidatos.length===1)return candidatos[0];
+  return null;
 }
 
 function aplicarTarefas(){
