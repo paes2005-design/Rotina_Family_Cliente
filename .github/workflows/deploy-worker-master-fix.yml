@@ -43,18 +43,19 @@ jobs:
           tree=Path('../adm-tree/master-family-tree.js').read_text(encoding='utf-8')
           entry=Path('../adm-tree/index.html').read_text(encoding='utf-8')
           assert "const COMMERCIAL_EXEMPT_GROUPS = new Set(['CLI-4071'])" in tree
+          assert 'window.rotinaMasterIntegratedTree = true' in tree
           assert 'Administrador principal' in tree
-          assert 'Clientes / integrantes' in tree
+          assert 'Integrantes do grupo' in tree
+          assert 'data-master-group-toggle' in tree
           assert 'set-group-blocked' in tree
           assert 'confirm-group' in tree
-          assert 'ADM Master nunca participa do bloqueio comercial' in tree
           assert 'delete-profile' not in tree
           assert 'set-group-disabled' not in tree
           assert "const MASTER_OPERATIONAL_BASE_GROUP = 'CLI-4071'" in entry
           assert 'masterOperationalProfiles' in entry
           assert "window.rotinaMasterApi('/group?grupoId='" in entry
           assert 'window.rotinaMasterSincronizarIntegrantes' in entry
-          print('ARVORE APROVADA: grupo -> principal -> integrantes, bloqueio por grupo e CLI-4071 preservado')
+          print('ARVORE APROVADA: principal clicável -> grupo integrado -> integrantes, bloqueio por grupo e CLI-4071 preservado')
 
       - name: Install dependencies
         run: npm ci
@@ -78,6 +79,7 @@ jobs:
           prod=Path('src/master-rate-limit-production-entry.js').read_text(encoding='utf-8')
           safe=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
           policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
+          users=Path('src/master-users-fallback.js').read_text(encoding='utf-8')
           wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
           assert "import app from './commercial-safe-v2-entry.js'" in prod
           assert 'commercial-preview-entry' not in prod
@@ -88,9 +90,11 @@ jobs:
           assert "COMMERCIAL_EXEMPT_GROUPS = Object.freeze(['CLI-4071'])" in policy
           assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
           assert 'IDENTITY_TOOLKIT' not in safe and 'disableUser' not in safe
+          assert "collectionId: 'administradores'" in users
+          assert "links.byUid.get(uid) || links.byEmail.get(email)" in users
           assert '"main": "src/master-rate-limit-production-entry.js"' in wrangler
           assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
-          print('Produção segura: árvore aprovada + Master + grupos + logs + trial 15 dias OK')
+          print('Produção segura: árvore integrada + vínculo familiar + Master + trial 15 dias OK')
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
@@ -112,6 +116,7 @@ jobs:
             git push
           fi
 
+# Gate atualizado para a árvore integrada aprovada no ADM Master.
 # O marcador .deploy/commercial-v2-last-success.txt só é gravado após o Cloudflare aceitar o deploy.
 # O ADM Master continua independente de CLI/grupo/comercial.
 # Bloqueio familiar altera somente configGrupos/<CLI>; nunca Firebase Authentication.
