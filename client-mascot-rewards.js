@@ -74,7 +74,7 @@ document.addEventListener('pointerdown',unlockAudio,{passive:true});
 
 function barkSound(){
   try{
-    unlockAudio(); if(!audioContext)return;
+    unlockAudio();if(!audioContext)return;
     const ctx=audioContext,now=ctx.currentTime,osc=ctx.createOscillator(),gain=ctx.createGain(),filter=ctx.createBiquadFilter();
     osc.type='sawtooth';osc.frequency.setValueAtTime(190,now);osc.frequency.exponentialRampToValueAtTime(85,now+.18);filter.type='lowpass';filter.frequency.value=950;gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.24,now+.012);gain.gain.exponentialRampToValueAtTime(.0001,now+.22);osc.connect(filter).connect(gain).connect(ctx.destination);osc.start(now);osc.stop(now+.23);
   }catch{}
@@ -140,8 +140,9 @@ function numberFromText(value){
 export function evaluateDailyGoal(){
   const earned=numberFromText(document.getElementById('ptsHoje')?.textContent);
   const possible=numberFromText(document.getElementById('possivelHoje')?.textContent);
-  if(dailyGoalReached(earned,possible))celebrateDaily100();
-  return {earned,possible,reached:dailyGoalReached(earned,possible)};
+  const reached=dailyGoalReached(earned,possible);
+  if(reached)celebrateDaily100();
+  return {earned,possible,reached};
 }
 window.avaliarMetaDiariaMascote=evaluateDailyGoal;
 
@@ -162,8 +163,16 @@ function scanTaskTransitions(){
   evaluateDailyGoal();
 }
 
+function resetSessionState(){
+  taskStates.clear();
+  baselineReady=false;
+  lastTaskSequence='';
+  setTimeout(()=>{scanTaskTransitions();evaluateDailyGoal();},0);
+}
+
 window.addEventListener('rotina-family-tasks-rendered',scanTaskTransitions);
 window.addEventListener('rotina-family-points-updated',evaluateDailyGoal);
+window.addEventListener('rotina-client-session-ready',resetSessionState);
 
 sessionStorage.setItem(legacyCelebrationKey(),'mascote-pontos-v1');
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{ensureLayer();scanTaskTransitions();evaluateDailyGoal();},{once:true});
