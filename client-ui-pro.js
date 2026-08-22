@@ -3,12 +3,13 @@
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
-  // carregamento do módulo novo, bloqueia somente esse gatilho. Se o módulo não
-  // carregar, remove a trava para manter o comportamento anterior como fallback.
+  // carregamento do módulo novo, bloqueia somente esse gatilho. Se já houve uma
+  // celebração nesta sessão, preserva a marca; se o módulo falhar, remove apenas
+  // a marca temporária para manter o comportamento anterior como fallback.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
   const marcadorMascote='mascote-pontos-carregando';
-  sessionStorage.setItem(chave100Legado,marcadorMascote);
+  if(!sessionStorage.getItem(chave100Legado))sessionStorage.setItem(chave100Legado,marcadorMascote);
 
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
