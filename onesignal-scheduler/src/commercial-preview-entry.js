@@ -1,7 +1,7 @@
 import app from './commercial-safe-entry.js';
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { testConsoleHtml } from './test-console.js';
-import { loadMasterGroupSummaryData } from './master-group-summary.js';
+import { loadHistoryByGroupForPreview, loadMasterGroupSummaryData } from './master-group-summary.js';
 
 function bearer(request) {
   return request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1] || '';
@@ -63,9 +63,7 @@ async function dryRunTrial(request, env) {
 }
 
 async function liveGroupSelfTest(request, env) {
-  if (String(env.COMMERCIAL_TEST_DRY_RUN || '') !== '1') {
-    return new Response('Not found', { status: 404 });
-  }
+  if (String(env.COMMERCIAL_TEST_DRY_RUN || '') !== '1') return new Response('Not found', { status: 404 });
   const url = new URL(request.url);
   const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
   if (!groupId) return Response.json({ ok: false, selfTestVersion: 3, error: 'grupoId ausente' }, { status: 200 });
@@ -87,13 +85,41 @@ async function liveGroupSelfTest(request, env) {
   } catch (error) {
     const reason = String(error?.stack || error?.message || error).replace(/\s+/g, ' ').slice(0, 700);
     console.error(JSON.stringify({ event: 'group_selftest_failure', groupId, reason }));
-    return Response.json({
-      ok: false,
-      selfTestVersion: 3,
-      groupId,
-      elapsedMs: Date.now() - startedAt,
-      reason
-    }, { status: 200, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'group-v3-failure' } });
+    return Response.json({ ok: false, selfTestVersion: 3, groupId, elapsedMs: Date.now() - startedAt, reason }, { status: 200, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'group-v3-failure' } });
+  }
+}
+
+async function scoreReviewSelfTest(request, env) {
+  if (String(env.COMMERCIAL_TEST_DRY_RUN || '') !== '1') return new Response('Not found', { status: 404 });
+  const url = new URL(request.url);
+  const groupId = String(url.searchParams.get('grupoId') || '').trim().toUpperCase();
+  const date = String(url.searchParams.get('data') || '').trim();
+  const name = String(url.searchParams.get('nome') || '').trim().toLowerCase();
+  try {
+    const rows = await loadHistoryByGroupForPreview(env, groupId, new Date());
+    const matches = rows
+      .map(row => ({ id: row.id, ...(row.data || {}) }))
+      .filter(item => (!date || String(item.data || item.dataExecucao || '') === date) && (!name || String(item.nomeTarefa || '').trim().toLowerCase() === name))
+      .map(item => ({
+        id: item.id,
+        tarefaId: String(item.tarefaId || ''),
+        nomeTarefa: String(item.nomeTarefa || ''),
+        data: String(item.data || item.dataExecucao || ''),
+        horaSugeridaInicio: String(item.horaSugeridaInicio || ''),
+        horaSugeridaFim: String(item.horaSugeridaFim || ''),
+        horarioInicio: String(item.horarioInicio || ''),
+        horarioTermino: String(item.horarioTermino || ''),
+        pontosOriginais: Number(item.pontosOriginais ?? item.pontosGanhos ?? 0),
+        pontosGanhos: Number(item.pontosGanhos || 0),
+        pontosDevolvidos: Number(item.pontosDevolvidos || 0),
+        revisaoStatus: String(item.revisaoStatus || ''),
+        revisaoDecisao: String(item.revisaoDecisao || ''),
+        revisadoEm: String(item.revisadoEm || ''),
+        status: String(item.status || '')
+      }));
+    return Response.json({ ok: true, groupId, date, name, count: matches.length, records: matches }, { status: 200, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'score-review-v1' } });
+  } catch (error) {
+    return Response.json({ ok: false, groupId, date, name, reason: String(error?.stack || error?.message || error).replace(/\s+/g, ' ').slice(0, 700) }, { status: 200, headers: { 'cache-control': 'no-store', 'x-rotina-selftest': 'score-review-v1-failure' } });
   }
 }
 
@@ -102,28 +128,15 @@ export default {
     const url = new URL(request.url);
     const dryRun = String(env.COMMERCIAL_TEST_DRY_RUN || '') === '1';
     if (dryRun && request.method === 'GET' && (url.pathname === '/test-console' || url.pathname === '/test-console/')) {
-      return new Response(testConsoleHtml(), {
-        headers: {
-          'content-type': 'text/html; charset=utf-8',
-          'cache-control': 'no-store',
-          'x-robots-tag': 'noindex, nofollow'
-        }
-      });
+      return new Response(testConsoleHtml(), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow' } });
     }
     if (dryRun && request.method === 'GET' && url.pathname === '/preview-health') {
       return Response.json(previewHealth(env), { headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-store' } });
     }
-    if (dryRun && request.method === 'GET' && url.pathname === '/preview-selftest/group') {
-      return liveGroupSelfTest(request, env);
-    }
+    if (dryRun && request.method === 'GET' && url.pathname === '/preview-selftest/group') return liveGroupSelfTest(request, env);
+    if (dryRun && request.method === 'GET' && url.pathname === '/preview-selftest/score-review') return scoreReviewSelfTest(request, env);
     if (dryRun && request.method === 'POST') {
-      if ([
-        '/admin-master/groups',
-        '/admin-master/admin-access',
-        '/admin-master/profiles'
-      ].includes(url.pathname)) {
-        return dryRunMasterMutation(request, env);
-      }
+      if (['/admin-master/groups','/admin-master/admin-access','/admin-master/profiles'].includes(url.pathname)) return dryRunMasterMutation(request, env);
       if (url.pathname === '/commercial/trial') return dryRunTrial(request, env);
     }
     return app.fetch(request, env, ctx);
