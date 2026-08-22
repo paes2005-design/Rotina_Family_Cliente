@@ -1,4 +1,5 @@
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
+import { firestoreFieldsToJs } from './core.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const IDENTITY_TOOLKIT_URL = 'https://identitytoolkit.googleapis.com/v1';
@@ -46,7 +47,7 @@ async function accessToken(env, fetchImpl = fetch, now = new Date()) {
   const unsigned = `${encodeJson({ alg: 'RS256', typ: 'JWT' })}.${encodeJson({
     iss: credentials.client_email,
     sub: credentials.client_email,
-    scope: 'https://www.googleapis.com/auth/identitytoolkit',
+    scope: 'https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore',
     aud: GOOGLE_TOKEN_URL,
     iat: issuedAt,
     exp: issuedAt + 3600
@@ -63,7 +64,7 @@ async function accessToken(env, fetchImpl = fetch, now = new Date()) {
   const response = await fetchImpl(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth-type:jwt-bearer'.replace('oauth-type', 'oauth:grant-type'), assertion })
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.access_token) throw new Error(`OAuth Google recusado (${response.status}).`);
@@ -90,6 +91,40 @@ function cors(request) {
   };
 }
 
+function firestoreRunQueryUrl(env) {
+  const projectId = required(env.FIREBASE_PROJECT_ID, 'FIREBASE_PROJECT_ID');
+  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:runQuery`;
+}
+
+async function administratorLinks(env, token, fetchImpl = fetch) {
+  const response = await fetchImpl(firestoreRunQueryUrl(env), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'administradores' }], limit: 1000 } })
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok) throw new Error(`Firestore recusou administradores (${response.status}).`);
+
+  const byUid = new Map();
+  const byEmail = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row.document) continue;
+    const data = firestoreFieldsToJs(row.document.fields || {});
+    const uid = String(data.uid || '').trim();
+    const email = String(data.email || '').trim().toLowerCase();
+    const record = {
+      uid,
+      email,
+      grupoId: String(data.codigoCliente || data.grupoId || '').trim().toUpperCase(),
+      codigoAdmin: String(data.codigoAdmin || '').trim(),
+      tipoAcesso: String(data.tipoAcesso || '').trim().toLowerCase()
+    };
+    if (uid) byUid.set(uid, record);
+    if (email) byEmail.set(email, record);
+  }
+  return { byUid, byEmail };
+}
+
 export async function handleMasterUsersFallback(request, env, fetchImpl = fetch, now = new Date()) {
   const identity = await verifyFirebaseIdToken(env, bearerToken(request), fetchImpl, now);
   if (!isMasterEmail(env, identity.email)) {
@@ -107,19 +142,43 @@ export async function handleMasterUsersFallback(request, env, fetchImpl = fetch,
     return Response.json({ error: `Firebase Authentication recusou a listagem: ${String(message).slice(0, 160)}` }, { status: response.status, headers: cors(request) });
   }
 
+  let links = { byUid: new Map(), byEmail: new Map() };
+  let firestoreDisponivel = true;
+  let aviso = '';
+  try {
+    links = await administratorLinks(env, token, fetchImpl);
+  } catch (error) {
+    firestoreDisponivel = false;
+    aviso = String(error?.message || error).slice(0, 180);
+    console.warn(JSON.stringify({ event: 'master_users_family_join_failure', aviso }));
+  }
+
   const users = (body.users || []).map(user => {
+    const uid = String(user.localId || '');
     const email = String(user.email || '').trim().toLowerCase();
+    const admin = links.byUid.get(uid) || links.byEmail.get(email) || null;
+    const master = isMasterEmail(env, email);
     return {
-      uid: String(user.localId || ''),
+      uid,
       email,
-      codigoAdmin: '',
-      grupoId: '',
-      papel: isMasterEmail(env, email) ? 'master' : 'usuario',
+      codigoAdmin: master ? 'MASTER' : String(admin?.codigoAdmin || ''),
+      grupoId: master ? '' : String(admin?.grupoId || ''),
+      tipoAcesso: master ? 'master' : String(admin?.tipoAcesso || ''),
+      papel: master ? 'master' : 'administrador',
       desativado: user.disabled === true,
       criadoEm: user.createdAt ? new Date(Number(user.createdAt)).toISOString() : '',
       ultimoLoginEm: user.lastLoginAt ? new Date(Number(user.lastLoginAt)).toISOString() : ''
     };
   }).sort((a, b) => a.email.localeCompare(b.email));
 
-  return Response.json({ users, fonte: 'firebase-auth', firestoreDisponivel: false }, { headers: cors(request) });
+  const vinculados = users.filter(user => user.papel !== 'master' && user.grupoId).length;
+  console.log(JSON.stringify({ event: 'master_users_loaded', total: users.length, vinculados, firestoreDisponivel }));
+
+  return Response.json({
+    users,
+    fonte: firestoreDisponivel ? 'firebase-auth+firestore' : 'firebase-auth',
+    firestoreDisponivel,
+    vinculados,
+    aviso
+  }, { headers: cors(request) });
 }
