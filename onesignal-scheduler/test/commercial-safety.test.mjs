@@ -4,6 +4,7 @@ import {
   commercialState,
   confirmFamilyPatch,
   familyBlockPatch,
+  isCommercialExemptGroup,
   mustMutateFirebaseAuthForFamilyBlock,
   resolveAdminCommercialAccess,
   resolveClientCommercialAccess,
@@ -19,6 +20,10 @@ const activeTrial = {
   grupoBloqueado: false
 };
 
+assert.equal(isCommercialExemptGroup('CLI-4071'), true);
+assert.equal(isCommercialExemptGroup(' cli-4071 '), true);
+assert.equal(isCommercialExemptGroup('CLI-6143'), false);
+
 assert.equal(commercialState({ grupoBloqueado: true }, base), 'bloqueado');
 assert.equal(commercialState({ grupoConfirmado: true }, base), 'confirmado');
 assert.equal(commercialState(activeTrial, Date.parse('2026-08-10T12:00:00.000Z')), 'teste');
@@ -29,15 +34,24 @@ const master = resolveAdminCommercialAccess({ isMaster: true, config: { grupoBlo
 assert.equal(master.allowed, true);
 assert.equal(master.reason, 'master-sistema');
 
-const adminBlocked = resolveAdminCommercialAccess({ config: { grupoBloqueado: true } });
+const exemptAdmin = resolveAdminCommercialAccess({ groupId: 'CLI-4071', config: { grupoBloqueado: true } });
+assert.equal(exemptAdmin.allowed, true);
+assert.equal(exemptAdmin.state, 'isento');
+assert.equal(exemptAdmin.reason, 'grupo-isento-comercial');
+
+const exemptClient = resolveClientCommercialAccess({ groupId: 'CLI-4071', config: activeTrial, now: Date.parse('2026-08-17T12:00:00.000Z') });
+assert.equal(exemptClient.allowed, true);
+assert.equal(exemptClient.state, 'isento');
+
+const adminBlocked = resolveAdminCommercialAccess({ groupId: 'CLI-6143', config: { grupoBloqueado: true } });
 assert.equal(adminBlocked.allowed, false);
 assert.equal(adminBlocked.reason, 'familia-bloqueada');
 
-const expired = resolveClientCommercialAccess({ config: activeTrial, now: Date.parse('2026-08-17T12:00:00.000Z') });
+const expired = resolveClientCommercialAccess({ groupId: 'CLI-6143', config: activeTrial, now: Date.parse('2026-08-17T12:00:00.000Z') });
 assert.equal(expired.allowed, false);
 assert.equal(expired.reason, 'teste-15-dias-expirado');
 
-const duringTrial = resolveClientCommercialAccess({ config: activeTrial, now: Date.parse('2026-08-10T12:00:00.000Z') });
+const duringTrial = resolveClientCommercialAccess({ groupId: 'CLI-6143', config: activeTrial, now: Date.parse('2026-08-10T12:00:00.000Z') });
 assert.equal(duringTrial.allowed, true);
 assert.equal(duringTrial.reason, 'teste-15-dias-ativo');
 
@@ -62,4 +76,4 @@ assert.equal(confirmed.trialAtivo, false);
 assert.equal(confirmed.grupoBloqueado, false);
 
 assert.equal(mustMutateFirebaseAuthForFamilyBlock(), false);
-console.log('commercial-safety.test.mjs: OK — grupo + teste de 15 dias + Master protegido');
+console.log('commercial-safety.test.mjs: OK — trial 15d + Master protegido + CLI-4071 isento');

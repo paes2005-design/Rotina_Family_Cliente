@@ -1,0 +1,55 @@
+name: Validar isenção comercial CLI-4071
+
+on:
+  push:
+    branches:
+      - hotfix-isencao-cli-4071-2026-08-22
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'commercial-access-client.js'
+      - 'onesignal-scheduler/src/commercial-policy.js'
+      - 'onesignal-scheduler/src/commercial-safe-v2-entry.js'
+      - 'onesignal-scheduler/test/commercial-safety.test.mjs'
+      - '.github/workflows/validate-cli-4071-exemption.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - name: Regressões existentes
+        run: npm run check && npm test
+      - name: Política comercial
+        run: node test/commercial-safety.test.mjs
+      - name: Sintaxe
+        run: |
+          node --check src/commercial-policy.js
+          node --check src/commercial-safe-v2-entry.js
+          node --check ../commercial-access-client.js
+      - name: Invariantes da isenção
+        shell: python
+        run: |
+          from pathlib import Path
+          policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
+          worker=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
+          client=Path('../commercial-access-client.js').read_text(encoding='utf-8')
+          assert "COMMERCIAL_EXEMPT_GROUPS = Object.freeze(['CLI-4071'])" in policy
+          assert "isCommercialExemptGroup(groupId)" in worker
+          assert "estado:'isento'" in worker
+          assert "alterado:false" in worker
+          assert "new Set(['CLI-4071'])" in client
+          assert "isCommercialExemptGroup(group)" in client
+          assert 'disableUser' not in worker and 'IDENTITY_TOOLKIT' not in worker
+          print('CLI-4071: isento sem alteração de estrutura ou Firebase Auth')
+      - name: Bundle dry-run
+        run: npx wrangler versions upload --dry-run
