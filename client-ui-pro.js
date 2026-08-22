@@ -4,12 +4,20 @@
 
   // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
   // carregamento do módulo novo, bloqueia somente esse gatilho. Se já houve uma
-  // celebração nesta sessão, preserva a marca; se o módulo falhar, remove apenas
-  // a marca temporária para manter o comportamento anterior como fallback.
+  // celebração nesta sessão, preserva essa informação também na chave nova para
+  // não repetir a festa durante a atualização do aplicativo.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
   const marcadorMascote='mascote-pontos-carregando';
-  if(!sessionStorage.getItem(chave100Legado))sessionStorage.setItem(chave100Legado,marcadorMascote);
+  const valorLegado=sessionStorage.getItem(chave100Legado);
+  if(!valorLegado){
+    sessionStorage.setItem(chave100Legado,marcadorMascote);
+  }else if(valorLegado==='true'){
+    const d=new Date(),pad=n=>String(n).padStart(2,'0');
+    const data=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const perfil=`${localStorage.getItem('cliente_grupo')||'sem-grupo'}_${localStorage.getItem('cliente_perfil_id')||localStorage.getItem('cliente_nome')||'sem-perfil'}`;
+    localStorage.setItem(`rotina_mascote_100_${perfil}_${data}`,'1');
+  }
 
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
