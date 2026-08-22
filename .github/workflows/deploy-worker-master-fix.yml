@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   deploy:
@@ -97,7 +97,22 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-# Gate comercial atualizado em 2026-08-22 para exigir a árvore aprovada antes do deploy.
+      - name: Mark successful commercial production deploy
+        working-directory: .
+        run: |
+          mkdir -p .deploy
+          printf 'status=success\npackage=commercial-v2\nsource_sha=%s\ncompleted_at=%s\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .deploy/commercial-v2-last-success.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .deploy/commercial-v2-last-success.txt
+          if git diff --cached --quiet; then
+            echo 'Marcador já está atualizado.'
+          else
+            git commit -m "Deploy: confirmar pacote comercial v2 em produção"
+            git push
+          fi
+
+# O marcador .deploy/commercial-v2-last-success.txt só é gravado após o Cloudflare aceitar o deploy.
 # O ADM Master continua independente de CLI/grupo/comercial.
 # Bloqueio familiar altera somente configGrupos/<CLI>; nunca Firebase Authentication.
 # Logs globais permanecem sob demanda no ADM Master.
