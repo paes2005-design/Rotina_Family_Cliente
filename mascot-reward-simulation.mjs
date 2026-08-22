@@ -18,9 +18,10 @@ ok(!dailyGoalReached(25,0),'pontuação com máximo zero não dispara 100%');
 let last='';
 for(let i=0;i<20000;i++){
   const seq=chooseTaskRewardSequence(last,Math.random);
-  ok(TASK_REWARD_SEQUENCES.some(x=>x.id===seq.id),`sorteio ${i+1} usa sequência permitida`);
-  if(last)ok(String(seq.id)!==String(last),`sorteio ${i+1} não repete a sequência anterior`);
+  if(!TASK_REWARD_SEQUENCES.some(x=>x.id===seq.id))throw new Error(`FALHOU: sorteio ${i+1} saiu das sequências permitidas`);
+  if(last&&String(seq.id)===String(last))throw new Error(`FALHOU: sorteio ${i+1} repetiu imediatamente a sequência anterior`);
   last=String(seq.id);
 }
+ok(true,'20.000 sorteios válidos sem repetição imediata');
 
 console.log('TODAS AS SIMULAÇÕES DO MASCOTE E DO 100% POR PONTOS PASSARAM');
