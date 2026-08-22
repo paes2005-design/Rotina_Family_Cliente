@@ -1,5 +1,5 @@
 name: Rotina Family Cliente regression audit
-# audit trigger: weekly navigation and offline cache 2026-08-14
+# audit trigger: scoring, mascot rewards, weekly navigation and offline cache
 on:
   push:
     paths:
@@ -23,6 +23,9 @@ jobs:
           node --check client-reviewed-points.js
           node --check client-early-start-ui.js
           node --check client-tolerance-timer.js
+          node --check client-mascot-rewards.js
+          node --check mascot-reward-core.js
+          node --check mascot-reward-simulation.mjs
           node --check tolerance-timer-core.js
           node --check timer-simulation.mjs
           node --check scoring-core.js
@@ -43,6 +46,8 @@ jobs:
           const early=read('client-early-start-ui.js');
           const timer=read('client-tolerance-timer.js');
           const timerCore=read('tolerance-timer-core.js');
+          const mascot=read('client-mascot-rewards.js');
+          const mascotCoreText=read('mascot-reward-core.js');
           const sw=read('sw.js');
           const manifest=JSON.parse(read('manifest.json'));
           const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
@@ -52,15 +57,19 @@ jobs:
           assert(!review.includes('setInterval('),'reviewed-points has no continuous interval');
           assert(!early.includes('setInterval('),'early-start display has no continuous interval');
           assert(!week.includes('setInterval('),'weekly navigation has no continuous interval');
+          assert(!mascot.includes('setInterval('),'mascot adds no continuous interval');
           assert((timer.match(/setInterval\(/g)||[]).length===1,'timer has exactly one global interval');
           assert(!guard.includes('MutationObserver'),'guard adds no MutationObserver');
           assert(!review.includes('MutationObserver'),'review module adds no MutationObserver');
           assert(!early.includes('MutationObserver'),'early-start display adds no MutationObserver');
           assert(!timer.includes('MutationObserver'),'timer adds no MutationObserver');
+          assert(!mascot.includes('MutationObserver'),'mascot adds no MutationObserver');
           assert(ui.includes('subtree:false'),'existing task observer is limited to direct row changes');
           assert(!ui.includes('client-rules-v2.js')&&!ui.includes('client-compat-v2.js'),'known freeze modules remain disabled');
           assert(!sw.includes('client-rules-v2.js')&&!sw.includes('client-compat-v2.js'),'known freeze modules remain outside app shell');
           assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(week),'weekly navigation is Firestore read-only');
+          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(mascot),'mascot is Firestore read-only');
+          assert(!mascot.includes('firebase')&&!mascot.includes('getFirestore'),'mascot has no Firebase dependency');
           assert(week.includes('onSnapshot(')&&week.includes("where('grupoId','==',grupo)"),'weekly cache listener is group-scoped');
 
           const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
@@ -82,24 +91,27 @@ jobs:
           assert(ui.includes("import('./client-early-start-ui.js')"),'early-start display is loaded');
           assert(ui.includes("import('./client-tolerance-timer.js')"),'timer is loaded');
           assert(ui.includes("import('./client-week-nav.js?v=3')"),'weekly navigation is loaded');
+          assert(ui.includes("import('./client-mascot-rewards.js')"),'mascot rewards are loaded');
           assert(ui.includes('prepararCronometrosTolerancia'),'task renderer prepares timer nodes');
           assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
+          assert(ui.includes('mascote-pontos-carregando'),'legacy task-count daily celebration is blocked while mascot points rule loads');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
           assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
-          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v36'"),'Client cache is v36');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v41'"),'Client cache is v41');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');
           assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through :59');
           assert(html.includes('.status-prazo-75 { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }'),'75% status uses the timer yellow band');
           assert(html.includes('.status-prazo-50 { background: #ffedd5; color: #9a3412; border: 1px solid #fdba74; }'),'50% status uses the timer orange band');
           assert(html.includes("dados.faixaAtraso==='atraso-maior'||status.includes('50%')"),'today maps major delay to orange');
           assert(week.includes("dados.faixaAtraso==='atraso-maior'||status.includes('50%')"),'weekly view maps major delay to orange');
-          assert(html.includes('./client-ui-pro.js?v=27')&&html.includes('./sw.js?v=28'),'current Client asset URLs remain compatible');
+          assert(html.includes('./client-ui-pro.js?v=27')&&html.includes('./sw.js?v=30'),'current Client asset URLs remain compatible');
           assert(timer.includes("campoHMS(t.horaSugeridaFim,'59')"),'timer decorator preserves :59 end display');
           assert(timerCore.includes('limiteFim=aposMinutoSugerido(j.fim)'),'tolerance starts only after full suggested end minute');
           assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer modules are cached offline');
           assert(sw.includes('client-reviewed-points.js')&&sw.includes('client-time-guard-v2.js')&&sw.includes('scoring-core.js'),'active core modules are cached offline');
           assert(sw.includes('client-history-reconciler.js'),'history reconciler is cached offline');
           assert(sw.includes('client-week-nav.js'),'weekly navigation is cached offline');
+          assert(sw.includes('client-mascot-rewards.js')&&sw.includes('mascot-reward-core.js'),'mascot modules are cached offline');
           assert(week.includes('Semana disponível offline')&&week.includes('Semana atualizada e em cache'),'weekly cache status is visible');
           assert(manifest.start_url,'manifest has start URL');
 
@@ -155,7 +167,26 @@ jobs:
           assert(!early.includes('updateDoc(')&&!early.includes('setDoc(')&&!early.includes('writeBatch('),'early-start display is read-only');
           assert(review.includes('pontosDevolvidos'),'returned points remain supported');
           assert(review.includes('somarPeriodo'),'returned points recalculate day/week/month displays');
+          assert(review.includes("rotina-family-points-updated"),'returned-point snapshot requests a new daily-goal evaluation');
           assert(ui.includes('aplicarPontosRevisadosCliente'),'returned-point display is reapplied after rerender');
+
+          // Mascot and daily 100% by points
+          const rewardCore=await import(pathToFileURL(process.cwd()+'/mascot-reward-core.js').href+'?audit='+Date.now());
+          assert(rewardCore.dailyGoalReached(100,100),'100/100 is daily 100%');
+          assert(!rewardCore.dailyGoalReached(99,100),'99/100 is not daily 100%');
+          assert(!rewardCore.dailyGoalReached(0,0),'0 possible points never triggers daily 100%');
+          assert(rewardCore.TASK_REWARD_SEQUENCES.length===3,'three short task reward sequences exist');
+          assert(rewardCore.TASK_REWARD_SEQUENCES.every(s=>s.steps[0]==='bark'),'every task reward sequence starts with bark');
+          assert(JSON.stringify(rewardCore.DAILY_100_SEQUENCE.steps)===JSON.stringify(['bark','jump','roll','flip']),'daily 100% uses all mascot movements');
+          assert(mascot.includes("document.getElementById('ptsHoje')")&&mascot.includes("document.getElementById('possivelHoje')"),'daily goal reads earned and possible points');
+          assert(mascot.includes('dailyGoalReached(earned,possible)'),'daily celebration is based on points, not completed task count');
+          assert(mascot.includes("rotina-family-points-updated"),'point returns can trigger daily celebration');
+          assert(mascot.includes("rotina-family-tasks-rendered"),'task status transitions feed mascot rewards');
+          assert(mascot.includes('No Prazo\\s*\\(100%\\)'),'only 100% task transitions trigger short mascot sequence');
+          assert(mascot.includes('particleCount:160'),'existing 100% confetti remains');
+          assert(guard.includes('particleCount:45'),'existing task-completion confetti remains');
+          assert(mascot.includes("pointer-events:none"),'mascot overlay cannot block app controls');
+          assert(mascotCoreText.includes("['bark','jump','roll','flip']"),'full daily sequence is explicit in pure core');
 
           // Core flows
           for(const s of ['conectarCliente','sairCliente','renderizarTarefasHoje','resgatarRecompensa']) assert(html.includes(s),'core flow '+s+' remains');
@@ -166,3 +197,5 @@ jobs:
           NODE
       - name: Deterministic timer simulation and stress
         run: node timer-simulation.mjs
+      - name: Mascot reward and daily points simulation
+        run: node mascot-reward-simulation.mjs
