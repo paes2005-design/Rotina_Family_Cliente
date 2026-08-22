@@ -1,0 +1,89 @@
+name: One-off inspecionar Lara CLI-4071
+
+on:
+  push:
+    branches:
+      - oneoff-inspect-lara-4071-2026-08-22
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onesignal-scheduler
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_NAME: rotina-family-onesignal-scheduler
+      WORKER_URL: https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - name: Validar código de diagnóstico
+        run: node --check src/oneoff-lara-inspect.js
+
+      - name: Identificar baseline ativo
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/deployments" \
+            > /tmp/deployments.json
+          jq '.result.deployments[0]' /tmp/deployments.json
+          COUNT=$(jq '.result.deployments[0].versions | length' /tmp/deployments.json)
+          PCT=$(jq -r '.result.deployments[0].versions[0].percentage' /tmp/deployments.json)
+          BASELINE=$(jq -r '.result.deployments[0].versions[0].version_id' /tmp/deployments.json)
+          test "$COUNT" = "1"
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/deployments.json'))['result']['deployments'][0]['versions'][0]
+          assert abs(float(d['percentage'])-100.0) < 0.001, d
+          PY
+          test -n "$BASELINE"
+          echo "BASELINE=$BASELINE" >> "$GITHUB_ENV"
+          echo "Baseline preservado: $BASELINE ($PCT%)"
+
+      - name: Subir versão isolada sem publicar
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler versions upload --config wrangler-oneoff-lara.jsonc --message "oneoff inspect Lara CLI-4071" 2>&1 | tee /tmp/upload.txt
+          ONEOFF=$(grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' /tmp/upload.txt | tail -1)
+          test -n "$ONEOFF"
+          test "$ONEOFF" != "$BASELINE"
+          echo "ONEOFF=$ONEOFF" >> "$GITHUB_ENV"
+          echo "Versão isolada: $ONEOFF"
+
+      - name: Inserir versão a 0 por cento no deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler versions deploy "$BASELINE@100%" "$ONEOFF@0%" --config wrangler-oneoff-lara.jsonc -y
+          sleep 4
+
+      - name: Consultar Lara e tarefas na versão isolada
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS \
+            "$WORKER_URL/__oneoff/inspect-lara-4071" \
+            -H "Cloudflare-Workers-Version-Overrides: $WORKER_NAME=\"$ONEOFF\"" \
+            -o /tmp/lara.json
+          cat /tmp/lara.json | jq .
+          jq -e '.ok == true and .groupId == "CLI-4071" and (.lara.nome | ascii_downcase) == "lara"' /tmp/lara.json >/dev/null
+          echo 'LARA_INSPECTION_OK'
+
+      - name: Restaurar deployment original
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${BASELINE:-}" ]; then
+            npx wrangler versions deploy "$BASELINE@100%" --config wrangler-oneoff-lara.jsonc -y
+            echo "Baseline restaurado em 100%: $BASELINE"
+          fi
