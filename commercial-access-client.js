@@ -1,8 +1,17 @@
 import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import { getFirestore, doc, getDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
+const COMMERCIAL_EXEMPT_GROUPS = new Set(['CLI-4071']);
 let stopConfig = null;
 let blockedNotice = false;
+
+function normalizeGroupId(value = '') {
+  return String(value || '').trim().toUpperCase();
+}
+
+function isCommercialExemptGroup(groupId = '') {
+  return COMMERCIAL_EXEMPT_GROUPS.has(normalizeGroupId(groupId));
+}
 
 function db() {
   if (!getApps().length) throw new Error('Firebase ainda não foi iniciado.');
@@ -30,7 +39,9 @@ function blockMessage(state) {
 }
 
 async function groupState(groupId) {
-  const snap = await getDoc(doc(db(), 'configGrupos', groupId));
+  const group = normalizeGroupId(groupId);
+  if (isCommercialExemptGroup(group)) return 'isento';
+  const snap = await getDoc(doc(db(), 'configGrupos', group));
   return commercialState(snap.exists() ? snap.data() : {});
 }
 
@@ -45,8 +56,8 @@ function logoutWith(text) {
 }
 
 async function enforce(groupId) {
-  const group = String(groupId || '').trim();
-  if (!group) return true;
+  const group = normalizeGroupId(groupId);
+  if (!group || isCommercialExemptGroup(group)) return true;
   try {
     const state = await groupState(group);
     if (blockedState(state)) {
@@ -63,8 +74,8 @@ async function enforce(groupId) {
 function watchGroup(groupId) {
   stopConfig?.();
   stopConfig = null;
-  const group = String(groupId || '').trim();
-  if (!group) return;
+  const group = normalizeGroupId(groupId);
+  if (!group || isCommercialExemptGroup(group)) return;
   stopConfig = onSnapshot(
     doc(db(), 'configGrupos', group),
     snap => {
@@ -79,8 +90,8 @@ function installLoginGuard() {
   const original = window.conectarCliente;
   if (typeof original !== 'function' || original.__commercialGroupGuard) return false;
   const wrapped = async (...args) => {
-    const group = String(document.getElementById('authCodigo')?.value || '').trim().toUpperCase();
-    if (group) {
+    const group = normalizeGroupId(document.getElementById('authCodigo')?.value || '');
+    if (group && !isCommercialExemptGroup(group)) {
       try {
         const state = await groupState(group);
         if (blockedState(state)) {
@@ -99,7 +110,7 @@ function installLoginGuard() {
 }
 
 window.addEventListener('rotina-client-session-ready', async event => {
-  const group = String(event.detail?.grupo || '').trim();
+  const group = normalizeGroupId(event.detail?.grupo || '');
   if (await enforce(group)) watchGroup(group);
 });
 
