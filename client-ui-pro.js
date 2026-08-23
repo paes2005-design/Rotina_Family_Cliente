@@ -13,7 +13,7 @@
   const valorLegado=sessionStorage.getItem(chave100Legado);
   if(!valorLegado)sessionStorage.setItem(chave100Legado,marcadorMascote);
 
-  import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
+  import('./client-time-guard-v2.js?v=3').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
   import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
@@ -23,6 +23,14 @@
   import('./client-dog-bark-mobile.js?v=2').catch(e=>{
     window.rotinaLog?.('cachorro.modulo_latido_mobile_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Latido móvel do cachorro:',e);
+  });
+  import('./client-dog-sad-audio.js?v=4').catch(e=>{
+    window.rotinaLog?.('cachorro.modulo_triste_erro',{mensagem:String(e?.message||e)},'error');
+    console.error('Som triste do cachorro:',e);
+  });
+  import('./client-zero-feedback-after-justification.js?v=2').catch(e=>{
+    window.rotinaLog?.('tarefa.zero_feedback_modulo_erro',{mensagem:String(e?.message||e)},'error');
+    console.error('Feedback de 0% após justificativa:',e);
   });
   import('./client-mascot-rewards.js?v=4').catch(e=>{
     if(sessionStorage.getItem(chave100Legado)===marcadorMascote)sessionStorage.removeItem(chave100Legado);
