@@ -1,7 +1,8 @@
 (()=>{
-  const V=1;
+  const V=2;
   const log=(e,d={},level='info')=>{try{window.rotinaLog?.(e,{...d,monitorExtra:V},level);}catch{}};
   const safe=(v,n=100)=>String(v??'').replace(/\s+/g,' ').slice(0,n);
+  const shown=el=>!!el&&(el.classList.contains('show')||getComputedStyle(el).display!=='none');
   const rect=(el,p='el')=>{
     if(!el)return {};
     const r=el.getBoundingClientRect(),cs=getComputedStyle(el);
@@ -9,25 +10,29 @@
       [`${p}X`]:Math.round(r.x),[`${p}Y`]:Math.round(r.y),[`${p}W`]:Math.round(r.width),[`${p}H`]:Math.round(r.height),
       [`${p}Right`]:Math.round(r.right),[`${p}Bottom`]:Math.round(r.bottom),
       [`${p}Cortado`]:r.left<0||r.top<0||r.right>innerWidth||r.bottom>innerHeight,
-      [`${p}Display`]:cs.display,[`${p}Overflow`]:cs.overflow,[`${p}Transform`]:safe(cs.transform,120)
+      [`${p}Display`]:cs.display,[`${p}Visibility`]:cs.visibility,[`${p}Opacity`]:cs.opacity,
+      [`${p}Overflow`]:cs.overflow,[`${p}Transform`]:safe(cs.transform,120)
     };
   };
   function mascotSnapshot(origem){
     const catLayer=document.getElementById('rotinaCat3dLayerV2');
     const catWrap=document.getElementById('rotinaCat3dWrapV2');
     const catImg=document.getElementById('rotinaCat3dImgV2');
-    const dogLayer=document.getElementById('rotinaDogPreviewV2')||document.getElementById('rotinaDogCelebrationLayer');
-    const dogWrap=document.getElementById('rotinaDogPreviewWrapV2')||dogLayer?.firstElementChild;
+    const dogPreviewLayer=document.getElementById('rotinaDogPreviewV2');
+    const dogPreviewWrap=document.getElementById('rotinaDogPreviewWrapV2');
+    const dogCelebrationLayer=document.getElementById('rotinaDogCelebrationLayer');
+    const dogCelebrationWrap=document.getElementById('rotinaDogCelebrationWrap');
     const active=document.querySelector('.tab-content.active,[data-tab].active,.aba.active');
     const d={
       origem,viewportW:innerWidth,viewportH:innerHeight,dpr:Number(devicePixelRatio||1).toFixed(2),scrollY:Math.round(scrollY),
-      aba:active?.id||active?.dataset?.tab||'',mascote:document.body?.dataset?.rotinaMascote||'',
-      gatoShow:!!catLayer?.classList.contains('show'),cachorroShow:!!dogLayer&&(dogLayer.classList.contains('show')||getComputedStyle(dogLayer).display!=='none'),
-      gatoNaturalW:catImg?.naturalWidth||0,gatoNaturalH:catImg?.naturalHeight||0,
-      gatoComplete:catImg?.complete??false,
-      ...rect(catLayer,'gatoLayer'),...rect(catWrap,'gatoWrap'),...rect(catImg,'gatoImg'),...rect(dogLayer,'dogLayer'),...rect(dogWrap,'dogWrap')
+      orientation:screen?.orientation?.type||'',aba:active?.id||active?.dataset?.tab||'',mascote:document.body?.dataset?.rotinaMascote||'',
+      gatoShow:shown(catLayer),dogPreviewShow:shown(dogPreviewLayer),dogCelebrationShow:shown(dogCelebrationLayer),
+      gatoNaturalW:catImg?.naturalWidth||0,gatoNaturalH:catImg?.naturalHeight||0,gatoComplete:catImg?.complete??false,
+      ...rect(catLayer,'gatoLayer'),...rect(catWrap,'gatoWrap'),...rect(catImg,'gatoImg'),
+      ...rect(dogPreviewLayer,'dogPreviewLayer'),...rect(dogPreviewWrap,'dogPreviewWrap'),
+      ...rect(dogCelebrationLayer,'dogCelebrationLayer'),...rect(dogCelebrationWrap,'dogCelebrationWrap')
     };
-    const warning=d.gatoImgCortado||d.gatoWrapCortado||d.dogLayerCortado||d.dogWrapCortado;
+    const warning=d.gatoImgCortado||d.gatoWrapCortado||d.dogPreviewWrapCortado||d.dogCelebrationWrapCortado;
     log('mascote.visual_snapshot',d,warning?'warning':'info');
   }
   function mediaName(m){
@@ -35,22 +40,22 @@
     if(src.includes('latido-cachorro-comemoracao'))return 'cachorro_comemoracao';
     if(src.includes('cachorro-triste-choramingo'))return 'cachorro_triste';
     if(src.startsWith('data:audio/'))return 'gato_audio_embutido';
+    if(src.startsWith('blob:'))return 'audio_blob';
     return safe(src.split('/').pop()?.split('?')[0]||m?.tagName?.toLowerCase()||'midia',80);
   }
   document.addEventListener('click',e=>{
     const el=e.target.closest('button,a,[role="button"]');if(!el)return;
-    const action=el.dataset?.act||el.dataset?.preview||el.dataset?.choose||el.dataset?.action||el.id||el.getAttribute('aria-label')||el.tagName.toLowerCase();
-    log('ui.acao_detalhada',{acao:safe(action,80),texto:safe(el.textContent,80),dataAct:el.dataset?.act||'',dataPreview:el.dataset?.preview||'',dataChoose:el.dataset?.choose||''});
+    const action=el.dataset?.act||el.dataset?.preview||el.dataset?.choose||el.dataset?.action||el.dataset?.nav||el.id||el.getAttribute('aria-label')||el.tagName.toLowerCase();
+    log('ui.acao_detalhada',{acao:safe(action,80),texto:safe(el.textContent,80),dataAct:el.dataset?.act||'',dataPreview:el.dataset?.preview||'',dataChoose:el.dataset?.choose||'',dataNav:el.dataset?.nav||''});
     setTimeout(()=>mascotSnapshot('apos_acao_120ms'),120);
     setTimeout(()=>mascotSnapshot('apos_acao_600ms'),600);
   },true);
   for(const ev of ['animationstart','animationend','animationcancel']){
     document.addEventListener(ev,e=>{
-      const el=e.target;
-      if(!(el instanceof Element))return;
+      const el=e.target;if(!(el instanceof Element))return;
       const id=el.id||'',cl=safe(el.className,100);
-      if(!/rotina|cat|gato|dog|cachorro|rpc2/i.test(`${id} ${cl} ${e.animationName||''}`))return;
-      log(`animacao.${ev}`,{nome:e.animationName||'',alvo:id||cl,...rect(el,'alvo')});
+      if(!/rotina|cat|gato|dog|cachorro|rpc2|dcTask|dcDay|cat2/i.test(`${id} ${cl} ${e.animationName||''}`))return;
+      log(`animacao.${ev}`,{nome:e.animationName||'',alvo:id||cl,elapsed:Number(e.elapsedTime||0).toFixed(3),...rect(el,'alvo')});
       mascotSnapshot(ev);
     },true);
   }
@@ -79,8 +84,9 @@
   let lastVisible=false;
   setInterval(()=>{
     const cat=document.getElementById('rotinaCat3dLayerV2');
-    const dog=document.getElementById('rotinaDogPreviewV2')||document.getElementById('rotinaDogCelebrationLayer');
-    const visible=!!cat?.classList.contains('show')||!!dog&&(dog.classList.contains('show')||getComputedStyle(dog).display!=='none');
+    const dp=document.getElementById('rotinaDogPreviewV2');
+    const dc=document.getElementById('rotinaDogCelebrationLayer');
+    const visible=shown(cat)||shown(dp)||shown(dc);
     if(visible||lastVisible)mascotSnapshot(visible?'durante_reacao':'apos_reacao');
     lastVisible=visible;
   },750);
