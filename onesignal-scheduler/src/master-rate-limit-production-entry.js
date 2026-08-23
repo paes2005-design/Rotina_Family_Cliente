@@ -51,7 +51,7 @@ function ttlFor(path) {
   if (path.endsWith('/users')) return 30_000;
   if (path.endsWith('/groups')) return 5 * 60_000;
   if (path.endsWith('/group')) return 60_000;
-  if (path.endsWith('/logs')) return 60_000;
+  if (path.endsWith('/logs')) return 5_000;
   return 0;
 }
 
