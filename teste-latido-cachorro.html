@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Teste Latido do Cachorro - Rotina Family</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#4a1220;background:#fff0f3}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px}
+    .card{width:min(520px,100%);background:#fff;border-radius:24px;padding:26px;box-shadow:0 14px 40px rgba(74,18,32,.14);text-align:center}
+    h1{margin:0 0 8px;font-size:1.6rem} p{color:#666;line-height:1.45}
+    .dog{font-size:88px;margin:12px 0 4px;filter:drop-shadow(0 8px 8px rgba(0,0,0,.12));transform-origin:50% 90%}
+    .dog.bark{animation:bark .42s ease-in-out 2}
+    @keyframes bark{0%,100%{transform:translateY(0) rotate(0)}35%{transform:translateY(-10px) rotate(-3deg)}70%{transform:translateY(2px) rotate(3deg)}}
+    button{width:100%;border:0;border-radius:999px;padding:15px 18px;font-size:1.05rem;font-weight:800;background:#ff4d6d;color:#fff;cursor:pointer;margin-top:14px}
+    button:active{transform:scale(.99)}
+    #status{margin-top:14px;padding:12px;border-radius:14px;background:#fff7f9;color:#555;font-size:.92rem;min-height:45px}
+    details{margin-top:16px;text-align:left;color:#666;font-size:.9rem}
+    audio{width:100%;margin-top:10px}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Teste do latido do cachorro</h1>
+    <p>Toque no botão. O mesmo latido deve tocar <strong>duas vezes</strong>, sem sobreposição.</p>
+    <div id="dog" class="dog" aria-hidden="true">🐶</div>
+    <button id="btn">🔊 Testar AU AU</button>
+    <div id="status">Pronto para testar.</div>
+    <details>
+      <summary>Teste manual do arquivo</summary>
+      <p>Se o botão principal não tocar, use o player abaixo para confirmar se o arquivo de áudio carrega no aparelho.</p>
+      <audio controls preload="metadata" src="./latido-cachorro-comemoracao.mp3?v=3"></audio>
+    </details>
+  </main>
+  <script>
+    const AUDIO_URL='./latido-cachorro-comemoracao.mp3?v=3';
+    const statusEl=document.getElementById('status');
+    const dog=document.getElementById('dog');
+    let ctx=null, buffer=null, loading=null;
+
+    async function carregar(){
+      if(buffer)return buffer;
+      if(loading)return loading;
+      loading=(async()=>{
+        statusEl.textContent='Carregando o latido real...';
+        const resp=await fetch(AUDIO_URL,{cache:'no-store'});
+        if(!resp.ok)throw new Error(`Falha ao carregar áudio (HTTP ${resp.status})`);
+        const bytes=await resp.arrayBuffer();
+        const AC=window.AudioContext||window.webkitAudioContext;
+        if(!AC)throw new Error('Este navegador não oferece Web Audio.');
+        if(!ctx)ctx=new AC();
+        buffer=await ctx.decodeAudioData(bytes.slice(0));
+        statusEl.textContent=`Áudio carregado: ${buffer.duration.toFixed(2)} s. Toque no botão para ouvir.`;
+        return buffer;
+      })().catch(err=>{loading=null;throw err});
+      return loading;
+    }
+
+    function tocarNoTempo(quando){
+      const source=ctx.createBufferSource();
+      const gain=ctx.createGain();
+      gain.gain.value=1;
+      source.buffer=buffer;
+      source.connect(gain).connect(ctx.destination);
+      source.start(quando);
+    }
+
+    async function testar(){
+      const btn=document.getElementById('btn');
+      btn.disabled=true;
+      try{
+        await carregar();
+        if(ctx.state==='suspended')await ctx.resume();
+        const inicio=ctx.currentTime+0.05;
+        const intervalo=0.08;
+        tocarNoTempo(inicio);
+        tocarNoTempo(inicio+buffer.duration+intervalo);
+        dog.classList.remove('bark'); void dog.offsetWidth; dog.classList.add('bark');
+        statusEl.textContent=`Tocando AU AU: 2 latidos, pausa de ${Math.round(intervalo*1000)} ms.`;
+        setTimeout(()=>{statusEl.textContent='Teste concluído. Se ouviu dois latidos, este método está aprovado para levar ao app.';},Math.ceil((buffer.duration*2+intervalo+.2)*1000));
+      }catch(err){
+        console.error(err);
+        statusEl.textContent=`Erro: ${err.message}. Tente o player manual abaixo.`;
+      }finally{
+        setTimeout(()=>{btn.disabled=false},300);
+      }
+    }
+
+    document.getElementById('btn').addEventListener('click',testar);
+  </script>
+</body>
+</html>
