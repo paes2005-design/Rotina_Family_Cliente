@@ -63,6 +63,10 @@ const atrasoMs=(real,previsto)=>Math.max(0,real-previsto);
 const minutosCompletos=ms=>Math.max(0,Math.floor(ms/MINUTO));
 const aposMinutoSugerido=previsto=>new Date(previsto.getTime()+MINUTO);
 
+function regraTempoAtual(){
+  try{return globalThis.rotinaObterRegraToleranciaTempo?.()||undefined;}catch{return undefined;}
+}
+
 export function formatarDuracaoCronometro(segundos){
   const s=Math.max(0,Math.floor(Number(segundos)||0));
   const min=Math.floor(s/60),sec=s%60;
@@ -99,7 +103,7 @@ export function calcularEstadoCronometro(t,agora=new Date()){
   const atrasoFimMin=minutosCompletos(atrasoFimMs);
   const consumoTotal=atrasoInicioMin+atrasoFimMin;
   const consumoTotalSeg=Math.max(0,Math.floor((atrasoInicioMs+atrasoFimMs)/1000));
-  const faixa=classificarConsumoToleranciaSegundos(tolerancia,consumoTotalSeg);
+  const faixa=classificarConsumoToleranciaSegundos(tolerancia,consumoTotalSeg,regraTempoAtual());
   const restanteNormalSeg=Math.max(0,Math.ceil(faixa.limite100Seg-consumoTotalSeg));
   const restanteFaixaSeg=faixa.faixa==='atraso-leve'
     ?Math.max(0,Math.ceil(faixa.limite75Seg-consumoTotalSeg))
@@ -124,6 +128,7 @@ export function calcularEstadoCronometro(t,agora=new Date()){
     visivel,texto,tom,status,relogioAtivo,tolerancia,
     atrasoInicioMin,atrasoFimMin,consumoTotal,consumoTotalSeg,
     percentual:faixa.percentual,faixa:faixa.faixa,
+    janelaAdicionalPct:faixa.janelaAdicionalPct,
     restanteNormalSeg,restanteFaixaSeg,
     limite100Seg:faixa.limite100Seg,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,
     faixa75Seg:faixa.faixa75Seg,faixa50Seg:faixa.faixa50Seg,
