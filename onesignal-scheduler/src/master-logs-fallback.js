@@ -2,6 +2,8 @@ import { verifyFirebaseIdToken, isMasterEmail, decryptLogEvent } from './index.j
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ALLOWED_APP_ORIGIN = 'https://paes2005-design.github.io';
+const MAX_LOG_LIMIT = 500;
+const DEFAULT_LOG_LIMIT = 500;
 let cachedToken = { value: '', expiresAt: 0, email: '' };
 
 function required(value, name) {
@@ -62,7 +64,7 @@ async function accessToken(env, fetchImpl = fetch, now = new Date()) {
   const response = await fetchImpl(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth-type:jwt-bearer', assertion })
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.access_token) throw new Error(`OAuth Google recusado (${response.status}).`);
@@ -102,8 +104,15 @@ function firestoreError(body, httpStatus) {
   return `${category}${message ? ` — ${message.slice(0, 260)}` : ''}`;
 }
 
-async function recentSecureDocuments(env, fetchImpl = fetch, now = new Date()) {
+function normalizeLimit(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LOG_LIMIT;
+  return Math.max(1, Math.min(MAX_LOG_LIMIT, Math.floor(n)));
+}
+
+async function recentSecureDocuments(env, fetchImpl = fetch, now = new Date(), limit = DEFAULT_LOG_LIMIT) {
   const token = await accessToken(env, fetchImpl, now);
+  const safeLimit = normalizeLimit(limit);
   const requestOptions = {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -111,7 +120,7 @@ async function recentSecureDocuments(env, fetchImpl = fetch, now = new Date()) {
       structuredQuery: {
         from: [{ collectionId: 'appLogsSecure' }],
         orderBy: [{ field: { fieldPath: 'criadoEm' }, direction: 'DESCENDING' }],
-        limit: 100
+        limit: safeLimit
       }
     })
   };
@@ -152,9 +161,11 @@ export async function handleMasterLogsFallback(request, env, fetchImpl = fetch, 
     return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
   }
 
-  const requestedGroup = String(new URL(request.url).searchParams.get('grupoId') || '').trim();
+  const url = new URL(request.url);
+  const requestedGroup = String(url.searchParams.get('grupoId') || '').trim();
+  const requestedLimit = normalizeLimit(url.searchParams.get('limit'));
   const globalMode = !requestedGroup || requestedGroup.toUpperCase() === 'SISTEMA' || requestedGroup === 'MASTER-SYSTEM';
-  const documents = await recentSecureDocuments(env, fetchImpl, now);
+  const documents = await recentSecureDocuments(env, fetchImpl, now, requestedLimit);
   const logs = [];
   for (const document of documents) {
     try {
@@ -164,5 +175,10 @@ export async function handleMasterLogsFallback(request, env, fetchImpl = fetch, 
     } catch (_) {}
   }
   logs.sort((a, b) => String(b.clienteEm || '').localeCompare(String(a.clienteEm || '')));
-  return Response.json({ logs: logs.slice(0, 100), escopo: globalMode ? 'todos-os-grupos' : requestedGroup }, { headers: cors(request) });
+  return Response.json({
+    logs: logs.slice(0, requestedLimit),
+    escopo: globalMode ? 'todos-os-grupos' : requestedGroup,
+    limiteSolicitado: requestedLimit,
+    limiteMaximo: MAX_LOG_LIMIT
+  }, { headers: cors(request) });
 }
