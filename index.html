@@ -17,9 +17,11 @@
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=4')
           .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=36')
-          .replace('./sw.js?v=30','./sw.js?v=38');
+          .replace('./sw.js?v=30','./sw.js?v=39');
         const addon='<script type="module" src="./commercial-access-client.js?v=1"><\\/script>';
         if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
+        const dogOnly='<script src="./client-dog-only.js?v=1"><\\/script>';
+        if(!html.includes('client-dog-only.js')) html=html.replace('</body>',dogOnly+'\n</body>');
         document.open();document.write(html);document.close();
       }catch(e){
         document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html">Tentar abrir diretamente</a></div>';
