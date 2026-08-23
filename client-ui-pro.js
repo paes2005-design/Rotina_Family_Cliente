@@ -1,23 +1,17 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
+  window.__rotinaMascoteLoaderVersion=2;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
-  // carregamento do módulo novo, bloqueia somente esse gatilho. Se já houve uma
-  // celebração nesta sessão, preserva essa informação também na chave nova para
-  // não repetir a festa durante a atualização do aplicativo.
+  // carregamento do módulo novo, bloqueia somente esse gatilho. A marca antiga não
+  // é convertida em "mascote já exibido", porque isso poderia esconder a estreia
+  // do cachorro depois de uma atualização do aplicativo.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
   const marcadorMascote='mascote-pontos-carregando';
   const valorLegado=sessionStorage.getItem(chave100Legado);
-  if(!valorLegado){
-    sessionStorage.setItem(chave100Legado,marcadorMascote);
-  }else if(valorLegado==='true'){
-    const d=new Date(),pad=n=>String(n).padStart(2,'0');
-    const data=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    const perfil=`${localStorage.getItem('cliente_grupo')||'sem-grupo'}_${localStorage.getItem('cliente_perfil_id')||localStorage.getItem('cliente_nome')||'sem-perfil'}`;
-    localStorage.setItem(`rotina_mascote_100_${perfil}_${data}`,'1');
-  }
+  if(!valorLegado)sessionStorage.setItem(chave100Legado,marcadorMascote);
 
   import('./client-time-guard-v2.js').catch(e=>console.error('Validação temporal v2:',e));
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
@@ -26,9 +20,16 @@
   import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
-  import('./client-mascot-rewards.js').catch(e=>{
+  import('./client-mascot-rewards.js?v=2').catch(e=>{
     if(sessionStorage.getItem(chave100Legado)===marcadorMascote)sessionStorage.removeItem(chave100Legado);
+    window.__rotinaMascoteLoadError=String(e?.message||e);
+    window.rotinaLog?.('mascote.modulo_erro',{mensagem:window.__rotinaMascoteLoadError},'error');
     console.error('Recompensas do mascote:',e);
+  });
+  import('./client-mascot-trigger-bridge.js?v=1').catch(e=>{
+    window.__rotinaMascoteBridgeError=String(e?.message||e);
+    window.rotinaLog?.('mascote.bridge_erro',{mensagem:window.__rotinaMascoteBridgeError},'error');
+    console.error('Ponte do mascote:',e);
   });
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
