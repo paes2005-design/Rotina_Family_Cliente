@@ -16,10 +16,12 @@
         let html=await r.text();
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=3')
-          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=32')
-          .replace('./sw.js?v=30','./sw.js?v=34');
+          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=33')
+          .replace('./sw.js?v=30','./sw.js?v=35');
         const addon='<script type="module" src="./commercial-access-client.js?v=1"><\\/script>';
         if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
+        const sadAddon='<script type="module" src="./client-dog-sad-audio.js?v=2"><\\/script>';
+        if(!html.includes('client-dog-sad-audio.js')) html=html.replace('</body>',sadAddon+'\n</body>');
         document.open();document.write(html);document.close();
       }catch(e){
         document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html">Tentar abrir diretamente</a></div>';
