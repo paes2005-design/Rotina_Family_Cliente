@@ -6,6 +6,7 @@ const grupo=()=>String(localStorage.getItem('cliente_grupo')||'').trim();
 const perfil=()=>String(localStorage.getItem('cliente_perfil_id')||'').trim();
 const nome=()=>String(localStorage.getItem('cliente_nome')||'').trim();
 const db=()=>getApps().length?getFirestore(getApp()):null;
+const limpezasCamposFinais=new Set();
 
 // -----------------------------------------------------------------------------
 // 1) Integridade da execução: tarefa Pendente/Em andamento nunca mostra término
@@ -20,15 +21,19 @@ function esconderTerminoAntigo(){
     const antes=real.textContent||'';
     const depois=antes.replace(/\s*\/\s*⏹️.*$/u,'').trim();
     if(depois!==antes.trim()){
+      const tarefaId=String(row.dataset.familyTaskId||'').trim();
       real.textContent=depois;
-      LOG('integridade.termino_antigo_ocultado',{tarefaId:row.dataset.familyTaskId||'',status});
+      LOG('integridade.termino_antigo_ocultado',{tarefaId,status});
+      if(status==='Em andamento'&&tarefaId)limparCamposFinaisDaTarefa(tarefaId);
     }
   });
 }
 
 async function limparCamposFinaisDaTarefa(id){
+  const tarefaId=String(id||'').trim();
   const banco=db();
-  if(!banco||!id)return;
+  if(!banco||!tarefaId||limpezasCamposFinais.has(tarefaId))return;
+  limpezasCamposFinais.add(tarefaId);
   const dados={
     horarioTermino:'',
     terminoExecutadoEm:'',
@@ -50,10 +55,12 @@ async function limparCamposFinaisDaTarefa(id){
     justificativaRecusada:false
   };
   try{
-    await updateDoc(doc(banco,'tarefas',String(id)),dados);
-    LOG('integridade.inicio_campos_finais_limpos',{tarefaId:String(id)});
+    await updateDoc(doc(banco,'tarefas',tarefaId),dados);
+    LOG('integridade.inicio_campos_finais_limpos',{tarefaId});
   }catch(e){
-    LOG('integridade.inicio_limpeza_erro',{tarefaId:String(id),mensagem:String(e?.message||e)},'warning');
+    LOG('integridade.inicio_limpeza_erro',{tarefaId,mensagem:String(e?.message||e)},'warning');
+  }finally{
+    setTimeout(()=>limpezasCamposFinais.delete(tarefaId),1500);
   }
 }
 
@@ -187,7 +194,7 @@ function instalar(){
   instalarIntegridadeTarefas();
   instalarIntegridadeResgates();
   window.__rotinaSessionIntegrity=true;
-  LOG('integridade.cliente_pronta',{versao:1});
+  LOG('integridade.cliente_pronta',{versao:2});
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',instalar,{once:true});else instalar();
