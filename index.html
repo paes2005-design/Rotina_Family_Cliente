@@ -16,13 +16,13 @@
         let html=await r.text();
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=3')
-          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=33')
-          .replace('./sw.js?v=30','./sw.js?v=35');
+          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=34')
+          .replace('./sw.js?v=30','./sw.js?v=36');
         const addon='<script type="module" src="./commercial-access-client.js?v=1"><\\/script>';
         if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
         const sadAddon='<script type="module" src="./client-dog-sad-audio.js?v=4"><\\/script>';
         if(!html.includes('client-dog-sad-audio.js')) html=html.replace('</body>',sadAddon+'\n</body>');
-        const zeroFeedbackAddon='<script src="./client-zero-feedback-after-justification.js?v=1"><\\/script>';
+        const zeroFeedbackAddon='<script src="./client-zero-feedback-after-justification.js?v=2"><\\/script>';
         if(!html.includes('client-zero-feedback-after-justification.js')) html=html.replace('</body>',zeroFeedbackAddon+'\n</body>');
         document.open();document.write(html);document.close();
       }catch(e){
