@@ -1,6 +1,6 @@
 (()=>{
   const VERSION=1;
-  const ASSETS={happyImg:'./cat-happy-tiny.webp.b64?v=1',sadImg:'./cat-sad-tiny.webp.b64?v=1',happyAudio:'./cat-happy-tiny.mp3.b64?v=1',sadAudio:'./cat-sad-tiny.mp3.b64?v=1'};
+  const ASSETS={happyImg:'./cat-happy-tiny.webp.b64',sadImg:'./cat-sad-tiny.webp.b64',happyAudio:'./cat-happy-tiny.mp3.b64',sadAudio:'./cat-sad-tiny.mp3.b64'};
   const loaded={};
   const pad=n=>String(n).padStart(2,'0');
   const todayKey=()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
@@ -67,7 +67,7 @@
   function syncSelected(){ensureStyle();if(document.body)document.body.dataset.rotinaMascote=selected()==='cat'?'cat':'dog';replaceSadFallback();}
 
   const originalPlay=HTMLMediaElement.prototype.play;
-  if(!HTMLMediaElement.prototype.__rotinaCatMutePatched){HTMLMediaElement.prototype.play=function(){const src=String(this.currentSrc||this.src||'');if(selected()==='cat'&&(src.includes('latido-cachorro-comemoracao.mp3')||src.includes('cachorro-triste-choramingo.mp3')))return Promise.resolve();return originalPlay.call(this);};HTMLMediaElement.prototype.__rotinaCatMutePatched=true;}
+  if(!HTMLMediaElement.prototype.__rotinaCatMutePatched){HTMLMediaElement.prototype.play=function(){const src=String(this.currentSrc||this.src||'');const previewDog=document.getElementById('rotinaDogPreviewLayerV1')?.classList.contains('show')===true;if(selected()==='cat'&&!previewDog&&(src.includes('latido-cachorro-comemoracao.mp3')||src.includes('cachorro-triste-choramingo.mp3')))return Promise.resolve();return originalPlay.call(this);};HTMLMediaElement.prototype.__rotinaCatMutePatched=true;}
 
   window.tocarGatoTristeRotina=async()=>{if(selected()!=='cat')return false;playAsset('sadAudio',.95);return true;};
   window.rotinaPreviewGato=kind=>{const n=nome();if(kind==='day')return enqueue('day',`Parabéns, ${n}! Você finalizou bem o dia!`);if(kind==='sad')return enqueue('sad',`Poxa, ${n}! Você não conseguiu concluir essa tarefa dentro do seu horário.`);return enqueue('task',`Parabéns, ${n}! Você completou essa tarefa dentro do seu horário!`);};
