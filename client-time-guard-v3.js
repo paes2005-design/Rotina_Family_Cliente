@@ -1,0 +1,200 @@
+import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+import {getFirestore,doc,getDoc,getDocFromCache,writeBatch,collection,query,where,getDocs} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import {REGRA_PADRAO,classificarConsumoToleranciaSegundos,calcularConsumoAtraso,minutosCompletosAtrasoHorarioSugerido,horarioSugeridoEstourado} from './scoring-core.js';
+
+const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+const pad=n=>String(n).padStart(2,'0');
+const dataISO=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const horaHM=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const grupo=()=>localStorage.getItem('cliente_grupo')||'';
+const perfil=()=>localStorage.getItem('cliente_perfil_id')||'';
+const nome=()=>localStorage.getItem('cliente_nome')||'';
+const UX_COMMIT_WAIT_MS=650;
+const TASK_CACHE_MS=5000;
+const RULE_CACHE_MS=60000;
+let instalado=false;
+const taskCache=new Map();
+let ruleCache={grupoId:'',at:0,value:null};
+const busyActions=new Set();
+
+function log(evento,detalhes={},nivel='info'){try{window.rotinaLog?.(evento,detalhes,nivel);}catch{}}
+function horarioNaData(base,hhmm){const [h,m]=String(hhmm||'00:00').split(':').map(Number);const d=new Date(base);d.setHours(h||0,m||0,0,0);return d;}
+function dataOcorrencia(t,agora=new Date()){
+  if(t.status==='Em andamento'&&t.dataExecucao){const [a,m,d]=String(t.dataExecucao).split('-').map(Number);if(a&&m&&d)return new Date(a,m-1,d);}
+  const alvo=DIAS.indexOf(t.diaSemana),d=new Date(agora);d.setHours(0,0,0,0);
+  if(alvo>=0)d.setDate(d.getDate()-((d.getDay()-alvo+7)%7));
+  return d;
+}
+function janela(t,agora=new Date()){
+  const ocorr=dataOcorrencia(t,agora),inicio=horarioNaData(ocorr,t.horaSugeridaInicio),fim=horarioNaData(ocorr,t.horaSugeridaFim);
+  if(fim<=inicio)fim.setDate(fim.getDate()+1);
+  return {ocorr,inicio,fim};
+}
+const aposMinutoSugerido=d=>new Date(d.getTime()+60000);
+function inicioReal(t,j,agora){
+  if(t.inicioExecutadoEm){const d=new Date(t.inicioExecutadoEm);if(!Number.isNaN(d.getTime()))return d;}
+  if(!t.horarioInicio)return agora;
+  const d=horarioNaData(j.ocorr,t.horarioInicio);
+  if(d<j.inicio&&(j.inicio-d)>12*60*60*1000)d.setDate(d.getDate()+1);
+  return d;
+}
+async function db(){if(!getApps().length)throw new Error('Firebase ainda não inicializado');return getFirestore(getApp());}
+
+async function docRapido(ref){
+  try{const cached=await getDocFromCache(ref);if(cached.exists())return {snap:cached,origem:'cache'};}catch{}
+  return {snap:await getDoc(ref),origem:'servidor'};
+}
+async function buscarTarefa(id){
+  const inicio=performance.now(),cached=taskCache.get(id);
+  if(cached&&Date.now()-cached.at<TASK_CACHE_MS){log('perf.tarefa_busca',{tarefaId:id,origem:'memoria',tempoMs:Math.round(performance.now()-inicio)});return {...cached.value};}
+  const banco=await db(),{snap,origem}=await docRapido(doc(banco,'tarefas',id));
+  const value=snap.exists()?{id:snap.id,...snap.data()}:null;
+  if(value)taskCache.set(id,{at:Date.now(),value});
+  log('perf.tarefa_busca',{tarefaId:id,origem,tempoMs:Math.round(performance.now()-inicio)});
+  return value;
+}
+async function regraAtual(){
+  const inicio=performance.now(),g=grupo();
+  if(!g)return REGRA_PADRAO;
+  if(ruleCache.value&&ruleCache.grupoId===g&&Date.now()-ruleCache.at<RULE_CACHE_MS){log('perf.regra_busca',{origem:'memoria',tempoMs:Math.round(performance.now()-inicio)});return ruleCache.value;}
+  try{
+    const banco=await db(),{snap,origem}=await docRapido(doc(banco,'configGrupos',g));
+    const r=snap.exists()?(snap.data().regraAtraso||{}):{};
+    const value={dentroLimites:Number(r.dentroLimites??100),atrasoLeve:Number(r.atrasoLeve??75),atrasoMaior:Number(r.atrasoMaior??50),estourado:0};
+    ruleCache={grupoId:g,at:Date.now(),value};
+    log('perf.regra_busca',{origem,tempoMs:Math.round(performance.now()-inicio)});
+    return value;
+  }catch(e){log('perf.regra_busca_erro',{mensagem:String(e?.message||e)},'warning');return REGRA_PADRAO;}
+}
+function atualizarCacheTarefa(t,dados){taskCache.set(t.id,{at:Date.now(),value:{...t,...dados}});}
+
+function avisar(msg){const m=document.getElementById('modalTrava');if(m){const p=m.querySelector('p');if(p)p.innerHTML=msg;m.style.display='flex';}else alert(msg.replace(/<[^>]*>/g,' '));}
+function avisarBloqueioOrdem(r){
+  if(r?.motivo==='outra-em-andamento')avisar(`<strong>Outra tarefa ainda está em andamento.</strong><br><br>Finalize “${r.tarefa?.nome||'a tarefa atual'}” antes de iniciar esta.`);
+  else avisar(`<strong>Não é permitido pular uma tarefa.</strong><br><br>Conclua primeiro “${r?.tarefa?.nome||'a tarefa anterior'}”.`);
+}
+function avisarFalhaSincronizacao(){
+  log('perf.sincronizacao_falhou_depois_da_resposta',{},'error');
+  const existente=document.getElementById('rotinaSyncErrorToast');if(existente)return;
+  const toast=document.createElement('div');toast.id='rotinaSyncErrorToast';
+  toast.style.cssText='position:fixed;left:12px;right:12px;bottom:84px;z-index:26000;background:#991b1b;color:#fff;padding:12px 14px;border-radius:12px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.22)';
+  toast.textContent='Não foi possível sincronizar uma alteração. Mantenha o app aberto e verifique sua conexão.';
+  document.body.appendChild(toast);setTimeout(()=>toast.remove(),8000);
+}
+async function aguardarCommitAteLimite(commitPromise,meta={}){
+  const inicio=performance.now();
+  const observado=commitPromise.then(()=>{log('perf.firebase_commit_ok',{...meta,tempoMs:Math.round(performance.now()-inicio)});return true;});
+  if(navigator.onLine===false){observado.catch(e=>{log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');});return {emSegundoPlano:true};}
+  try{
+    const terminou=await Promise.race([observado,new Promise(resolve=>setTimeout(()=>resolve(false),UX_COMMIT_WAIT_MS))]);
+    if(terminou===true)return {emSegundoPlano:false};
+    log('perf.firebase_commit_segundo_plano',{...meta,limiteMs:UX_COMMIT_WAIT_MS});
+    observado.catch(e=>{log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');avisarFalhaSincronizacao();});
+    return {emSegundoPlano:true};
+  }catch(e){log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');throw e;}
+}
+
+function avaliarOrdemLista(lista,t){
+  const outra=lista.find(x=>x.id!==t.id&&x.status==='Em andamento');
+  if(outra)return {permitida:false,motivo:'outra-em-andamento',tarefa:outra};
+  const i=lista.findIndex(x=>x.id===t.id);if(i<0)return {permitida:true};
+  const anterior=lista.slice(0,i).find(x=>(x.status||'Pendente')==='Pendente');
+  if(anterior)return {permitida:false,motivo:'anterior-pendente',tarefa:anterior};
+  return {permitida:true};
+}
+function verificarOrdemRenderizada(t){
+  const rows=[...document.querySelectorAll('#tabelaCorpo tr[data-family-task-id]')];if(!rows.length)return null;
+  const lista=rows.map(row=>({id:String(row.dataset.familyTaskId||'').trim(),status:String(row.dataset.familyTaskStatus||'Pendente').trim()||'Pendente',nome:row.children?.[1]?.querySelector('strong')?.textContent?.trim()||''})).filter(x=>x.id);
+  if(!lista.some(x=>x.id===t.id))return null;return avaliarOrdemLista(lista,t);
+}
+async function verificarOrdem(t){
+  const local=verificarOrdemRenderizada(t);if(local)return local;
+  const inicio=performance.now(),banco=await db(),g=grupo();if(!g)return {permitida:true};
+  const s=await getDocs(query(collection(banco,'tarefas'),where('grupoId','==',g)));
+  const lista=s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>(x.perfilId?x.perfilId===perfil():x.perfilNome===nome())&&x.diaSemana===t.diaSemana).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+  log('perf.ordem_busca_servidor',{tempoMs:Math.round(performance.now()-inicio),quantidade:lista.length});
+  return avaliarOrdemLista(lista,t);
+}
+async function registrarInicio(t,agora,j,antecipacao=null){
+  const inicio=performance.now(),atrasoInicio=minutosCompletosAtrasoHorarioSugerido(agora,j.inicio),banco=await db();
+  const antecipado=Boolean(antecipacao),antecipacaoMin=antecipado?Math.max(0,Math.floor((j.inicio-agora)/60000)):0;
+  const dados={status:'Em andamento',horarioInicio:horaHM(agora),inicioExecutadoEm:agora.toISOString(),dataExecucao:dataISO(j.ocorr),iniciouComAtraso:atrasoInicio>0,atrasoInicioMin:atrasoInicio,inicioAntecipado:antecipado,antecipacaoMin,motivoInicioAntecipado:antecipado?(antecipacao.motivo||''):'',tipoMotivoInicioAntecipado:antecipado?(antecipacao.tipo||''):''};
+  const batch=writeBatch(banco);batch.update(doc(banco,'tarefas',t.id),dados);batch.set(doc(banco,'execucoes',`${dataISO(j.ocorr)}__${t.id}`),{grupoId:grupo(),perfilId:perfil(),perfilNome:nome(),tarefaId:t.id,nomeTarefa:t.nome,data:dataISO(j.ocorr),...dados},{merge:true});
+  atualizarCacheTarefa(t,dados);
+  await aguardarCommitAteLimite(batch.commit(),{acao:'inicio',tarefaId:t.id});
+  log('perf.inicio_total',{tarefaId:t.id,tempoMs:Math.round(performance.now()-inicio)});
+}
+
+function pedirMotivoAntecipacao(t,agora,j){
+  document.getElementById('guardEarlyModalV2')?.remove();
+  const m=document.createElement('div');m.id='guardEarlyModalV2';m.style.cssText='position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';
+  m.innerHTML=`<div style="width:min(92vw,460px);background:#fff;border-radius:20px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.25)"><h2 style="margin-top:0">⏰ Esta tarefa está adiantada</h2><p>Ela está programada para começar às <strong>${t.horaSugeridaInicio}</strong>. Você pode começar mais cedo, mas informe o motivo.</p><div id="guardEarlyOptions" style="display:grid;gap:8px;margin:14px 0"><button type="button" class="btn" data-early-reason="anterior-finalizada">✅ Terminei a tarefa anterior mais cedo</button><button type="button" class="btn" data-early-reason="responsavel-autorizou">👤 Meu responsável autorizou</button><button type="button" class="btn" data-early-reason="mudanca-rotina">🔄 Mudança na rotina</button><button type="button" class="btn" data-early-reason="outro">✏️ Outro motivo</button></div><textarea id="guardEarlyOther" rows="3" style="display:none;width:100%;box-sizing:border-box;padding:11px;border:2px solid #ddd;border-radius:12px;font:inherit" placeholder="Conte brevemente o motivo..."></textarea><div id="guardEarlyErr" style="display:none;color:#b91c1c;margin-top:8px"></div><div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px"><button type="button" id="guardEarlyCancel" class="btn">Esperar o horário</button><button type="button" id="guardEarlyConfirm" class="btn" disabled style="background:var(--cor-primaria,#2563eb);color:#fff">Justificar e iniciar</button></div></div>`;
+  document.body.appendChild(m);
+  const confirm=m.querySelector('#guardEarlyConfirm'),cancel=m.querySelector('#guardEarlyCancel'),other=m.querySelector('#guardEarlyOther'),err=m.querySelector('#guardEarlyErr');let selecionado='';
+  const rotulos={'anterior-finalizada':'Terminei a tarefa anterior mais cedo.','responsavel-autorizou':'Meu responsável autorizou o início antecipado.','mudanca-rotina':'Houve uma mudança na rotina.'};
+  m.querySelector('#guardEarlyOptions').addEventListener('click',e=>{const b=e.target.closest('button[data-early-reason]');if(!b)return;selecionado=b.dataset.earlyReason||'';confirm.disabled=false;err.style.display='none';m.querySelectorAll('button[data-early-reason]').forEach(x=>{x.style.outline=x===b?'3px solid rgba(37,99,235,.28)':'none';});other.style.display=selecionado==='outro'?'block':'none';if(selecionado==='outro')setTimeout(()=>other.focus(),0);});
+  cancel.onclick=()=>m.remove();
+  confirm.onclick=async()=>{
+    let motivo=rotulos[selecionado]||'';if(selecionado==='outro'){motivo=other.value.trim();if(motivo.split(/\s+/).filter(Boolean).length<3){err.textContent='Conte o motivo em pelo menos 3 palavras.';err.style.display='block';other.focus();return;}}
+    if(!motivo||confirm.dataset.busy==='1')return;confirm.dataset.busy='1';confirm.disabled=true;cancel.disabled=true;err.style.display='none';confirm.textContent='Iniciando...';const iniciadoEm=performance.now();
+    try{const agora2=new Date(),j2=janela(t,agora2);await registrarInicio(t,agora2,j2,agora2<j2.inicio?{tipo:selecionado,motivo}:null);log('tarefa.inicio_antecipado_ok',{tarefaId:t.id,tempoMs:Math.round(performance.now()-iniciadoEm),motivoTipo:selecionado});m.remove();}
+    catch(e){console.error('Início antecipado:',e);delete confirm.dataset.busy;confirm.disabled=false;cancel.disabled=false;confirm.textContent='Justificar e iniciar';err.textContent='Não foi possível iniciar agora. Tente novamente.';err.style.display='block';log('tarefa.inicio_antecipado_erro',{tarefaId:t.id,mensagem:String(e?.message||e)},'error');}
+  };
+}
+async function iniciar(id){
+  const total=performance.now(),t=await buscarTarefa(id);if(!t||(t.status||'Pendente')!=='Pendente')return;
+  const ordem=await verificarOrdem(t);if(!ordem.permitida){avisarBloqueioOrdem(ordem);return;}
+  const agora=new Date(),j=janela(t,agora);if(agora<j.inicio){pedirMotivoAntecipacao(t,agora,j);return;}
+  await registrarInicio(t,agora,j,null);log('perf.iniciar_acao_total',{tarefaId:id,tempoMs:Math.round(performance.now()-total)});
+}
+
+async function salvarResultado(t,agora,j,ini,calc,faixa,justificativa='',opcoes={}){
+  const inicio=performance.now(),banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(faixa.percentual/100));
+  const status=faixa.faixa==='dentro-limites'?`No Prazo (${faixa.percentual}%)`:faixa.faixa==='atraso-leve'?`No Prazo — atraso leve (${faixa.percentual}%)`:faixa.faixa==='atraso-maior'?`No Prazo — atraso maior (${faixa.percentual}%)`:'Atrasado (0%)';
+  const temJustificativa=Boolean(justificativa.trim());
+  const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,toleranciaConsumidaMin:calc.consumoTotal,toleranciaConsumidaSeg:calc.consumoTotalSeg,atrasoInicioMin:calc.atrasoInicio,atrasoFimMin:calc.atrasoFim,limite75Min:faixa.limite75,limite50Min:faixa.limite50,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,justificativaAtraso:justificativa,revisaoStatus:temJustificativa?'aguardando':'sem-revisao',iniciouComAtraso:t.iniciouComAtraso===true,tipoJustificativa:temJustificativa?(opcoes.vozUsada?'voz-transcrita':'texto'):'',justificativaRecusada:!temJustificativa&&opcoes.recusou===true};
+  const hist={grupoId:grupo(),perfilId:perfil(),perfilNome:nome(),tarefaId:t.id,tarefaGrupoId:t.tarefaGrupoId||'',nomeTarefa:t.nome,diaSemana:t.diaSemana,data:dataISO(j.ocorr),dataExecucao:dataISO(j.ocorr),horaSugeridaInicio:t.horaSugeridaInicio,horaSugeridaFim:t.horaSugeridaFim,horarioInicio:t.horarioInicio||horaHM(ini),inicioExecutadoEm:t.inicioExecutadoEm||ini.toISOString(),tempoLimite:Number(t.tempoLimite)||0,pontosMaximos:Number(t.pontosMaximos)||0,icone:t.icone||'',inicioAntecipado:t.inicioAntecipado===true,antecipacaoMin:Number(t.antecipacaoMin)||0,motivoInicioAntecipado:t.motivoInicioAntecipado||'',tipoMotivoInicioAntecipado:t.tipoMotivoInicioAntecipado||'',...base};
+  const historicoId=`${perfil()}_${t.id}_${dataISO(j.ocorr)}`;window.registrarHistoricoLocal?.(historicoId,hist);atualizarCacheTarefa(t,base);
+  const batch=writeBatch(banco);batch.update(doc(banco,'tarefas',t.id),base);batch.set(doc(banco,'historico',historicoId),hist,{merge:true});batch.set(doc(banco,'execucoes',`${dataISO(j.ocorr)}__${t.id}`),hist,{merge:true});
+  const resultado=await aguardarCommitAteLimite(batch.commit(),{acao:'resultado',tarefaId:t.id,percentual:faixa.percentual});
+  log('perf.resultado_total',{tarefaId:t.id,tempoMs:Math.round(performance.now()-inicio),segundoPlano:resultado.emSegundoPlano===true});
+}
+
+function pedirJustificativa(t,agora,j,ini,calc,faixa){
+  document.getElementById('guardJustModalV2')?.remove();
+  const obrigatoria=t.justificativaObrigatoria!==false;let vozUsada=false,reconhecimento=null;
+  const m=document.createElement('div');m.id='guardJustModalV2';m.style.cssText='position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';
+  const textoObrigatoriedade=obrigatoria?'<p style="margin:8px 0;color:#8a4b08;font-weight:700">⚠️ Nesta tarefa, a justificativa é obrigatória para concluir.</p>':'<p style="margin:8px 0;color:#64748b">Nesta tarefa, você pode justificar ou concluir sem justificar.</p>';
+  const botaoSem=obrigatoria?'':`<button type="button" id="guardSemV2" class="btn">Concluir sem justificar</button>`;
+  m.innerHTML=`<div style="width:min(92vw,460px);background:#fff;border-radius:20px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.25)"><h2 style="margin-top:0">💬 Tolerância estourada</h2><p>Você passou do saldo de tolerância desta tarefa. Se aconteceu algo importante, conte o motivo. Seu responsável poderá analisar depois.</p>${textoObrigatoriedade}<div style="position:relative"><textarea id="guardJustTxtV2" rows="4" style="width:100%;box-sizing:border-box;padding:12px;border:2px solid #ddd;border-radius:12px;font:inherit" placeholder="Conte o que aconteceu..."></textarea><button type="button" id="guardVozV2" aria-label="Digitar por voz" title="Digitar por voz" style="margin-top:8px;border:1px solid #cbd5e1;background:#f8fafc;border-radius:10px;padding:9px 12px;font:inherit;font-weight:700;cursor:pointer">🎙️ Digitar por voz</button><span id="guardVozStatusV2" style="display:inline-block;margin-left:8px;color:#64748b;font-size:12px"></span></div><div id="guardJustErrV2" style="display:none;color:#b91c1c;margin-top:8px"></div><div id="guardJustStatusV2" style="display:none;color:#2563eb;margin-top:8px;font-size:13px;font-weight:700"></div><div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">${botaoSem}<button type="button" id="guardEnviarV2" class="btn" style="background:var(--cor-primaria,#2563eb);color:#fff">Enviar justificativa</button></div></div>`;document.body.appendChild(m);
+  const txt=m.querySelector('#guardJustTxtV2'),err=m.querySelector('#guardJustErrV2'),status=m.querySelector('#guardJustStatusV2'),btnEnviar=m.querySelector('#guardEnviarV2'),btnVoz=m.querySelector('#guardVozV2'),vozStatus=m.querySelector('#guardVozStatusV2');
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(SpeechRecognition){reconhecimento=new SpeechRecognition();reconhecimento.lang='pt-BR';reconhecimento.interimResults=false;reconhecimento.continuous=false;reconhecimento.onstart=()=>{btnVoz.disabled=true;btnVoz.textContent='🎙️ Ouvindo...';vozStatus.textContent='Pode falar.';};reconhecimento.onresult=e=>{const fala=Array.from(e.results).map(r=>r[0]?.transcript||'').join(' ').trim();if(fala){txt.value=[txt.value.trim(),fala].filter(Boolean).join(' ');vozUsada=true;err.style.display='none';}};reconhecimento.onerror=e=>{console.warn('Reconhecimento de voz:',e.error);vozStatus.textContent=e.error==='not-allowed'?'Permita o uso do microfone no navegador.':'Não consegui ouvir. Tente novamente.';};reconhecimento.onend=()=>{btnVoz.disabled=false;btnVoz.textContent='🎙️ Digitar por voz';if(!vozStatus.textContent.includes('Permita')&&!vozStatus.textContent.includes('Não consegui'))vozStatus.textContent=vozUsada?'Texto adicionado.':'';};btnVoz.onclick=()=>{try{vozStatus.textContent='';reconhecimento.start();}catch(e){console.warn(e);}};}else{btnVoz.style.display='none';vozStatus.textContent='Digitação por voz não disponível neste navegador.';}
+  const definirEnviando=ativo=>{m.querySelectorAll('button').forEach(b=>b.disabled=ativo);btnEnviar.textContent=ativo?'Enviando...':'Enviar justificativa';status.style.display=ativo?'block':'none';status.textContent=ativo?'Salvando...':'';};
+  const btnSem=m.querySelector('#guardSemV2');
+  if(btnSem)btnSem.onclick=async()=>{if(btnSem.dataset.busy==='1')return;btnSem.dataset.busy='1';const inicio=performance.now();definirEnviando(true);err.style.display='none';try{await salvarResultado(t,agora,j,ini,calc,faixa,'',{recusou:true});log('perf.justificativa_sem',{tarefaId:t.id,tempoMs:Math.round(performance.now()-inicio)});m.remove();}catch(e){delete btnSem.dataset.busy;console.error('Falha ao concluir sem justificativa:',e);definirEnviando(false);err.textContent='Não foi possível concluir agora. Verifique sua conexão e tente novamente.';err.style.display='block';}};
+  btnEnviar.onclick=async()=>{const tx=txt.value.trim(),palavras=tx.split(/\s+/).filter(Boolean);if(palavras.length<5){err.textContent='Conte um pouco mais: escreva pelo menos 5 palavras.';err.style.display='block';txt.focus();return;}if(btnEnviar.dataset.busy==='1')return;btnEnviar.dataset.busy='1';const inicio=performance.now();err.style.display='none';definirEnviando(true);try{await salvarResultado(t,agora,j,ini,calc,faixa,tx,{vozUsada});log('perf.justificativa_enviada',{tarefaId:t.id,tempoMs:Math.round(performance.now()-inicio)});m.remove();}catch(e){delete btnEnviar.dataset.busy;console.error('Falha ao enviar justificativa:',e);definirEnviando(false);err.textContent='Não foi possível enviar a justificativa agora. Verifique sua conexão e tente novamente.';err.style.display='block';}};
+  setTimeout(()=>txt.focus(),0);
+}
+async function finalizar(id){
+  const total=performance.now();
+  const [t,regra]=await Promise.all([buscarTarefa(id),regraAtual()]);if(!t||t.status!=='Em andamento')return;
+  const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora),tolerancia=Math.max(0,Number(t.tempoLimite)||0);
+  const calc=tolerancia===0?calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora}):calcularConsumoAtraso({inicioPrevisto:aposMinutoSugerido(j.inicio),inicioReal:ini,fimPrevisto:aposMinutoSugerido(j.fim),fimReal:agora});
+  const semTolBase={tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0,limite100Seg:0,limite75Seg:0,limite50Seg:0,faixa75Seg:0,faixa50Seg:0,janelaParcialSeg:0};
+  const horarioEstourado=horarioSugeridoEstourado(ini,j.inicio)||horarioSugeridoEstourado(agora,j.fim);
+  const faixa=tolerancia===0?{percentual:horarioEstourado?0:Number(regra.dentroLimites??100),faixa:horarioEstourado?'estourado':'dentro-limites',consumoSeg:0,...semTolBase}:classificarConsumoToleranciaSegundos(tolerancia,calc.consumoTotalSeg,regra);
+  log('perf.finalizar_preparacao',{tarefaId:id,tempoMs:Math.round(performance.now()-total),percentual:faixa.percentual});
+  if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}
+  await salvarResultado(t,agora,j,ini,calc,faixa,'');log('perf.finalizar_total',{tarefaId:id,tempoMs:Math.round(performance.now()-total)});try{window.confetti?.({particleCount:45,spread:60,origin:{y:.75}});}catch{}
+}
+async function executarUmaVez(chave,fn){if(busyActions.has(chave)){log('perf.clique_duplicado_ignorado',{acao:chave});return;}busyActions.add(chave);try{return await fn();}finally{busyActions.delete(chave);}}
+function instalar(tentativa=0){
+  if(instalado)return;
+  if(typeof window.iniciarTarefa!=='function'||typeof window.finalizarTarefa!=='function'||!getApps().length){if(tentativa<120)setTimeout(()=>instalar(tentativa+1),50);return;}
+  window.iniciarTarefa=id=>executarUmaVez(`iniciar:${id}`,()=>iniciar(id)).catch(e=>{console.error('Validação de início:',e);alert('Não foi possível iniciar a tarefa agora. Tente novamente.');});
+  window.finalizarTarefa=id=>executarUmaVez(`finalizar:${id}`,()=>finalizar(id)).catch(e=>{console.error('Validação de término:',e);alert('Não foi possível finalizar a tarefa agora. Tente novamente.');});
+  instalado=true;log('perf.modulo_pronto',{versao:3,commitWaitMs:UX_COMMIT_WAIT_MS});window.dispatchEvent(new CustomEvent('rotina-time-guard-ready'));
+  const diaBoot=dataISO(new Date()),checarVirada=()=>{if(dataISO(new Date())!==diaBoot)location.reload();};window.addEventListener('focus',checarVirada);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checarVirada();});
+}
+instalar();
