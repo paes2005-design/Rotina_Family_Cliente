@@ -47,7 +47,20 @@ function avaliarOrdemLista(lista,t){
   if(anterior)return {permitida:false,motivo:'anterior-pendente',tarefa:anterior};
   return {permitida:true};
 }
+function verificarOrdemRenderizada(t){
+  const rows=[...document.querySelectorAll('#tabelaCorpo tr[data-family-task-id]')];
+  if(!rows.length)return null;
+  const lista=rows.map(row=>({
+    id:String(row.dataset.familyTaskId||'').trim(),
+    status:String(row.dataset.familyTaskStatus||'Pendente').trim()||'Pendente',
+    nome:row.children?.[1]?.querySelector('strong')?.textContent?.trim()||''
+  })).filter(x=>x.id);
+  if(!lista.some(x=>x.id===t.id))return null;
+  return avaliarOrdemLista(lista,t);
+}
 async function verificarOrdem(t){
+  const local=verificarOrdemRenderizada(t);
+  if(local)return local;
   const banco=await db(),g=grupo();if(!g)return {permitida:true};
   const s=await getDocs(query(collection(banco,'tarefas'),where('grupoId','==',g)));
   const lista=s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>(x.perfilId?x.perfilId===perfil():x.perfilNome===nome())&&x.diaSemana===t.diaSemana).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
@@ -63,8 +76,10 @@ async function registrarInicio(t,agora,j,antecipacao=null){
   const antecipado=Boolean(antecipacao);
   const antecipacaoMin=antecipado?Math.max(0,Math.floor((j.inicio-agora)/60000)):0;
   const dados={status:'Em andamento',horarioInicio:horaHM(agora),inicioExecutadoEm:agora.toISOString(),dataExecucao:dataISO(j.ocorr),iniciouComAtraso:atrasoInicio>0,atrasoInicioMin:atrasoInicio,inicioAntecipado:antecipado,antecipacaoMin,motivoInicioAntecipado:antecipado?(antecipacao.motivo||''):'',tipoMotivoInicioAntecipado:antecipado?(antecipacao.tipo||''):''};
-  await updateDoc(doc(banco,'tarefas',t.id),dados);
-  await setDoc(doc(banco,'execucoes',`${dataISO(j.ocorr)}__${t.id}`),{grupoId:grupo(),perfilId:perfil(),perfilNome:nome(),tarefaId:t.id,nomeTarefa:t.nome,data:dataISO(j.ocorr),...dados},{merge:true});
+  await Promise.all([
+    updateDoc(doc(banco,'tarefas',t.id),dados),
+    setDoc(doc(banco,'execucoes',`${dataISO(j.ocorr)}__${t.id}`),{grupoId:grupo(),perfilId:perfil(),perfilNome:nome(),tarefaId:t.id,nomeTarefa:t.nome,data:dataISO(j.ocorr),...dados},{merge:true})
+  ]);
 }
 function pedirMotivoAntecipacao(t,agora,j){
   document.getElementById('guardEarlyModalV2')?.remove();
@@ -88,15 +103,15 @@ function pedirMotivoAntecipacao(t,agora,j){
       if(motivo.split(/\s+/).filter(Boolean).length<3){err.textContent='Conte o motivo em pelo menos 3 palavras.';err.style.display='block';other.focus();return;}
     }
     if(!motivo)return;
-    confirm.disabled=true;cancel.disabled=true;err.style.display='none';confirm.textContent='Verificando...';
+    if(confirm.dataset.busy==='1')return;
+    confirm.dataset.busy='1';confirm.disabled=true;cancel.disabled=true;err.style.display='none';confirm.textContent='Iniciando...';
+    const iniciadoEm=performance.now();
     try{
-      const atual=await buscarTarefa(t.id);if(!atual||(atual.status||'Pendente')!=='Pendente'){m.remove();return;}
-      const ordem=await verificarOrdem(atual);if(!ordem.permitida){m.remove();avisarBloqueioOrdem(ordem);return;}
-      const agora2=new Date(),j2=janela(atual,agora2);
-      confirm.textContent='Iniciando...';
-      await registrarInicio(atual,agora2,j2,agora2<j2.inicio?{tipo:selecionado,motivo}:null);
+      const agora2=new Date(),j2=janela(t,agora2);
+      await registrarInicio(t,agora2,j2,agora2<j2.inicio?{tipo:selecionado,motivo}:null);
+      window.rotinaLog?.('tarefa.inicio_antecipado_ok',{tarefaId:t.id,tempoMs:Math.round(performance.now()-iniciadoEm),motivoTipo:selecionado});
       m.remove();
-    }catch(e){console.error('Início antecipado:',e);confirm.disabled=false;cancel.disabled=false;confirm.textContent='Justificar e iniciar';err.textContent='Não foi possível iniciar agora. Tente novamente.';err.style.display='block';}
+    }catch(e){console.error('Início antecipado:',e);delete confirm.dataset.busy;confirm.disabled=false;cancel.disabled=false;confirm.textContent='Justificar e iniciar';err.textContent='Não foi possível iniciar agora. Tente novamente.';err.style.display='block';window.rotinaLog?.('tarefa.inicio_antecipado_erro',{tarefaId:t.id,mensagem:String(e?.message||e)},'error');}
   };
 }
 async function iniciar(id){
