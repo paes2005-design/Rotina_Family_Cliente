@@ -28,11 +28,11 @@ async function loadSad(){
     if(!response.ok)throw new Error(`Falha ao carregar choramingo (HTTP ${response.status})`);
     const bytes=await response.arrayBuffer();
     sadBuffer=await ctx.decodeAudioData(bytes.slice(0));
-    log('cachorro.triste_buffer_pronto',{duracao:Number(sadBuffer.duration.toFixed(3)),estadoAudio:ctx.state});
+    log('cachorro.triste_buffer_pronto',{duracao:Number(sadBuffer.duration.toFixed(3)),estadoAudio:ctx.state,versao:5});
     return sadBuffer;
   })().catch(error=>{
     sadLoading=null;
-    log('cachorro.triste_carga_erro',{mensagem:String(error?.message||error)},'error');
+    log('cachorro.triste_carga_erro',{mensagem:String(error?.message||error),versao:5},'error');
     throw error;
   });
   return sadLoading;
@@ -42,10 +42,10 @@ function unlockAudio(){
   try{
     const ctx=getAudioContext();
     if(!ctx)return;
-    if(ctx.state==='suspended')ctx.resume().catch(error=>log('cachorro.triste_resume_erro',{mensagem:String(error?.message||error)},'warning'));
+    if(ctx.state==='suspended')ctx.resume().catch(error=>log('cachorro.triste_resume_erro',{mensagem:String(error?.message||error),versao:5},'warning'));
     loadSad().catch(()=>{});
   }catch(error){
-    log('cachorro.triste_unlock_erro',{mensagem:String(error?.message||error)},'warning');
+    log('cachorro.triste_unlock_erro',{mensagem:String(error?.message||error),versao:5},'warning');
   }
 }
 
@@ -64,7 +64,7 @@ function playAt(when){
 
 async function playSadTriple(taskId=''){
   if(selectedMascot()!=='dog'){
-    log('cachorro.triste_ignorado_mascote_gato',{tarefaId:String(taskId||'')});
+    log('cachorro.triste_ignorado_mascote_gato',{tarefaId:String(taskId||''),versao:5});
     return false;
   }
   try{
@@ -74,15 +74,18 @@ async function playSadTriple(taskId=''){
     if(ctx.state==='suspended')await ctx.resume();
     if(ctx.state!=='running')throw new Error(`Contexto de áudio em estado ${ctx.state}`);
     const now=ctx.currentTime;
-    if(now<playingUntil)return true;
+    if(now<playingUntil){
+      log('cachorro.triste_duplicado_ignorado',{tarefaId:String(taskId||''),versao:5});
+      return true;
+    }
     const start=now+0.04;
     const step=buffer.duration+SAD_GAP_SECONDS;
     for(let i=0;i<SAD_REPEATS;i++)playAt(start+(step*i));
     playingUntil=start+(step*SAD_REPEATS);
-    log('cachorro.triste_triplo_tocado',{tarefaId:String(taskId||''),repeticoes:SAD_REPEATS,intervaloMs:160,duracao:Number(buffer.duration.toFixed(3)),aposJustificativa:true});
+    log('cachorro.triste_triplo_tocado',{tarefaId:String(taskId||''),repeticoes:SAD_REPEATS,intervaloMs:160,duracao:Number(buffer.duration.toFixed(3)),aposJustificativa:true,versao:5});
     return true;
   }catch(error){
-    log('cachorro.triste_reproducao_erro',{tarefaId:String(taskId||''),mensagem:String(error?.message||error),estadoAudio:audioContext?.state||'sem-contexto'},'error');
+    log('cachorro.triste_reproducao_erro',{tarefaId:String(taskId||''),mensagem:String(error?.message||error),estadoAudio:audioContext?.state||'sem-contexto',versao:5},'error');
     return false;
   }
 }
@@ -91,7 +94,10 @@ for(const eventName of ['pointerdown','touchstart','click']){
   document.addEventListener(eventName,unlockAudio,{passive:true,capture:true});
 }
 
-window.addEventListener('rotina-task-zero',event=>playSadTriple(event.detail?.tarefaId||''));
+window.addEventListener('rotina-task-zero',event=>{
+  if(event.detail?.audioHandled===true)return;
+  playSadTriple(event.detail?.tarefaId||'');
+});
 window.tocarCachorroTristeRotina=playSadTriple;
 
-log('cachorro.modulo_triste_pronto',{versao:4,repeticoes:SAD_REPEATS,disparo:'apos-justificativa'});
+log('cachorro.modulo_triste_pronto',{versao:5,repeticoes:SAD_REPEATS,disparo:'apos-justificativa'});
