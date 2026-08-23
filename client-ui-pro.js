@@ -1,17 +1,12 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
-  window.__rotinaMascoteLoaderVersion=8;
+  window.__rotinaMascoteLoaderVersion=10;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
-  // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
-  // carregamento do módulo novo, bloqueia somente esse gatilho. A marca antiga não
-  // é convertida em "mascote já exibido", porque isso poderia esconder a estreia
-  // do mascote depois de uma atualização do aplicativo.
+  // Bloqueia o modal legado de comemoração. A versão aprovada usa somente o cachorro.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
-  const marcadorMascote='mascote-pontos-carregando';
-  const valorLegado=sessionStorage.getItem(chave100Legado);
-  if(!valorLegado)sessionStorage.setItem(chave100Legado,marcadorMascote);
+  sessionStorage.setItem(chave100Legado,'cachorro-v2');
 
   import('./client-time-guard-v3.js?v=1').catch(e=>{
     window.rotinaLog?.('perf.time_guard_v3_erro',{mensagem:String(e?.message||e)},'error');
@@ -23,14 +18,12 @@
   });
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
-  import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
+  import('./client-tolerance-timer.js?v=2').catch(e=>console.error('Cronômetro de tolerância:',e));
   import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
-  import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
-  import('./client-dog-bark-mobile.js?v=2').catch(e=>{
-    window.rotinaLog?.('cachorro.modulo_latido_mobile_erro',{mensagem:String(e?.message||e)},'error');
-    console.error('Latido móvel do cachorro:',e);
-  });
+  import('./client-history-reconciler.js?v=3').catch(e=>console.error('Reconciliação de pontuação:',e));
+
+  // Som triste aprovado: um único áudio contendo os 3 choramingos.
   import('./client-dog-sad-audio.js?v=6').catch(e=>{
     window.rotinaLog?.('cachorro.modulo_triste_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Som triste do cachorro:',e);
@@ -39,16 +32,17 @@
     window.rotinaLog?.('tarefa.zero_feedback_modulo_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Feedback de 0% após justificativa:',e);
   });
-  import('./client-mascot-rewards.js?v=4').catch(e=>{
-    if(sessionStorage.getItem(chave100Legado)===marcadorMascote)sessionStorage.removeItem(chave100Legado);
-    window.__rotinaMascoteLoadError=String(e?.message||e);
-    window.rotinaLog?.('mascote.modulo_erro',{mensagem:window.__rotinaMascoteLoadError},'error');
-    console.error('Recompensas do mascote:',e);
+  import('./client-dog-sad-bubble-v2.js?v=1').catch(e=>{
+    window.rotinaLog?.('cachorro.triste_balao_modulo_erro',{mensagem:String(e?.message||e)},'error');
+    console.error('Balão triste do cachorro:',e);
   });
-  import('./client-mascot-trigger-bridge.js?v=1').catch(e=>{
-    window.__rotinaMascoteBridgeError=String(e?.message||e);
-    window.rotinaLog?.('mascote.bridge_erro',{mensagem:window.__rotinaMascoteBridgeError},'error');
-    console.error('Ponte do mascote:',e);
+
+  // Única comemoração positiva ativa: cachorro + balão personalizado.
+  // Substitui o mascote legado, o personagem dançando e o gatilho de dia apenas por pontos.
+  import('./client-dog-celebration-v2.js?v=1').catch(e=>{
+    window.__rotinaMascoteLoadError=String(e?.message||e);
+    window.rotinaLog?.('cachorro.comemoracao_v2_erro',{mensagem:window.__rotinaMascoteLoadError},'error');
+    console.error('Comemoração aprovada do cachorro:',e);
   });
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
