@@ -1,0 +1,54 @@
+name: Audit early start bark hotfix
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-early-start-bark-hotfix.yml'
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and invariants
+        run: |
+          node --check client-time-guard-v2.js
+          node --check client-dog-bark-mobile.js
+          node --check client-ui-pro.js
+          node --check sw.js
+          python - <<'PY'
+          from pathlib import Path
+          dog=Path('client-dog-bark-mobile.js').read_text()
+          guard=Path('client-time-guard-v2.js').read_text()
+          ui=Path('client-ui-pro.js').read_text()
+          idx=Path('index.html').read_text()
+          sw=Path('sw.js').read_text()
+          checks={
+            'botao de teste removido':'testeLatidoCachorroApp' not in dog and 'ensureTestButton' not in dog,
+            'audio aprovado preservado':"DOG_BARK_URL='./latido-cachorro-comemoracao.mp3?v=5'" in dog,
+            'intervalo AU AU preservado':'GAP_SECONDS=0.08' in dog,
+            'gatilho 100 preservado':"/No Prazo\\s*\\(100%\\)/i" in dog,
+            'ordem local habilitada':'function verificarOrdemRenderizada' in guard,
+            'consulta duplicada removida':"confirm.textContent='Verificando...'" not in guard,
+            'trava duplo clique':"confirm.dataset.busy==='1'" in guard,
+            'gravação inicial paralela':"await Promise.all([\n    updateDoc(doc(banco,'tarefas',t.id),dados)" in guard,
+            'log sucesso inicio':"tarefa.inicio_antecipado_ok" in guard,
+            'modulo bark v2':"import('./client-dog-bark-mobile.js?v=2')" in ui,
+            'loader cliente v32':"./client-ui-pro.js?v=32" in idx,
+            'service worker v34':"./sw.js?v=34" in idx,
+            'cache v45':"rotina-family-cliente-v45" in sw,
+            'bark offline':"'./client-dog-bark-mobile.js'" in sw and "'./latido-cachorro-comemoracao.mp3'" in sw,
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          for name,ok in checks.items(): print(('OK' if ok else 'FAIL'),'-',name)
+          if failed: raise SystemExit('Falhas: '+', '.join(failed))
+          Path('audit-hotfix-early-start-ok.txt').write_text('OK - inicio antecipado sem consulta duplicada; botão de teste removido; AU AU preservado.\n')
+          Path('.github/workflows/audit-early-start-bark-hotfix.yml').unlink()
+          PY
+      - name: Record audit success
+        run: |
+          git config user.name 'paes2005-design'
+          git config user.email 'paes2005@gmail.com'
+          git add -A
+          git commit -m 'test: confirmar hotfix de início antecipado e latido'
+          git push
