@@ -1,0 +1,78 @@
+name: Publish dog sad audio v1
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-dog-sad-audio-v1.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wire dog sad audio to zero percent
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('client-time-guard-v2.js')
+          s=p.read_text()
+          old="if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}"
+          new="""if(faixa.percentual===0){
+    window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:t.id,percentual:0,faixa:faixa.faixa}}));
+    pedirJustificativa(t,agora,j,ini,calc,faixa);return;
+  }"""
+          if old not in s:
+              raise SystemExit('zero percent trigger target not found')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          p=Path('client-ui-pro.js')
+          s=p.read_text()
+          anchor="""  import('./client-dog-bark-mobile.js?v=2').catch(e=>{
+    window.rotinaLog?.('cachorro.modulo_latido_mobile_erro',{mensagem:String(e?.message||e)},'error');
+    console.error('Latido móvel do cachorro:',e);
+  });"""
+          addition=anchor+"""
+  import('./client-dog-sad-audio.js?v=1').catch(e=>{
+    window.rotinaLog?.('cachorro.modulo_triste_erro',{mensagem:String(e?.message||e)},'error');
+    console.error('Som triste do cachorro:',e);
+  });"""
+          if anchor not in s:
+              raise SystemExit('client ui dog bark anchor not found')
+          s=s.replace(anchor,addition,1)
+          p.write_text(s)
+
+          p=Path('sw.js')
+          s=p.read_text().replace("rotina-family-cliente-v45","rotina-family-cliente-v46",1)
+          if "'./client-dog-sad-audio.js'" not in s:
+              s=s.replace("'./client-dog-bark-mobile.js'","'./client-dog-bark-mobile.js','./client-dog-sad-audio.js'",1)
+          if "'./cachorro-triste-choramingo.mp3'" not in s:
+              s=s.replace("'./latido-cachorro-comemoracao.mp3'","'./latido-cachorro-comemoracao.mp3','./cachorro-triste-choramingo.mp3'",1)
+          p.write_text(s)
+
+          p=Path('index.html')
+          s=p.read_text().replace("./client-ui-pro.js?v=32","./client-ui-pro.js?v=33",1).replace("./sw.js?v=34","./sw.js?v=35",1)
+          p.write_text(s)
+
+          Path('.github/workflows/publish-dog-sad-audio-v1.yml').unlink()
+          PY
+
+          node --check client-time-guard-v2.js
+          node --check client-dog-sad-audio.js
+          node --check client-ui-pro.js
+          node --check sw.js
+          grep -q "rotina-task-zero" client-time-guard-v2.js
+          grep -q "client-dog-sad-audio.js?v=1" client-ui-pro.js
+          grep -q "SAD_REPEATS=3" client-dog-sad-audio.js
+          grep -q "SAD_GAP_SECONDS=0.16" client-dog-sad-audio.js
+          grep -q "cachorro-triste-choramingo.mp3" sw.js
+          grep -q "rotina-family-cliente-v46" sw.js
+      - name: Commit release
+        run: |
+          git config user.name 'paes2005-design'
+          git config user.email 'paes2005@gmail.com'
+          git add -A
+          git commit -m 'feat: tocar choramingo triplo do cachorro no zero por cento'
+          git push
