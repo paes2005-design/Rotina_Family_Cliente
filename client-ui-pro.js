@@ -1,6 +1,6 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
-  window.__rotinaMascoteLoaderVersion=5;
+  window.__rotinaMascoteLoaderVersion=6;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
@@ -13,7 +13,10 @@
   const valorLegado=sessionStorage.getItem(chave100Legado);
   if(!valorLegado)sessionStorage.setItem(chave100Legado,marcadorMascote);
 
-  import('./client-time-guard-v2.js?v=3').catch(e=>console.error('Validação temporal v2:',e));
+  import('./client-time-guard-v3.js?v=1').catch(e=>{
+    window.rotinaLog?.('perf.time_guard_v3_erro',{mensagem:String(e?.message||e)},'error');
+    console.error('Validação temporal v3:',e);
+  });
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
   import('./client-tolerance-timer.js').catch(e=>console.error('Cronômetro de tolerância:',e));
