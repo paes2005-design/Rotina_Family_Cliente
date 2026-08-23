@@ -80,7 +80,32 @@ function selectedMascot(){
   try{return window.obterMascoteRotina?.()||'dog';}catch{return 'dog';}
 }
 
+function ensureTestButton(){
+  if(document.getElementById('testeLatidoCachorroApp'))return;
+  const chooser=document.getElementById('rotinaMascoteChooser');
+  const app=document.getElementById('telaApp');
+  if(!app)return;
+  const button=document.createElement('button');
+  button.id='testeLatidoCachorroApp';
+  button.type='button';
+  button.textContent='🔊 Testar latido';
+  button.style.cssText='display:block;margin:0 auto 12px;border:1px solid #ff4d6d;background:#fff;color:#ff4d6d;border-radius:999px;padding:7px 12px;font:inherit;font-size:.82rem;font-weight:800;cursor:pointer';
+  button.addEventListener('click',async()=>{
+    unlockAudio();
+    button.disabled=true;
+    const ok=await playDoubleBark('botao-teste-app');
+    button.textContent=ok?'✅ Latido tocado':'⚠️ Falhou — ver logs';
+    setTimeout(()=>{button.disabled=false;button.textContent='🔊 Testar latido';},1800);
+  });
+  if(chooser)chooser.after(button);
+  else{
+    const anchor=app.querySelector('.dash-cards');
+    if(anchor)anchor.before(button);else app.prepend(button);
+  }
+}
+
 function scanTaskTransitions(){
+  ensureTestButton();
   const current=new Map();
   document.querySelectorAll('#tabelaCorpo tr[data-family-task-id]').forEach(row=>{
     const id=String(row.dataset.familyTaskId||'').trim();
@@ -106,7 +131,7 @@ function scanTaskTransitions(){
 function resetBaseline(){
   taskStates.clear();
   baselineReady=false;
-  setTimeout(scanTaskTransitions,0);
+  setTimeout(()=>{ensureTestButton();scanTaskTransitions();},0);
 }
 
 for(const eventName of ['pointerdown','touchstart','click']){
@@ -117,7 +142,7 @@ window.addEventListener('rotina-family-tasks-rendered',scanTaskTransitions);
 window.addEventListener('rotina-client-session-ready',resetBaseline);
 window.testarLatidoCachorroNoApp=()=>playDoubleBark('teste-manual-app');
 
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',scanTaskTransitions,{once:true});
-else scanTaskTransitions();
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{ensureTestButton();scanTaskTransitions();},{once:true});
+else{ensureTestButton();scanTaskTransitions();}
 
-log('cachorro.modulo_latido_mobile_pronto',{versao:1});
+log('cachorro.modulo_latido_mobile_pronto',{versao:2});
