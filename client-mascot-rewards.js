@@ -135,14 +135,10 @@ document.addEventListener('pointerdown',unlockAudio,{passive:true});
 
 function barkSound(){
   try{
-    unlockAudio();if(!audioContext)return;
-    const ctx=audioContext,now=ctx.currentTime;
-    const compressor=ctx.createDynamicsCompressor();compressor.threshold.value=-18;compressor.knee.value=10;compressor.ratio.value=8;compressor.attack.value=.002;compressor.release.value=.18;compressor.connect(ctx.destination);
-    const master=ctx.createGain();master.gain.setValueAtTime(.0001,now);master.gain.exponentialRampToValueAtTime(.82,now+.008);master.gain.exponentialRampToValueAtTime(.0001,now+.31);master.connect(compressor);
-    const osc=ctx.createOscillator(),og=ctx.createGain();osc.type='sawtooth';osc.frequency.setValueAtTime(165,now);osc.frequency.exponentialRampToValueAtTime(68,now+.24);og.gain.value=.55;osc.connect(og).connect(master);osc.start(now);osc.stop(now+.31);
-    const sub=ctx.createOscillator(),sg=ctx.createGain();sub.type='square';sub.frequency.setValueAtTime(92,now);sub.frequency.exponentialRampToValueAtTime(54,now+.22);sg.gain.value=.22;sub.connect(sg).connect(master);sub.start(now);sub.stop(now+.28);
-    const len=Math.floor(ctx.sampleRate*.3),buffer=ctx.createBuffer(1,len,ctx.sampleRate),data=buffer.getChannelData(0);for(let i=0;i<len;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6);
-    const noise=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),ng=ctx.createGain();noise.buffer=buffer;filter.type='bandpass';filter.frequency.value=330;filter.Q.value=.65;ng.gain.value=.62;noise.connect(filter).connect(ng).connect(master);noise.start(now);
+    const audio=new Audio('./latido-cachorro-comemoracao.mp3?v=1');
+    audio.preload='auto';
+    audio.volume=1;
+    audio.play().catch(()=>{});
   }catch{}
 }
 
@@ -160,12 +156,13 @@ function mascotSound(){if(mascotType()==='cat')meowSound();else barkSound();}
 async function action(name){
   const layer=ensureLayer(),animal=layer.querySelector('#rotinaMascoteRewardDog'),speech=layer.querySelector('#rotinaMascoteRewardSpeech');
   layer.classList.add('show');animal.classList.remove('bark','jump','roll','flip');void animal.getBoundingClientRect();
-  if(name==='bark'){speech.classList.remove('show');void speech.getBoundingClientRect();speech.classList.add('show');animal.classList.add('bark');mascotSound();setTimeout(mascotSound,330);}else animal.classList.add(name);
+  if(name==='bark'){speech.classList.remove('show');void speech.getBoundingClientRect();speech.classList.add('show');animal.classList.add('bark');if(mascotType()==='dog'){barkSound();setTimeout(barkSound,460);}else{meowSound();setTimeout(meowSound,460);}}else animal.classList.add(name);
   await sleep(durations[name]||900);animal.classList.remove(name);await sleep(100);
 }
 
 async function runSequence(sequence){
   const layer=ensureLayer();
+  try{window.confetti?.({particleCount:70,spread:78,origin:{y:.72}});}catch{}
   for(const step of sequence.steps)await action(step);
   await sleep(120);layer.classList.remove('show');
 }

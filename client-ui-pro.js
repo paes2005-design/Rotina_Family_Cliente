@@ -20,7 +20,7 @@
   import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
-  import('./client-mascot-rewards.js?v=3').catch(e=>{
+  import('./client-mascot-rewards.js?v=4').catch(e=>{
     if(sessionStorage.getItem(chave100Legado)===marcadorMascote)sessionStorage.removeItem(chave100Legado);
     window.__rotinaMascoteLoadError=String(e?.message||e);
     window.rotinaLog?.('mascote.modulo_erro',{mensagem:window.__rotinaMascoteLoadError},'error');

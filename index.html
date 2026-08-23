@@ -16,8 +16,8 @@
         let html=await r.text();
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=3')
-          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=29')
-          .replace('./sw.js?v=30','./sw.js?v=32');
+          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=30')
+          .replace('./sw.js?v=30','./sw.js?v=33');
         const addon='<script type="module" src="./commercial-access-client.js?v=1"><\\/script>';
         if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
         document.open();document.write(html);document.close();
