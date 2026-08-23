@@ -14,6 +14,11 @@ function fatorDaConfig(config={}){
   return clamp(r.janelaAdicionalPct ?? r.percentualJanelaAdicional ?? r.dentroLimites ?? 100);
 }
 
+function regraTempoAtual(){
+  return {dentroLimites:100,atrasoLeve:75,atrasoMaior:50,estourado:0,janelaAdicionalPct:fatorAtual};
+}
+window.rotinaObterRegraToleranciaTempo=regraTempoAtual;
+
 function textoRegra(){
   const extra=25*fatorAtual/100;
   const metade=extra/2;
@@ -28,7 +33,7 @@ function textoRegra(){
 }
 
 function instalarInterface(){
-  const botao=[...document.querySelectorAll('button')].find(b=>/Como funciona a pontua/i.test(b.textContent||''));
+  const botao=[...document.querySelectorAll('button')].find(b=>/Como funciona a pontua/i.test(b.textContent||'')||/Como funciona a toler[aâ]ncia/i.test(b.textContent||''));
   if(botao)botao.textContent='ℹ️ Como funciona a tolerância e os pontos';
   window.abrirInfoRegraAtraso=()=>{
     const el=document.getElementById('textoRegraAtrasoCliente');
@@ -46,7 +51,8 @@ function observarGrupo(grupoId=''){
   unsubscribe=onSnapshot(doc(db,'configGrupos',g),snap=>{
     fatorAtual=fatorDaConfig(snap.exists()?snap.data():{});
     instalarInterface();
-    log('tolerancia.regra_tempo_carregada',{grupoId:g,janelaAdicionalPct:fatorAtual,janelaExtraEfetivaPct:Number((25*fatorAtual/100).toFixed(2)),versao:3});
+    window.dispatchEvent(new CustomEvent('rotina-tolerance-rule-updated',{detail:{grupoId:g,janelaAdicionalPct:fatorAtual}}));
+    log('tolerancia.regra_tempo_carregada',{grupoId:g,janelaAdicionalPct:fatorAtual,janelaExtraEfetivaPct:Number((25*fatorAtual/100).toFixed(2)),versao:4});
   },erro=>log('tolerancia.regra_tempo_erro',{grupoId:g,mensagem:String(erro?.message||erro)},'warning'));
 }
 
