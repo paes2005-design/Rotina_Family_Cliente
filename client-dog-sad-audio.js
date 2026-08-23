@@ -7,7 +7,6 @@ let audioContext=null;
 let sadBuffer=null;
 let sadLoading=null;
 let playingUntil=0;
-let lastZeroModal=null;
 let watchToken=0;
 
 function log(evento,detalhes={},nivel='info'){
@@ -90,14 +89,21 @@ async function playSadTriple(taskId=''){
   }
 }
 
+function zeroModalOpen(){
+  const guard=document.getElementById('guardJustModalV2');
+  if(guard)return guard;
+  const legacy=document.getElementById('modalFeedback');
+  if(legacy&&getComputedStyle(legacy).display!=='none')return legacy;
+  return null;
+}
+
 function watchZeroModal(taskId=''){
   const token=++watchToken;
   const started=performance.now();
   const check=()=>{
     if(token!==watchToken)return;
-    const modal=document.getElementById('guardJustModalV2');
-    if(modal&&modal!==lastZeroModal){
-      lastZeroModal=modal;
+    const modal=zeroModalOpen();
+    if(modal){
       playSadTriple(taskId);
       return;
     }
@@ -120,4 +126,4 @@ document.addEventListener('click',event=>{
 window.addEventListener('rotina-task-zero',event=>playSadTriple(event.detail?.tarefaId||''));
 window.tocarCachorroTristeRotina=playSadTriple;
 
-log('cachorro.modulo_triste_pronto',{versao:2,repeticoes:SAD_REPEATS});
+log('cachorro.modulo_triste_pronto',{versao:3,repeticoes:SAD_REPEATS});
