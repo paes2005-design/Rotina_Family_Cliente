@@ -1,12 +1,12 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
-  window.__rotinaMascoteLoaderVersion=2;
+  window.__rotinaMascoteLoaderVersion=3;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
   // carregamento do módulo novo, bloqueia somente esse gatilho. A marca antiga não
   // é convertida em "mascote já exibido", porque isso poderia esconder a estreia
-  // do cachorro depois de uma atualização do aplicativo.
+  // do mascote depois de uma atualização do aplicativo.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
   const marcadorMascote='mascote-pontos-carregando';
@@ -20,7 +20,7 @@
   import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
-  import('./client-mascot-rewards.js?v=2').catch(e=>{
+  import('./client-mascot-rewards.js?v=3').catch(e=>{
     if(sessionStorage.getItem(chave100Legado)===marcadorMascote)sessionStorage.removeItem(chave100Legado);
     window.__rotinaMascoteLoadError=String(e?.message||e);
     window.rotinaLog?.('mascote.modulo_erro',{mensagem:window.__rotinaMascoteLoadError},'error');
