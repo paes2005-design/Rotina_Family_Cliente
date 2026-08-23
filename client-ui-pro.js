@@ -1,12 +1,13 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
-  window.__rotinaMascoteLoaderVersion=10;
+  window.__rotinaMascoteLoaderVersion=11;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
-  // Bloqueia o modal legado de comemoração. A versão aprovada usa somente o cachorro.
+  // Impede a comemoração legada. As reações de cachorro/gato são controladas
+  // exclusivamente por client-mascot-v3.js.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
-  sessionStorage.setItem(chave100Legado,'cachorro-v2');
+  sessionStorage.setItem(chave100Legado,'mascote-v3');
 
   import('./client-time-guard-v3.js?v=1').catch(e=>{
     window.rotinaLog?.('perf.time_guard_v3_erro',{mensagem:String(e?.message||e)},'error');
@@ -23,26 +24,16 @@
   import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=3').catch(e=>console.error('Reconciliação de pontuação:',e));
 
-  // Som triste aprovado: um único áudio contendo os 3 choramingos.
-  import('./client-dog-sad-audio.js?v=6').catch(e=>{
-    window.rotinaLog?.('cachorro.modulo_triste_erro',{mensagem:String(e?.message||e)},'error');
-    console.error('Som triste do cachorro:',e);
-  });
-  import('./client-zero-feedback-after-justification.js?v=3').catch(e=>{
-    window.rotinaLog?.('tarefa.zero_feedback_modulo_erro',{mensagem:String(e?.message||e)},'error');
-    console.error('Feedback de 0% após justificativa:',e);
-  });
-  import('./client-dog-sad-bubble-v2.js?v=1').catch(e=>{
-    window.rotinaLog?.('cachorro.triste_balao_modulo_erro',{mensagem:String(e?.message||e)},'error');
-    console.error('Balão triste do cachorro:',e);
+  // Único controlador ativo para cachorro/gato, escolha, preview, áudio e reações reais.
+  import('./client-mascot-v3.js?v=1').catch(e=>{
+    window.__rotinaMascoteLoadError=String(e?.message||e);
+    window.rotinaLog?.('mascote.modulo_v3_erro',{mensagem:window.__rotinaMascoteLoadError},'error');
+    console.error('Módulo único de mascotes:',e);
   });
 
-  // Única comemoração positiva ativa: cachorro + balão personalizado.
-  // Substitui o mascote legado, o personagem dançando e o gatilho de dia apenas por pontos.
-  import('./client-dog-celebration-v2.js?v=1').catch(e=>{
-    window.__rotinaMascoteLoadError=String(e?.message||e);
-    window.rotinaLog?.('cachorro.comemoracao_v2_erro',{mensagem:window.__rotinaMascoteLoadError},'error');
-    console.error('Comemoração aprovada do cachorro:',e);
+  import('./client-zero-feedback-after-justification.js?v=4').catch(e=>{
+    window.rotinaLog?.('tarefa.zero_feedback_modulo_erro',{mensagem:String(e?.message||e)},'error');
+    console.error('Feedback de 0% após justificativa:',e);
   });
 
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
