@@ -1,0 +1,65 @@
+name: Apply mascot audio v4
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-mascot-audio-v4.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply dog bark and mascot parity
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64,re
+
+          bark_b64='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'
+          audio=Path('latido-cachorro-comemoracao.mp3')
+          audio.write_bytes(base64.b64decode(bark_b64))
+
+          p=Path('client-mascot-rewards.js')
+          s=p.read_text()
+          repl="""function barkSound(){\n  try{\n    const audio=new Audio('./latido-cachorro-comemoracao.mp3?v=1');\n    audio.preload='auto';\n    audio.volume=1;\n    audio.play().catch(()=>{});\n  }catch{}\n}\n\nfunction meowSound()"""
+          s2,n=re.subn(r"function barkSound\(\)\{[\s\S]*?\n\}\n\nfunction meowSound\(\)",repl,s,count=1)
+          if n!=1: raise SystemExit('barkSound patch failed')
+          old="if(name==='bark'){speech.classList.remove('show');void speech.getBoundingClientRect();speech.classList.add('show');animal.classList.add('bark');mascotSound();setTimeout(mascotSound,330);}else animal.classList.add(name);"
+          new="if(name==='bark'){speech.classList.remove('show');void speech.getBoundingClientRect();speech.classList.add('show');animal.classList.add('bark');if(mascotType()==='dog'){barkSound();setTimeout(barkSound,460);}else{meowSound();setTimeout(meowSound,460);}}else animal.classList.add(name);"
+          if old not in s2: raise SystemExit('action patch target missing')
+          s2=s2.replace(old,new,1)
+          old_run="async function runSequence(sequence){\n  const layer=ensureLayer();\n  for(const step of sequence.steps)await action(step);"
+          new_run="async function runSequence(sequence){\n  const layer=ensureLayer();\n  try{window.confetti?.({particleCount:70,spread:78,origin:{y:.72}});}catch{}\n  for(const step of sequence.steps)await action(step);"
+          if old_run not in s2: raise SystemExit('runSequence patch target missing')
+          s2=s2.replace(old_run,new_run,1)
+          p.write_text(s2)
+
+          ui=Path('client-ui-pro.js')
+          u=ui.read_text().replace("import('./client-mascot-rewards.js?v=3')","import('./client-mascot-rewards.js?v=4')")
+          ui.write_text(u)
+
+          idx=Path('index.html')
+          x=idx.read_text().replace("./client-ui-pro.js?v=29","./client-ui-pro.js?v=30").replace("./sw.js?v=32","./sw.js?v=33")
+          idx.write_text(x)
+
+          sw=Path('sw.js')
+          w=sw.read_text().replace("rotina-family-cliente-v43","rotina-family-cliente-v44")
+          if "'./latido-cachorro-comemoracao.mp3'" not in w:
+              w=w.replace("'./client-mascot-rewards.js','./mascot-reward-core.js'","'./client-mascot-rewards.js','./latido-cachorro-comemoracao.mp3','./mascot-reward-core.js'")
+          sw.write_text(w)
+
+          Path('.github/workflows/apply-mascot-audio-v4.yml').unlink()
+          PY
+          node --check client-mascot-rewards.js
+          node --check client-ui-pro.js
+          node --check sw.js
+          test -s latido-cachorro-comemoracao.mp3
+      - name: Commit changes
+        run: |
+          git config user.name 'paes2005-design'
+          git config user.email 'paes2005@gmail.com'
+          git add -A
+          git commit -m 'feat: usar latido real duplo e igualar fogos dos mascotes'
+          git push
