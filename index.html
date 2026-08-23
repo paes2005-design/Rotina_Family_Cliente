@@ -17,14 +17,14 @@
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=5')
           .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=37')
-          .replace('./sw.js?v=30','./sw.js?v=58');
+          .replace('./sw.js?v=30','./sw.js?v=59');
         const addon='<script type="module" src="./commercial-access-client.js?v=2"><\/script>';
         if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
         const cat='<script src="./client-cat3d-v2.js?v=2"><\/script>';
         if(!html.includes('client-cat3d-v2.js')) html=html.replace('</body>',cat+'\n</body>');
         const pets='<script src="./client-pet-choice-v2.js?v=2"><\/script>';
         if(!html.includes('client-pet-choice-v2.js')) html=html.replace('</body>',pets+'\n</body>');
-        const telemetry='<script src="./app-monitoring-extra-v1.js?v=1"><\/script>';
+        const telemetry='<script src="./app-monitoring-extra-v1.js?v=2"><\/script>';
         if(!html.includes('app-monitoring-extra-v1.js')) html=html.replace('</body>',telemetry+'\n</body>');
         document.open();document.write(html);document.close();
       }catch(e){
