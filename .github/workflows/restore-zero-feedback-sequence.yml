@@ -10,74 +10,96 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Restore negative feedback before justification
+      - name: Put negative feedback after justification
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           p=Path('client-time-guard-v2.js')
           s=p.read_text()
 
-          anchor='function pedirJustificativa(t,agora,j,ini,calc,faixa){'
-          if 'function mostrarVoceNaoConseguiu(' not in s:
-              if anchor not in s:
-                  raise SystemExit('justification anchor not found')
-              feedback="""function mostrarVoceNaoConseguiu(t,agora,j,ini,calc,faixa){
+          feedback="""function mostrarVoceNaoConseguiu(t,faixa){
   document.getElementById('guardZeroFeedbackV2')?.remove();
   window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:t.id,percentual:0,faixa:faixa.faixa}}));
   const m=document.createElement('div');
   m.id='guardZeroFeedbackV2';
   m.style.cssText='position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';
-  m.innerHTML=`<div style=\"width:min(92vw,430px);background:#fff;border-radius:22px;padding:24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.25)\"><div style=\"font-size:3.8rem;line-height:1\">😢</div><h2 style=\"margin:12px 0 8px;color:#9f1239\">Você não conseguiu</h2><p style=\"font-size:1.05rem;color:#555;margin:0 0 18px\">Não foi dessa vez. Esta tarefa ficou em <strong>0%</strong>.</p><button type=\"button\" id=\"guardZeroContinueV2\" class=\"btn\" style=\"background:var(--cor-primaria,#ff4d6d);color:#fff;padding:11px 22px\">Continuar</button></div>`;
+  m.innerHTML=`<div style=\"width:min(92vw,430px);background:#fff;border-radius:22px;padding:24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.25)\"><div style=\"font-size:3.8rem;line-height:1\">😢</div><h2 style=\"margin:12px 0 8px;color:#9f1239\">Você não conseguiu</h2><p style=\"font-size:1.05rem;color:#555;margin:0 0 18px\">Não foi dessa vez. Esta tarefa ficou em <strong>0%</strong>.</p><button type=\"button\" id=\"guardZeroCloseV2\" class=\"btn\" style=\"background:var(--cor-primaria,#ff4d6d);color:#fff;padding:11px 22px\">OK</button></div>`;
   document.body.appendChild(m);
-  const continuar=m.querySelector('#guardZeroContinueV2');
-  continuar.onclick=()=>{
-    m.remove();
-    pedirJustificativa(t,agora,j,ini,calc,faixa);
-  };
-  window.rotinaLog?.('tarefa.zero_feedback_exibido',{tarefaId:t.id,percentual:0});
+  m.querySelector('#guardZeroCloseV2').onclick=()=>m.remove();
+  window.rotinaLog?.('tarefa.zero_feedback_exibido',{tarefaId:t.id,percentual:0,aposJustificativa:true});
 }
 
 """
-              s=s.replace(anchor,feedback+anchor,1)
 
-          old="if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}"
-          new="if(faixa.percentual===0){mostrarVoceNaoConseguiu(t,agora,j,ini,calc,faixa);return;}"
-          if old in s:
-              s=s.replace(old,new,1)
-          elif new not in s:
-              raise SystemExit('zero percent target not found')
+          # Remove qualquer versão anterior colocada antes da justificativa e instala a final.
+          pattern=r"function mostrarVoceNaoConseguiu\([\s\S]*?\n}\n\n(?=function pedirJustificativa)"
+          s=re.sub(pattern,'',s,count=1)
+          anchor='function pedirJustificativa(t,agora,j,ini,calc,faixa){'
+          if anchor not in s:
+              raise SystemExit('justification anchor not found')
+          s=s.replace(anchor,feedback+anchor,1)
+
+          # 0% deve abrir justificativa primeiro.
+          s=s.replace("if(faixa.percentual===0){mostrarVoceNaoConseguiu(t,agora,j,ini,calc,faixa);return;}","if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}",1)
+          s=s.replace("if(faixa.percentual===0){window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:t.id,percentual:0,faixa:faixa.faixa}}));pedirJustificativa(t,agora,j,ini,calc,faixa);return;}","if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}",1)
+
+          # Caminho opcional: concluir sem justificativa -> depois mostrar feedback negativo.
+          old_sem="if(btnSem)btnSem.onclick=async()=>{definirEnviando(true);err.style.display='none';try{await salvarResultado(t,agora,j,ini,calc,faixa,'',{recusou:true});m.remove();}catch(e){console.error('Falha ao concluir sem justificativa:',e);definirEnviando(false);err.textContent='Não foi possível concluir agora. Verifique sua conexão e tente novamente.';err.style.display='block';}};"
+          new_sem="if(btnSem)btnSem.onclick=async()=>{definirEnviando(true);err.style.display='none';try{await salvarResultado(t,agora,j,ini,calc,faixa,'',{recusou:true});m.remove();mostrarVoceNaoConseguiu(t,faixa);}catch(e){console.error('Falha ao concluir sem justificativa:',e);definirEnviando(false);err.textContent='Não foi possível concluir agora. Verifique sua conexão e tente novamente.';err.style.display='block';}};"
+          if old_sem in s:
+              s=s.replace(old_sem,new_sem,1)
+          elif new_sem not in s:
+              raise SystemExit('optional justification completion target not found')
+
+          # Caminho obrigatório ou opcional com texto: enviar -> depois mostrar feedback negativo.
+          old_send="try{await salvarResultado(t,agora,j,ini,calc,faixa,tx,{vozUsada});m.remove();}"
+          new_send="try{await salvarResultado(t,agora,j,ini,calc,faixa,tx,{vozUsada});m.remove();mostrarVoceNaoConseguiu(t,faixa);}"
+          if old_send in s:
+              s=s.replace(old_send,new_send,1)
+          elif new_send not in s:
+              raise SystemExit('submitted justification completion target not found')
+
           p.write_text(s)
 
           p=Path('client-ui-pro.js')
           s=p.read_text()
-          s=s.replace("import('./client-time-guard-v2.js')","import('./client-time-guard-v2.js?v=2')",1)
+          if "import('./client-time-guard-v2.js?v=2')" not in s:
+              s=s.replace("import('./client-time-guard-v2.js')","import('./client-time-guard-v2.js?v=2')",1)
           p.write_text(s)
 
           p=Path('index.html')
-          s=p.read_text().replace("./client-ui-pro.js?v=33","./client-ui-pro.js?v=34",1).replace("./sw.js?v=35","./sw.js?v=36",1)
+          s=p.read_text()
+          if './client-ui-pro.js?v=34' not in s:
+              s=s.replace('./client-ui-pro.js?v=33','./client-ui-pro.js?v=34',1)
+          if './sw.js?v=36' not in s:
+              s=s.replace('./sw.js?v=35','./sw.js?v=36',1)
           p.write_text(s)
 
           p=Path('sw.js')
-          s=p.read_text().replace("rotina-family-cliente-v46","rotina-family-cliente-v47",1)
+          s=p.read_text()
+          if 'rotina-family-cliente-v47' not in s:
+              s=s.replace('rotina-family-cliente-v46','rotina-family-cliente-v47',1)
           p.write_text(s)
 
           Path('.github/workflows/restore-zero-feedback-sequence.yml').unlink()
           PY
+
           node --check client-time-guard-v2.js
           node --check client-ui-pro.js
           node --check sw.js
           grep -q "Você não conseguiu" client-time-guard-v2.js
-          grep -q "mostrarVoceNaoConseguiu" client-time-guard-v2.js
+          grep -q "aposJustificativa:true" client-time-guard-v2.js
+          grep -q "m.remove();mostrarVoceNaoConseguiu(t,faixa)" client-time-guard-v2.js
+          grep -q "if(faixa.percentual===0){pedirJustificativa" client-time-guard-v2.js
           grep -q "rotina-task-zero" client-time-guard-v2.js
-          grep -q "pedirJustificativa(t,agora,j,ini,calc,faixa)" client-time-guard-v2.js
-          grep -q "client-time-guard-v2.js?v=2" client-ui-pro.js
           grep -q "rotina-family-cliente-v47" sw.js
       - name: Commit release
         run: |
           git config user.name 'paes2005-design'
           git config user.email 'paes2005@gmail.com'
           git add -A
-          git commit -m 'fix: mostrar você não conseguiu antes da justificativa'
+          git commit -m 'fix: mostrar você não conseguiu após finalizar justificativa'
           git push
