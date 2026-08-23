@@ -1,0 +1,215 @@
+name: Hotfix mascot runtime trace
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hotfix-mascot-runtime-trace.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch mascot runtime and tracing
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # 1) Gatilho direto no fechamento real da tarefa. Não altera cálculo/pontuação.
+          p=Path('client-time-guard-v2.js')
+          s=p.read_text(encoding='utf-8')
+          marker="  window.registrarHistoricoLocal?.(historicoId,hist);\n"
+          insert=marker+"  window.dispatchEvent(new CustomEvent('rotina-family-task-finished',{detail:{tarefaId:t.id,percentual:faixa.percentual,faixa:faixa.faixa,pontos}}));\n"
+          if "rotina-family-task-finished" not in s:
+              assert marker in s, 'marker registrarHistoricoLocal não encontrado'
+              s=s.replace(marker,insert,1)
+          p.write_text(s,encoding='utf-8')
+
+          # 2) Mascote: cache-bust, gatilho direto e telemetria.
+          p=Path('client-mascot-rewards.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("from './mascot-reward-core.js';","from './mascot-reward-core.js?v=2';")
+          if "let lastDailyEvalSignature=''" not in s:
+              s=s.replace("let audioContext=null;","let audioContext=null;\nlet lastDailyEvalSignature='';")
+          old="""function celebrateTask(taskId){
+  if(!taskId||localStorage.getItem(taskSeenKey(taskId)))return;
+  localStorage.setItem(taskSeenKey(taskId),'1');
+  const seq=chooseTaskRewardSequence(lastTaskSequence);
+  lastTaskSequence=String(seq.id);
+  enqueue(seq);
+}"""
+          new="""function celebrateTask(taskId){
+  if(!taskId)return;
+  if(localStorage.getItem(taskSeenKey(taskId))){window.rotinaLog?.('mascote.tarefa_ja_exibida',{tarefaId:taskId});return;}
+  localStorage.setItem(taskSeenKey(taskId),'1');
+  const seq=chooseTaskRewardSequence(lastTaskSequence);
+  lastTaskSequence=String(seq.id);
+  window.rotinaLog?.('mascote.tarefa_disparada',{tarefaId:taskId,sequencia:seq.id});
+  enqueue(seq);
+}"""
+          if "mascote.tarefa_disparada" not in s:
+              assert old in s, 'celebrateTask original não encontrado'
+              s=s.replace(old,new,1)
+          old="""function celebrateDaily100(){
+  if(localStorage.getItem(dailySeenKey()))return;
+  localStorage.setItem(dailySeenKey(),'1');
+  sessionStorage.setItem(legacyCelebrationKey(),'true');
+  playExistingDailyCelebration();
+  enqueue(DAILY_100_SEQUENCE);
+}"""
+          new="""function celebrateDaily100(){
+  if(localStorage.getItem(dailySeenKey())){window.rotinaLog?.('mascote.dia100_ja_exibido',{data:todayKey()});return;}
+  localStorage.setItem(dailySeenKey(),'1');
+  sessionStorage.setItem(legacyCelebrationKey(),'true');
+  window.rotinaLog?.('mascote.dia100_disparado',{data:todayKey(),sequencia:DAILY_100_SEQUENCE.id});
+  playExistingDailyCelebration();
+  enqueue(DAILY_100_SEQUENCE);
+}"""
+          if "mascote.dia100_disparado" not in s:
+              assert old in s, 'celebrateDaily100 original não encontrado'
+              s=s.replace(old,new,1)
+          old="""export function evaluateDailyGoal(){
+  const earned=numberFromText(document.getElementById('ptsHoje')?.textContent);
+  const possible=numberFromText(document.getElementById('possivelHoje')?.textContent);
+  const reached=dailyGoalReached(earned,possible);
+  if(reached)celebrateDaily100();
+  return {earned,possible,reached};
+}"""
+          new="""export function evaluateDailyGoal(){
+  const earned=numberFromText(document.getElementById('ptsHoje')?.textContent);
+  const possible=numberFromText(document.getElementById('possivelHoje')?.textContent);
+  const reached=dailyGoalReached(earned,possible);
+  const signature=`${earned}|${possible}|${reached}`;
+  if(signature!==lastDailyEvalSignature){lastDailyEvalSignature=signature;window.rotinaLog?.('mascote.dia_avaliado',{pontosHoje:earned,pontosPossiveis:possible,atingiu100:reached});}
+  if(reached)celebrateDaily100();
+  return {earned,possible,reached};
+}"""
+          if "mascote.dia_avaliado" not in s:
+              assert old in s, 'evaluateDailyGoal original não encontrado'
+              s=s.replace(old,new,1)
+          event_marker="window.addEventListener('rotina-family-tasks-rendered',scanTaskTransitions);\n"
+          event_insert="""window.addEventListener('rotina-family-task-finished',event=>{
+  const tarefaId=String(event.detail?.tarefaId||'').trim();
+  const percentual=Number(event.detail?.percentual)||0;
+  const faixa=String(event.detail?.faixa||'');
+  window.rotinaLog?.('mascote.tarefa_avaliada',{tarefaId,percentual,faixa});
+  if(percentual===100)celebrateTask(tarefaId);
+});
+"""+event_marker
+          if "mascote.tarefa_avaliada" not in s:
+              assert event_marker in s, 'listener tasks-rendered não encontrado'
+              s=s.replace(event_marker,event_insert,1)
+          ready="window.__rotinaMascoteRewardsReady=true;\n"
+          if "mascote.modulo_pronto" not in s:
+              s=s.replace(ready,ready+"window.rotinaLog?.('mascote.modulo_pronto',{versao:2,sequenciasTarefa:TASK_REWARD_SEQUENCES.length});\n",1)
+          p.write_text(s,encoding='utf-8')
+
+          # 3) Loader: não herdar a trava antiga como 'já exibido'; registrar erro e forçar versão.
+          p=Path('client-ui-pro.js')
+          s=p.read_text(encoding='utf-8')
+          legacy="""  }else if(valorLegado==='true'){
+    const d=new Date(),pad=n=>String(n).padStart(2,'0');
+    const data=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const perfil=`${localStorage.getItem('cliente_grupo')||'sem-grupo'}_${localStorage.getItem('cliente_perfil_id')||localStorage.getItem('cliente_nome')||'sem-perfil'}`;
+    localStorage.setItem(`rotina_mascote_100_${perfil}_${data}`,'1');
+"""
+          s=s.replace(legacy,'')
+          s=s.replace("import('./client-mascot-rewards.js').catch(e=>{","import('./client-mascot-rewards.js?v=2').catch(e=>{")
+          s=s.replace("    console.error('Recompensas do mascote:',e);","    window.__rotinaMascoteLoadError=String(e?.message||e);\n    window.rotinaLog?.('mascote.modulo_erro',{mensagem:window.__rotinaMascoteLoadError},'error');\n    console.error('Recompensas do mascote:',e);")
+          p.write_text(s,encoding='utf-8')
+
+          # 4) Monitoramento passa a registrar o fechamento e a saúde do módulo.
+          p=Path('app-monitoring.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("const MONITOR_VERSION = 2;","const MONITOR_VERSION = 3;")
+          s=s.replace("  'rotina-family-tasks-rendered'\n])", "  'rotina-family-tasks-rendered',\n  'rotina-family-task-finished',\n  'rotina-mascote-rewards-ready'\n])")
+          probe="""
+setTimeout(() => window.rotinaLog('mascote.runtime_status', {
+  pronto: window.__rotinaMascoteRewardsReady === true,
+  erro: window.__rotinaMascoteLoadError || ''
+}, window.__rotinaMascoteRewardsReady === true ? 'info' : 'warning'), 1800);
+"""
+          if "mascote.runtime_status" not in s:
+              s=s.replace("setInterval(flush, 15_000);",probe+"\nsetInterval(flush, 15_000);")
+          p.write_text(s,encoding='utf-8')
+
+          # 5) Força nova versão no carregamento e no service worker.
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('./app-monitoring.js?v=2','./app-monitoring.js?v=3')
+          s=s.replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=28')
+          s=s.replace('./sw.js?v=30','./sw.js?v=31')
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          if "client-ui-pro.js?v=28" not in s:
+              s=s.replace("let html=await r.text();", "let html=await r.text();\n        html=html.replace('./app-monitoring.js?v=2','./app-monitoring.js?v=3').replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=28').replace('./sw.js?v=30','./sw.js?v=31');")
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('sw.js')
+          s=p.read_text(encoding='utf-8').replace("rotina-family-cliente-v41","rotina-family-cliente-v42")
+          p.write_text(s,encoding='utf-8')
+
+          # 6) Atualiza baseline da auditoria.
+          p=Path('.github/workflows/client-regression-audit.yml')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("rotina-family-cliente-v41","rotina-family-cliente-v42")
+          s=s.replace("./client-ui-pro.js?v=27')&&html.includes('./sw.js?v=30", "./client-ui-pro.js?v=28')&&html.includes('./sw.js?v=31")
+          p.write_text(s,encoding='utf-8')
+
+      - name: Syntax and deterministic tests
+        run: |
+          node --check client-ui-pro.js
+          node --check app-monitoring.js
+          node --check client-time-guard-v2.js
+          node --check client-mascot-rewards.js
+          node --check mascot-reward-core.js
+          node --check sw.js
+          node mascot-reward-simulation.mjs
+          node timer-simulation.mjs
+
+      - name: Runtime invariants
+        shell: python
+        run: |
+          from pathlib import Path
+          guard=Path('client-time-guard-v2.js').read_text(encoding='utf-8')
+          mascot=Path('client-mascot-rewards.js').read_text(encoding='utf-8')
+          ui=Path('client-ui-pro.js').read_text(encoding='utf-8')
+          monitor=Path('app-monitoring.js').read_text(encoding='utf-8')
+          html=Path('index-CLIENTE-v6.html').read_text(encoding='utf-8')
+          sw=Path('sw.js').read_text(encoding='utf-8')
+          assert "rotina-family-task-finished" in guard
+          assert "mascote.tarefa_avaliada" in mascot
+          assert "mascote.tarefa_disparada" in mascot
+          assert "mascote.dia100_disparado" in mascot
+          assert "client-mascot-rewards.js?v=2" in ui
+          assert "mascote.runtime_status" in monitor
+          assert './client-ui-pro.js?v=28' in html
+          assert './app-monitoring.js?v=3' in html
+          assert './sw.js?v=31' in html
+          assert "rotina-family-cliente-v42" in sw
+          assert "particleCount:45" in guard
+          assert "particleCount:160" in mascot
+          assert "pointer-events:none" in mascot
+          print('HOTFIX MASCOTE: gatilho direto + rastreamento + cache bust OK')
+
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-time-guard-v2.js client-mascot-rewards.js client-ui-pro.js app-monitoring.js index-CLIENTE-v6.html index.html sw.js .github/workflows/client-regression-audit.yml
+          if git diff --cached --quiet; then
+            echo 'Nenhuma alteração necessária.'
+          else
+            git commit -m "Fix mascot trigger and add runtime trace"
+            git push origin main
+          fi
