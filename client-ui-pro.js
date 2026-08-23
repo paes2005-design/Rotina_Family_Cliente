@@ -31,7 +31,8 @@
     console.error('Módulo único de mascotes:',e);
   });
 
-  import('./client-zero-feedback-after-justification.js?v=4').catch(e=>{
+  // Feedback de 0% unificado: apenas dispara o evento; o mascote v3 decide visual e áudio.
+  import('./client-zero-feedback-v4.js?v=1').catch(e=>{
     window.rotinaLog?.('tarefa.zero_feedback_modulo_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Feedback de 0% após justificativa:',e);
   });
