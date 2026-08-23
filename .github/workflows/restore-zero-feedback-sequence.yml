@@ -1,0 +1,83 @@
+name: Restore zero feedback sequence
+on:
+  push:
+    paths:
+      - '.github/workflows/restore-zero-feedback-sequence.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore negative feedback before justification
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('client-time-guard-v2.js')
+          s=p.read_text()
+
+          anchor='function pedirJustificativa(t,agora,j,ini,calc,faixa){'
+          if 'function mostrarVoceNaoConseguiu(' not in s:
+              if anchor not in s:
+                  raise SystemExit('justification anchor not found')
+              feedback="""function mostrarVoceNaoConseguiu(t,agora,j,ini,calc,faixa){
+  document.getElementById('guardZeroFeedbackV2')?.remove();
+  window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:t.id,percentual:0,faixa:faixa.faixa}}));
+  const m=document.createElement('div');
+  m.id='guardZeroFeedbackV2';
+  m.style.cssText='position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';
+  m.innerHTML=`<div style=\"width:min(92vw,430px);background:#fff;border-radius:22px;padding:24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.25)\"><div style=\"font-size:3.8rem;line-height:1\">😢</div><h2 style=\"margin:12px 0 8px;color:#9f1239\">Você não conseguiu</h2><p style=\"font-size:1.05rem;color:#555;margin:0 0 18px\">Não foi dessa vez. Esta tarefa ficou em <strong>0%</strong>.</p><button type=\"button\" id=\"guardZeroContinueV2\" class=\"btn\" style=\"background:var(--cor-primaria,#ff4d6d);color:#fff;padding:11px 22px\">Continuar</button></div>`;
+  document.body.appendChild(m);
+  const continuar=m.querySelector('#guardZeroContinueV2');
+  continuar.onclick=()=>{
+    m.remove();
+    pedirJustificativa(t,agora,j,ini,calc,faixa);
+  };
+  window.rotinaLog?.('tarefa.zero_feedback_exibido',{tarefaId:t.id,percentual:0});
+}
+
+"""
+              s=s.replace(anchor,feedback+anchor,1)
+
+          old="if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}"
+          new="if(faixa.percentual===0){mostrarVoceNaoConseguiu(t,agora,j,ini,calc,faixa);return;}"
+          if old in s:
+              s=s.replace(old,new,1)
+          elif new not in s:
+              raise SystemExit('zero percent target not found')
+          p.write_text(s)
+
+          p=Path('client-ui-pro.js')
+          s=p.read_text()
+          s=s.replace("import('./client-time-guard-v2.js')","import('./client-time-guard-v2.js?v=2')",1)
+          p.write_text(s)
+
+          p=Path('index.html')
+          s=p.read_text().replace("./client-ui-pro.js?v=33","./client-ui-pro.js?v=34",1).replace("./sw.js?v=35","./sw.js?v=36",1)
+          p.write_text(s)
+
+          p=Path('sw.js')
+          s=p.read_text().replace("rotina-family-cliente-v46","rotina-family-cliente-v47",1)
+          p.write_text(s)
+
+          Path('.github/workflows/restore-zero-feedback-sequence.yml').unlink()
+          PY
+          node --check client-time-guard-v2.js
+          node --check client-ui-pro.js
+          node --check sw.js
+          grep -q "Você não conseguiu" client-time-guard-v2.js
+          grep -q "mostrarVoceNaoConseguiu" client-time-guard-v2.js
+          grep -q "rotina-task-zero" client-time-guard-v2.js
+          grep -q "pedirJustificativa(t,agora,j,ini,calc,faixa)" client-time-guard-v2.js
+          grep -q "client-time-guard-v2.js?v=2" client-ui-pro.js
+          grep -q "rotina-family-cliente-v47" sw.js
+      - name: Commit release
+        run: |
+          git config user.name 'paes2005-design'
+          git config user.email 'paes2005@gmail.com'
+          git add -A
+          git commit -m 'fix: mostrar você não conseguiu antes da justificativa'
+          git push
