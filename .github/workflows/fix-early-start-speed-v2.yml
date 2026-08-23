@@ -1,4 +1,5 @@
 name: Fix early start speed v2
+# trigger 2
 on:
   push:
     paths:
@@ -78,10 +79,6 @@ async function verificarOrdem(t){
           if old not in s:
               raise SystemExit('early confirm target not found')
           s=s.replace(old,new,1)
-          p.write_text(s)
-
-          p=Path('client-ui-pro.js')
-          s=p.read_text().replace("import('./client-dog-bark-mobile.js?v=1')","import('./client-dog-bark-mobile.js?v=2')")
           p.write_text(s)
 
           p=Path('index.html')
