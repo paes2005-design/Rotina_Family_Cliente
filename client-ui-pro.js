@@ -1,6 +1,6 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
-  window.__rotinaMascoteLoaderVersion=7;
+  window.__rotinaMascoteLoaderVersion=8;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
@@ -17,7 +17,7 @@
     window.rotinaLog?.('perf.time_guard_v3_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Validação temporal v3:',e);
   });
-  import('./client-session-integrity.js?v=1').catch(e=>{
+  import('./client-session-integrity.js?v=2').catch(e=>{
     window.rotinaLog?.('integridade.cliente_modulo_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Integridade de sessão do Cliente:',e);
   });
