@@ -1,0 +1,145 @@
+name: Fix dog bark mobile v5
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-dog-bark-mobile-v5.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply mobile-safe dog bark playback
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          p=Path('client-mascot-rewards.js')
+          s=p.read_text()
+
+          if "let dogBarkBuffer=null;" not in s:
+              s=s.replace("let audioContext=null;", "let audioContext=null;\nlet dogBarkBuffer=null;\nlet dogBarkLoading=null;\nconst DOG_BARK_URL='./latido-cachorro-comemoracao.mp3?v=4';", 1)
+
+          replacement = r'''function ensureAudioContext(){
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return null;
+  if(!audioContext)audioContext=new AC();
+  return audioContext;
+}
+
+async function loadDogBark(){
+  if(dogBarkBuffer)return dogBarkBuffer;
+  if(dogBarkLoading)return dogBarkLoading;
+  dogBarkLoading=(async()=>{
+    const ctx=ensureAudioContext();
+    if(!ctx)throw new Error('Web Audio indisponível');
+    const response=await fetch(DOG_BARK_URL,{cache:'no-store'});
+    if(!response.ok)throw new Error(`HTTP ${response.status} ao carregar latido`);
+    const bytes=await response.arrayBuffer();
+    dogBarkBuffer=await ctx.decodeAudioData(bytes.slice(0));
+    window.rotinaLog?.('mascote.latido_carregado',{duracao:Number(dogBarkBuffer.duration.toFixed(3)),estadoAudio:ctx.state});
+    return dogBarkBuffer;
+  })().catch(error=>{
+    dogBarkLoading=null;
+    window.rotinaLog?.('mascote.latido_carga_erro',{mensagem:String(error?.message||error)},'error');
+    throw error;
+  });
+  return dogBarkLoading;
+}
+
+function unlockAudio(){
+  try{
+    const ctx=ensureAudioContext();
+    if(!ctx)return;
+    if(ctx.state==='suspended')ctx.resume().catch(error=>window.rotinaLog?.('mascote.audio_resume_erro',{mensagem:String(error?.message||error)},'warning'));
+    loadDogBark().catch(()=>{});
+  }catch(error){
+    window.rotinaLog?.('mascote.audio_unlock_erro',{mensagem:String(error?.message||error)},'warning');
+  }
+}
+document.addEventListener('pointerdown',unlockAudio,{passive:true,capture:true});
+document.addEventListener('touchstart',unlockAudio,{passive:true,capture:true});
+document.addEventListener('click',unlockAudio,{passive:true,capture:true});
+
+function startDogBarkAt(when){
+  const ctx=audioContext;
+  if(!ctx||!dogBarkBuffer)return false;
+  const source=ctx.createBufferSource();
+  const gain=ctx.createGain();
+  gain.gain.value=1;
+  source.buffer=dogBarkBuffer;
+  source.connect(gain).connect(ctx.destination);
+  source.start(when);
+  return true;
+}
+
+async function playDoubleDogBark(){
+  try{
+    const ctx=ensureAudioContext();
+    if(!ctx)throw new Error('Web Audio indisponível');
+    const buffer=await loadDogBark();
+    if(ctx.state==='suspended')await ctx.resume();
+    const start=ctx.currentTime+0.05;
+    const gap=0.08;
+    startDogBarkAt(start);
+    startDogBarkAt(start+buffer.duration+gap);
+    window.rotinaLog?.('mascote.latido_duplo_tocado',{duracao:Number(buffer.duration.toFixed(3)),intervaloMs:80,estadoAudio:ctx.state});
+    return true;
+  }catch(error){
+    window.rotinaLog?.('mascote.latido_reproducao_erro',{mensagem:String(error?.message||error),estadoAudio:audioContext?.state||'sem-contexto'},'error');
+    return false;
+  }
+}
+
+function barkSound(){ playDoubleDogBark(); }
+
+function meowSound()'''
+
+          s2,n=re.subn(r"function unlockAudio\(\)\{[\s\S]*?\nfunction meowSound\(\)", replacement, s, count=1)
+          if n!=1:
+              raise SystemExit('Não foi possível substituir o bloco de áudio do cachorro')
+          s=s2
+
+          old="if(name==='bark'){speech.classList.remove('show');void speech.getBoundingClientRect();speech.classList.add('show');animal.classList.add('bark');if(mascotType()==='dog'){barkSound();setTimeout(barkSound,460);}else{meowSound();setTimeout(meowSound,460);}}else animal.classList.add(name);"
+          new="if(name==='bark'){speech.classList.remove('show');void speech.getBoundingClientRect();speech.classList.add('show');animal.classList.add('bark');if(mascotType()==='dog'){playDoubleDogBark();}else{meowSound();setTimeout(meowSound,460);}}else animal.classList.add(name);"
+          if old not in s:
+              raise SystemExit('Alvo da ação bark não encontrado')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          ui=Path('client-ui-pro.js')
+          u=ui.read_text()
+          u=u.replace('window.__rotinaMascoteLoaderVersion=3;','window.__rotinaMascoteLoaderVersion=4;')
+          u=u.replace("import('./client-mascot-rewards.js?v=4')","import('./client-mascot-rewards.js?v=5')")
+          ui.write_text(u)
+
+          idx=Path('index.html')
+          x=idx.read_text()
+          x=x.replace("./client-ui-pro.js?v=30","./client-ui-pro.js?v=31")
+          x=x.replace("./sw.js?v=33","./sw.js?v=34")
+          idx.write_text(x)
+
+          sw=Path('sw.js')
+          w=sw.read_text().replace("rotina-family-cliente-v44","rotina-family-cliente-v45")
+          sw.write_text(w)
+
+          Path('.github/workflows/fix-dog-bark-mobile-v5.yml').unlink()
+          PY
+
+          node --check client-mascot-rewards.js
+          node --check client-ui-pro.js
+          node --check sw.js
+          grep -q "playDoubleDogBark" client-mascot-rewards.js
+          grep -q "client-mascot-rewards.js?v=5" client-ui-pro.js
+          grep -q "rotina-family-cliente-v45" sw.js
+          test -s latido-cachorro-comemoracao.mp3
+      - name: Commit audited fix
+        run: |
+          git config user.name 'paes2005-design'
+          git config user.email 'paes2005@gmail.com'
+          git add -A
+          git commit -m 'fix: tocar latido real do cachorro no mobile'
+          git push
