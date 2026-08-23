@@ -1,11 +1,14 @@
 const DOG_SAD_URL='./cachorro-triste-choramingo.mp3?v=1';
 const SAD_GAP_SECONDS=0.16;
 const SAD_REPEATS=3;
+const ZERO_MODAL_WATCH_MS=4000;
 
 let audioContext=null;
 let sadBuffer=null;
 let sadLoading=null;
 let playingUntil=0;
+let lastZeroModal=null;
+let watchToken=0;
 
 function log(evento,detalhes={},nivel='info'){
   try{window.rotinaLog?.(evento,detalhes,nivel);}catch{}
@@ -87,11 +90,34 @@ async function playSadTriple(taskId=''){
   }
 }
 
+function watchZeroModal(taskId=''){
+  const token=++watchToken;
+  const started=performance.now();
+  const check=()=>{
+    if(token!==watchToken)return;
+    const modal=document.getElementById('guardJustModalV2');
+    if(modal&&modal!==lastZeroModal){
+      lastZeroModal=modal;
+      playSadTriple(taskId);
+      return;
+    }
+    if(performance.now()-started<ZERO_MODAL_WATCH_MS)setTimeout(check,80);
+  };
+  check();
+}
+
 for(const eventName of ['pointerdown','touchstart','click']){
   document.addEventListener(eventName,unlockAudio,{passive:true,capture:true});
 }
 
+document.addEventListener('click',event=>{
+  const btn=event.target.closest?.('.btn-finalizar');
+  if(!btn)return;
+  const row=btn.closest?.('tr[data-family-task-id]');
+  watchZeroModal(row?.dataset?.familyTaskId||'');
+},true);
+
 window.addEventListener('rotina-task-zero',event=>playSadTriple(event.detail?.tarefaId||''));
 window.tocarCachorroTristeRotina=playSadTriple;
 
-log('cachorro.modulo_triste_pronto',{versao:1,repeticoes:SAD_REPEATS});
+log('cachorro.modulo_triste_pronto',{versao:2,repeticoes:SAD_REPEATS});
