@@ -1,5 +1,6 @@
 (()=>{
-  const seen=new WeakSet();
+  const attached=new WeakSet();
+  let feedbackOpen=false;
 
   function log(evento,detalhes={},nivel='info'){
     try{window.rotinaLog?.(evento,detalhes,nivel);}catch{}
@@ -12,44 +13,53 @@
   }
 
   function showFeedback(taskId=''){
-    if(document.getElementById('guardZeroFeedbackV2'))return;
+    if(feedbackOpen||document.getElementById('guardZeroFeedbackV2'))return;
+    feedbackOpen=true;
     const m=document.createElement('div');
     m.id='guardZeroFeedbackV2';
-    m.style.cssText='position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';
+    m.style.cssText='position:fixed;inset:0;z-index:21000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';
     m.innerHTML=`<div style="width:min(92vw,430px);background:#fff;border-radius:22px;padding:24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.25)"><div style="font-size:3.8rem;line-height:1">😢</div><h2 style="margin:12px 0 8px;color:#9f1239">Você não conseguiu</h2><p style="font-size:1.05rem;color:#555;margin:0 0 18px">Não foi dessa vez. Esta tarefa ficou em <strong>0%</strong>.</p><button type="button" id="guardZeroCloseV2" class="btn" style="background:var(--cor-primaria,#ff4d6d);color:#fff;padding:11px 22px">OK</button></div>`;
     document.body.appendChild(m);
-    m.querySelector('#guardZeroCloseV2').onclick=()=>m.remove();
-    window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:taskId,percentual:0,origem:'apos-justificativa'}}));
-    log('tarefa.zero_feedback_exibido',{tarefaId:taskId,percentual:0,aposJustificativa:true});
+    m.querySelector('#guardZeroCloseV2').onclick=()=>{m.remove();feedbackOpen=false;};
+    window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:String(taskId||''),percentual:0,origem:'apos-justificativa'}}));
+    log('tarefa.zero_feedback_exibido',{tarefaId:String(taskId||''),percentual:0,aposJustificativa:true,versao:2});
+  }
+
+  function waitForSuccessfulClose(modal,taskId,action){
+    const started=performance.now();
+    const tick=()=>{
+      if(!document.body.contains(modal)){
+        setTimeout(()=>showFeedback(taskId),80);
+        log('tarefa.zero_feedback_justificativa_concluida',{tarefaId:String(taskId||''),acao:action,tempoMs:Math.round(performance.now()-started)});
+        return;
+      }
+      if(performance.now()-started<60000){setTimeout(tick,100);return;}
+      log('tarefa.zero_feedback_timeout',{tarefaId:String(taskId||''),acao:action},'warning');
+    };
+    setTimeout(tick,80);
   }
 
   function attach(modal){
-    if(!modal||seen.has(modal))return;
-    seen.add(modal);
-    let armed=false;
-    let taskId=currentTaskId();
-
+    if(!modal||attached.has(modal))return;
+    attached.add(modal);
+    log('tarefa.zero_feedback_modal_detectado',{tarefaId:currentTaskId()});
     modal.addEventListener('click',event=>{
       const btn=event.target.closest?.('#guardEnviarV2,#guardSemV2');
       if(!btn)return;
-      armed=true;
-      taskId=taskId||currentTaskId();
-      log('tarefa.zero_feedback_aguardando_justificativa',{tarefaId:taskId,acao:btn.id});
+      const taskId=currentTaskId();
+      const action=btn.id==='guardSemV2'?'sem-justificar':'enviar-justificativa';
+      log('tarefa.zero_feedback_aguardando_salvamento',{tarefaId:taskId,acao:action});
+      waitForSuccessfulClose(modal,taskId,action);
     },true);
-
-    const observer=new MutationObserver(()=>{
-      if(document.body.contains(modal))return;
-      observer.disconnect();
-      if(!armed)return;
-      queueMicrotask(()=>showFeedback(taskId));
-    });
-    observer.observe(document.body,{childList:true,subtree:true});
   }
 
-  const scan=()=>attach(document.getElementById('guardJustModalV2'));
-  const bodyObserver=new MutationObserver(scan);
-  const start=()=>{scan();bodyObserver.observe(document.body,{childList:true,subtree:true});};
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
+  function scan(){attach(document.getElementById('guardJustModalV2'));}
+  function start(){
+    scan();
+    new MutationObserver(scan).observe(document.body,{childList:true,subtree:true});
+    log('tarefa.zero_feedback_pos_justificativa_pronto',{versao:2});
+  }
 
-  log('tarefa.zero_feedback_pos_justificativa_pronto',{versao:1});
+  window.rotinaMostrarZeroPosJustificativa=showFeedback;
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
