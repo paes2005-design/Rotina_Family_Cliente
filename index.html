@@ -10,25 +10,23 @@
   <div class="loading">Carregando Rotina Family...</div>
   <script>
     (async()=>{
+      const BUILD='cliente-clean-v60';
       try{
-        const r=await fetch('./index-CLIENTE-v6.html',{cache:'no-store'});
-        if(!r.ok) throw new Error('Falha ao carregar aplicativo');
+        const r=await fetch(`./index-CLIENTE-v6.html?build=${BUILD}`,{cache:'no-store'});
+        if(!r.ok)throw new Error(`Falha ao carregar aplicativo: HTTP ${r.status}`);
         let html=await r.text();
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=5')
-          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=37')
-          .replace('./sw.js?v=30','./sw.js?v=59');
-        const addon='<script type="module" src="./commercial-access-client.js?v=2"><\/script>';
-        if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
-        const cat='<script src="./client-cat3d-v2.js?v=2"><\/script>';
-        if(!html.includes('client-cat3d-v2.js')) html=html.replace('</body>',cat+'\n</body>');
-        const pets='<script src="./client-pet-choice-v2.js?v=2"><\/script>';
-        if(!html.includes('client-pet-choice-v2.js')) html=html.replace('</body>',pets+'\n</body>');
-        const telemetry='<script src="./app-monitoring-extra-v1.js?v=2"><\/script>';
-        if(!html.includes('app-monitoring-extra-v1.js')) html=html.replace('</body>',telemetry+'\n</body>');
+          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=38')
+          .replace('./sw.js?v=30','./sw.js?v=60');
+        const commercial='<script type="module" src="./commercial-access-client.js?v=2"><\/script>';
+        if(!html.includes('commercial-access-client.js'))html=html.replace('</body>',commercial+'\n</body>');
+        const telemetry='<script src="./app-monitoring-extra-v1.js?v=3"><\/script>';
+        if(!html.includes('app-monitoring-extra-v1.js'))html=html.replace('</body>',telemetry+'\n</body>');
+        html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}'});<\/script>\n</body>`);
         document.open();document.write(html);document.close();
       }catch(e){
-        document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html">Tentar abrir diretamente</a></div>';
+        document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html?build=cliente-clean-v60">Tentar abrir diretamente</a></div>';
       }
     })();
   </script>
