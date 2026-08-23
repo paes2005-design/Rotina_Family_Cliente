@@ -1,9 +1,9 @@
-const DOG_SAD_URL='./cachorro-triste-choramingo.mp3?v=1';
-const SAD_GAP_SECONDS=0.16;
-const SAD_REPEATS=3;
+const DOG_SAD_URL='./cachorro-triste-choramingo.mp3?v=2';
+const SAD_CHORAMINGOS=3;
 
 let audioContext=null;
-let sadBuffer=null;
+let sadUnitBuffer=null;
+let sadCombinedBuffer=null;
 let sadLoading=null;
 let playingUntil=0;
 
@@ -18,8 +18,19 @@ function getAudioContext(){
   return audioContext;
 }
 
+function combineThree(buffer,ctx){
+  const totalFrames=buffer.length*SAD_CHORAMINGOS;
+  const combined=ctx.createBuffer(buffer.numberOfChannels,totalFrames,buffer.sampleRate);
+  for(let channel=0;channel<buffer.numberOfChannels;channel++){
+    const source=buffer.getChannelData(channel);
+    const target=combined.getChannelData(channel);
+    for(let i=0;i<SAD_CHORAMINGOS;i++)target.set(source,i*buffer.length);
+  }
+  return combined;
+}
+
 async function loadSad(){
-  if(sadBuffer)return sadBuffer;
+  if(sadCombinedBuffer)return sadCombinedBuffer;
   if(sadLoading)return sadLoading;
   sadLoading=(async()=>{
     const ctx=getAudioContext();
@@ -27,12 +38,20 @@ async function loadSad(){
     const response=await fetch(DOG_SAD_URL,{cache:'no-store'});
     if(!response.ok)throw new Error(`Falha ao carregar choramingo (HTTP ${response.status})`);
     const bytes=await response.arrayBuffer();
-    sadBuffer=await ctx.decodeAudioData(bytes.slice(0));
-    log('cachorro.triste_buffer_pronto',{duracao:Number(sadBuffer.duration.toFixed(3)),estadoAudio:ctx.state,versao:5});
-    return sadBuffer;
+    sadUnitBuffer=await ctx.decodeAudioData(bytes.slice(0));
+    sadCombinedBuffer=combineThree(sadUnitBuffer,ctx);
+    log('cachorro.triste_buffer_pronto',{
+      duracaoUnitaria:Number(sadUnitBuffer.duration.toFixed(3)),
+      duracaoTotal:Number(sadCombinedBuffer.duration.toFixed(3)),
+      choramingos:SAD_CHORAMINGOS,
+      audioUnico:true,
+      estadoAudio:ctx.state,
+      versao:6
+    });
+    return sadCombinedBuffer;
   })().catch(error=>{
     sadLoading=null;
-    log('cachorro.triste_carga_erro',{mensagem:String(error?.message||error),versao:5},'error');
+    log('cachorro.triste_carga_erro',{mensagem:String(error?.message||error),versao:6},'error');
     throw error;
   });
   return sadLoading;
@@ -42,10 +61,10 @@ function unlockAudio(){
   try{
     const ctx=getAudioContext();
     if(!ctx)return;
-    if(ctx.state==='suspended')ctx.resume().catch(error=>log('cachorro.triste_resume_erro',{mensagem:String(error?.message||error),versao:5},'warning'));
+    if(ctx.state==='suspended')ctx.resume().catch(error=>log('cachorro.triste_resume_erro',{mensagem:String(error?.message||error),versao:6},'warning'));
     loadSad().catch(()=>{});
   }catch(error){
-    log('cachorro.triste_unlock_erro',{mensagem:String(error?.message||error),versao:5},'warning');
+    log('cachorro.triste_unlock_erro',{mensagem:String(error?.message||error),versao:6},'warning');
   }
 }
 
@@ -53,18 +72,9 @@ function selectedMascot(){
   try{return window.obterMascoteRotina?.()||'dog';}catch{return 'dog';}
 }
 
-function playAt(when){
-  const source=audioContext.createBufferSource();
-  const gain=audioContext.createGain();
-  source.buffer=sadBuffer;
-  gain.gain.value=1;
-  source.connect(gain).connect(audioContext.destination);
-  source.start(when);
-}
-
 async function playSadTriple(taskId=''){
   if(selectedMascot()!=='dog'){
-    log('cachorro.triste_ignorado_mascote_gato',{tarefaId:String(taskId||''),versao:5});
+    log('cachorro.triste_ignorado_mascote_gato',{tarefaId:String(taskId||''),versao:6});
     return false;
   }
   try{
@@ -75,17 +85,29 @@ async function playSadTriple(taskId=''){
     if(ctx.state!=='running')throw new Error(`Contexto de áudio em estado ${ctx.state}`);
     const now=ctx.currentTime;
     if(now<playingUntil){
-      log('cachorro.triste_duplicado_ignorado',{tarefaId:String(taskId||''),versao:5});
+      log('cachorro.triste_duplicado_ignorado',{tarefaId:String(taskId||''),versao:6});
       return true;
     }
+    const source=ctx.createBufferSource();
+    const gain=ctx.createGain();
+    source.buffer=buffer;
+    gain.gain.value=1;
+    source.connect(gain).connect(ctx.destination);
     const start=now+0.04;
-    const step=buffer.duration+SAD_GAP_SECONDS;
-    for(let i=0;i<SAD_REPEATS;i++)playAt(start+(step*i));
-    playingUntil=start+(step*SAD_REPEATS);
-    log('cachorro.triste_triplo_tocado',{tarefaId:String(taskId||''),repeticoes:SAD_REPEATS,intervaloMs:160,duracao:Number(buffer.duration.toFixed(3)),aposJustificativa:true,versao:5});
+    source.start(start);
+    playingUntil=start+buffer.duration;
+    log('cachorro.triste_audio_unico_tocado',{
+      tarefaId:String(taskId||''),
+      choramingos:SAD_CHORAMINGOS,
+      intervaloMs:0,
+      duracao:Number(buffer.duration.toFixed(3)),
+      audioUnico:true,
+      aposJustificativa:true,
+      versao:6
+    });
     return true;
   }catch(error){
-    log('cachorro.triste_reproducao_erro',{tarefaId:String(taskId||''),mensagem:String(error?.message||error),estadoAudio:audioContext?.state||'sem-contexto',versao:5},'error');
+    log('cachorro.triste_reproducao_erro',{tarefaId:String(taskId||''),mensagem:String(error?.message||error),estadoAudio:audioContext?.state||'sem-contexto',versao:6},'error');
     return false;
   }
 }
@@ -100,4 +122,4 @@ window.addEventListener('rotina-task-zero',event=>{
 });
 window.tocarCachorroTristeRotina=playSadTriple;
 
-log('cachorro.modulo_triste_pronto',{versao:5,repeticoes:SAD_REPEATS,disparo:'apos-justificativa'});
+log('cachorro.modulo_triste_pronto',{versao:6,choramingos:SAD_CHORAMINGOS,audioUnico:true,disparo:'apos-justificativa'});
