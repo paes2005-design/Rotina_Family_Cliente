@@ -1,6 +1,6 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
-  window.__rotinaMascoteLoaderVersion=4;
+  window.__rotinaMascoteLoaderVersion=5;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // O gatilho legado de 100% é baseado em quantidade/status de tarefas. Durante o
@@ -24,11 +24,11 @@
     window.rotinaLog?.('cachorro.modulo_latido_mobile_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Latido móvel do cachorro:',e);
   });
-  import('./client-dog-sad-audio.js?v=4').catch(e=>{
+  import('./client-dog-sad-audio.js?v=6').catch(e=>{
     window.rotinaLog?.('cachorro.modulo_triste_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Som triste do cachorro:',e);
   });
-  import('./client-zero-feedback-after-justification.js?v=2').catch(e=>{
+  import('./client-zero-feedback-after-justification.js?v=3').catch(e=>{
     window.rotinaLog?.('tarefa.zero_feedback_modulo_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Feedback de 0% após justificativa:',e);
   });
