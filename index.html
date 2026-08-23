@@ -16,14 +16,12 @@
         let html=await r.text();
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=4')
-          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=38')
-          .replace('./sw.js?v=30','./sw.js?v=41');
+          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=37')
+          .replace('./sw.js?v=30','./sw.js?v=42');
         const addon='<script type="module" src="./commercial-access-client.js?v=2"><\\/script>';
         if(!html.includes('commercial-access-client.js')) html=html.replace('</body>',addon+'\n</body>');
-        const cat='<script src="./client-cat3d-v1.js?v=1"><\\/script>';
-        if(!html.includes('client-cat3d-v1.js')) html=html.replace('</body>',cat+'\n</body>');
-        const pets='<script src="./client-pet-choice-v1.js?v=1"><\\/script>';
-        if(!html.includes('client-pet-choice-v1.js')) html=html.replace('</body>',pets+'\n</body>');
+        const dogOnly='<script src="./client-dog-only.js?v=2"><\\/script>';
+        if(!html.includes('client-dog-only.js')) html=html.replace('</body>',dogOnly+'\n</body>');
         document.open();document.write(html);document.close();
       }catch(e){
         document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html">Tentar abrir diretamente</a></div>';
