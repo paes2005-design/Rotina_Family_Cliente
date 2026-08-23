@@ -20,7 +20,7 @@
   import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=1').catch(e=>console.error('Reconciliação de pontuação:',e));
-  import('./client-dog-bark-mobile.js?v=1').catch(e=>{
+  import('./client-dog-bark-mobile.js?v=2').catch(e=>{
     window.rotinaLog?.('cachorro.modulo_latido_mobile_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Latido móvel do cachorro:',e);
   });
