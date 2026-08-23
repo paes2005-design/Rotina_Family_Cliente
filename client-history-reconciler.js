@@ -6,7 +6,7 @@ const dataLocal=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())
 const grupo=()=>localStorage.getItem('cliente_grupo')||'';
 const perfil=()=>localStorage.getItem('cliente_perfil_id')||'';
 const nome=()=>localStorage.getItem('cliente_nome')||'';
-const MIGRATION_VERSION=2;
+const MIGRATION_VERSION=3;
 const CAMPOS=[
   'tarefaGrupoId','diaSemana','horaSugeridaInicio','horaSugeridaFim','horarioInicio','horarioTermino',
   'inicioExecutadoEm','terminoExecutadoEm','tempoLimite','pontosMaximos','pontosGanhos','pontosOriginais',
@@ -44,6 +44,9 @@ function percentualDaFaixa(faixa){return faixa==='dentro-limites'?100:faixa==='a
 function statusDaFaixa(faixa){return faixa==='dentro-limites'?'No Prazo (100%)':faixa==='atraso-leve'?'No Prazo — atraso leve (75%)':faixa==='atraso-maior'?'No Prazo — atraso maior (50%)':'Atrasado (0%)';}
 
 function patchPontuacaoIntegral(reg={}){
+  // Uma decisão explícita do responsável é autoridade final e nunca é sobrescrita
+  // pela migração automática de pontuação.
+  if(reg.revisaoStatus==='revisado'&&reg.revisaoDecisao)return null;
   const max=Math.max(0,Number(reg.pontosMaximos)||0);
   const faixa=faixaNormalizada(reg);
   if(!max||!['dentro-limites','atraso-leve','atraso-maior'].includes(faixa))return null;
