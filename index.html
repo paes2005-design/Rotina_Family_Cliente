@@ -10,7 +10,7 @@
   <div class="loading">Carregando Rotina Family...</div>
   <script>
     (async()=>{
-      const BUILD='cliente-clean-v64';
+      const BUILD='cliente-clean-v65';
       try{
         const r=await fetch(`./index-CLIENTE-v6.html?build=${BUILD}`,{cache:'no-store'});
         if(!r.ok)throw new Error(`Falha ao carregar aplicativo: HTTP ${r.status}`);
@@ -18,7 +18,7 @@
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=5')
           .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=40')
-          .replace('./sw.js?v=30','./sw.js?v=64');
+          .replace('./sw.js?v=30','./sw.js?v=65');
         const commercial='<script type="module" src="./commercial-access-client.js?v=2"><\/script>';
         if(!html.includes('commercial-access-client.js'))html=html.replace('</body>',commercial+'\n</body>');
         const telemetry='<script src="./app-monitoring-extra-v1.js?v=3"><\/script>';
@@ -29,10 +29,12 @@
         if(!html.includes('client-cat-asset-v4.js'))html=html.replace('</body>',catAsset+'\n</body>');
         const catSafe='<script src="./client-cat-layout-safe-v5.js?v=5"><\/script>';
         if(!html.includes('client-cat-layout-safe-v5.js'))html=html.replace('</body>',catSafe+'\n</body>');
-        html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',mascoteOverlay:4,catAssetFix:4,catLayoutSafe:5});<\/script>\n</body>`);
+        const mascotFix='<script src="./client-mascot-fix-v6.js?v=6"><\/script>';
+        if(!html.includes('client-mascot-fix-v6.js'))html=html.replace('</body>',mascotFix+'\n</body>');
+        html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',mascoteOverlay:4,catAssetFix:4,catLayoutSafe:5,mascoteFix:6});<\/script>\n</body>`);
         document.open();document.write(html);document.close();
       }catch(e){
-        document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html?build=cliente-clean-v64">Tentar abrir diretamente</a></div>';
+        document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html?build=cliente-clean-v65">Tentar abrir diretamente</a></div>';
       }
     })();
   </script>
