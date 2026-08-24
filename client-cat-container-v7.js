@@ -17,7 +17,7 @@
         overflow:visible!important;
       }
       #rotinaMascotWrapV3.cat img{
-        transform:scale(.85)!important;
+        transform:scale(.425)!important;
         transform-origin:50% 50%!important;
         overflow:visible!important;
       }
@@ -33,8 +33,9 @@
     document.head.appendChild(style);
     log('mascote.gato_container_v7_pronto',{
       aumentoPercentual:15,
-      escalaImagem:.85,
-      tamanhoImagemMantido:true,
+      escalaImagem:.425,
+      reducaoImagemAtualPercentual:50,
+      tamanhoImagemMantido:false,
       larguraDesktopPx:282,
       larguraMobilePx:247,
       alturaMinimaPx:263,
@@ -81,7 +82,7 @@
     installStyle();
     let tries=0;
     const timer=setInterval(()=>{tries++;if(attach()||tries>120)clearInterval(timer);},100);
-    log('mascote.gato_container_v7_fix_pronto',{versao:VERSION});
+    log('mascote.gato_container_v7_fix_pronto',{versao:VERSION,escalaImagem:.425,reducaoImagemAtualPercentual:50});
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
