@@ -1,0 +1,105 @@
+name: Apply Family rule v4
+
+on:
+  push:
+    paths:
+      - '.github/triggers/apply-family-rule-v4.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply unified timing and scoring rule
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def patch(path, old, new, required=True):
+              p=Path(path)
+              s=p.read_text(encoding='utf-8')
+              if old not in s:
+                  if required:
+                      raise SystemExit(f'Expected text not found in {path}: {old[:120]!r}')
+                  return False
+              p.write_text(s.replace(old,new),encoding='utf-8')
+              print('patched',path)
+              return True
+
+          # Cliente: a configuração vem de configGrupos/{grupo}.regraTolerancia.
+          # Nunca mais usa dentroLimites como percentual configurável.
+          patch('client-time-guard-v3.js',
+          "    const r=snap.exists()?(snap.data().regraAtraso||{}):{};\n    const value={dentroLimites:Number(r.dentroLimites??100),atrasoLeve:Number(r.atrasoLeve??75),atrasoMaior:Number(r.atrasoMaior??50),estourado:0};",
+          "    const cfg=snap.exists()?snap.data():{};\n    const nova=cfg.regraTolerancia||{};\n    const legado=cfg.regraAtraso||{};\n    const uso=Number(nova.usoJanelaAdicionalPct ?? legado.janelaAdicionalPct ?? legado.percentualJanelaAdicional ?? 100);\n    const value={versao:4,janelaAdicionalMaximaPct:25,usoJanelaAdicionalPct:Math.max(0,Math.min(100,Number.isFinite(uso)?uso:100))};")
+
+          # Pontuação fixa por faixa. O percentual configurável do tempo nunca entra nesta conta.
+          patch('client-time-guard-v3.js',
+          "  const inicio=performance.now(),banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(faixa.percentual/100));",
+          "  const inicio=performance.now(),banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(Number(faixa.percentual)||0)/100);")
+
+          # Horário sugerido é sempre o minuto inteiro. Tolerância começa no minuto seguinte.
+          # Sem tolerância cadastrada, sair do minuto sugerido leva diretamente a 0%.
+          old="  const calc=tolerancia===0?calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora}):calcularConsumoAtraso({inicioPrevisto:aposMinutoSugerido(j.inicio),inicioReal:ini,fimPrevisto:aposMinutoSugerido(j.fim),fimReal:agora});\n  const semTolBase={tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0,limite100Seg:0,limite75Seg:0,limite50Seg:0,faixa75Seg:0,faixa50Seg:0,janelaParcialSeg:0};\n  const horarioEstourado=horarioSugeridoEstourado(ini,j.inicio)||horarioSugeridoEstourado(agora,j.fim);\n  const faixa=tolerancia===0?{percentual:horarioEstourado?0:Number(regra.dentroLimites??100),faixa:horarioEstourado?'estourado':'dentro-limites',consumoSeg:0,...semTolBase}:classificarConsumoToleranciaSegundos(tolerancia,calc.consumoTotalSeg,regra);"
+          new="  const inicioTol=aposMinutoSugerido(j.inicio),fimTol=aposMinutoSugerido(j.fim);\n  const calc=calcularConsumoAtraso({inicioPrevisto:inicioTol,inicioReal:ini,fimPrevisto:fimTol,fimReal:agora});\n  const saiuMinutoSugerido=ini>=inicioTol||agora>=fimTol;\n  const semTolBase={tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0,limite100Seg:0,limite75Seg:0,limite50Seg:0,faixa75Seg:0,faixa50Seg:0,janelaParcialSeg:0};\n  const faixa=tolerancia===0?(saiuMinutoSugerido?{percentual:0,faixa:'estourado',consumoSeg:0,...semTolBase}:{percentual:100,faixa:'dentro-limites',consumoSeg:0,...semTolBase}):classificarConsumoToleranciaSegundos(tolerancia,calc.consumoTotalSeg,regra);"
+          patch('client-time-guard-v3.js',old,new)
+
+          patch('client-time-guard-v3.js',
+          "  instalado=true;log('perf.modulo_pronto',{versao:3,commitWaitMs:UX_COMMIT_WAIT_MS});",
+          "  instalado=true;log('perf.modulo_pronto',{versao:4,commitWaitMs:UX_COMMIT_WAIT_MS,regra:'tempo-pontos-separados',minutoSugerido:'00-59'});")
+
+          # Texto educativo: 75 e 50 reduzem pontos de forma fixa.
+          patch('client-tolerance-timer.js',
+          "Esses percentuais representam <strong>tempo</strong>, não desconto de pontos. Nas faixas 100%, 75% e 50%, a tarefa vale todos os pontos cadastrados.",
+          "O ajuste da janela adicional altera somente o <strong>tempo</strong>. A pontuação continua fixa pela faixa atingida: 100%, 75%, 50% ou 0% dos pontos cadastrados.")
+
+          # Expõe os segundos do horário sugerido de forma simétrica: início e fim até 59.
+          patch('client-tolerance-timer.js',
+          "campoHMS(t.horaSugeridaInicio,'00')} - ${campoHMS(t.horaSugeridaFim,'59')}",
+          "campoHMS(t.horaSugeridaInicio,'00')} - ${campoHMS(t.horaSugeridaFim,'59')}", required=False)
+
+          # Força recarga do módulo temporal.
+          p=Path('client-ui-pro.js')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r"import\('./client-time-guard-v3\.js\?v=\d+'\)","import('./client-time-guard-v3.js?v=4')",s)
+          s=re.sub(r"import\('./client-tolerance-timer\.js\?v=\d+'\)","import('./client-tolerance-timer.js?v=4')",s)
+          p.write_text(s,encoding='utf-8')
+
+          # Bump do carregador no HTML para evitar cache antigo quando houver referência versionada.
+          for fn in ('index.html','index-CLIENTE-v6.html'):
+              p=Path(fn)
+              if not p.exists():
+                  continue
+              s=p.read_text(encoding='utf-8')
+              s=re.sub(r"client-ui-pro\.js\?v=\d+","client-ui-pro.js?v=44",s)
+              p.write_text(s,encoding='utf-8')
+
+          print('Family rule v4 patch completed')
+          PY
+
+      - name: Validate JavaScript syntax
+        run: |
+          node --check scoring-core.js
+          node --check client-time-guard-v3.js
+          node --check tolerance-timer-core.js
+          node --check client-tolerance-timer.js
+          node --check client-ui-pro.js
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scoring-core.js client-time-guard-v3.js client-tolerance-timer.js client-ui-pro.js index.html index-CLIENTE-v6.html
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Apply unified Family timing and scoring rule v4"
+          git push
