@@ -16,128 +16,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply tolerance and scoring separation
-        shell: python
-        run: |
-          from pathlib import Path
-          import re
+      - name: Apply scoring stabilization
+        run: python scripts/stabilize_scoring_v3.py
 
-          def read(path):
-              return Path(path).read_text(encoding='utf-8')
-
-          def write(path, text):
-              Path(path).write_text(text, encoding='utf-8')
-
-          def replace_required(path, old, new, count=None):
-              text = read(path)
-              found = text.count(old)
-              if found == 0:
-                  raise SystemExit(f'Expected text not found in {path}: {old[:100]!r}')
-              if count is not None and found != count:
-                  raise SystemExit(f'Unexpected occurrence count in {path}: {found} != {count}')
-              text = text.replace(old, new)
-              write(path, text)
-              print(f'{path}: replaced {found} occurrence(s)')
-
-          # 1) Controlador principal: regra configurável passa a atuar só sobre tempo.
-          path='client-time-guard-v3.js'
-          replace_required(
-              path,
-              "const value={dentroLimites:Number(r.dentroLimites??100),atrasoLeve:Number(r.atrasoLeve??75),atrasoMaior:Number(r.atrasoMaior??50),estourado:0};",
-              "const fatorJanela=Number(r.janelaAdicionalPct??r.percentualJanelaAdicional??r.dentroLimites??100);\n    const value={dentroLimites:100,atrasoLeve:75,atrasoMaior:50,estourado:0,janelaAdicionalPct:Math.max(0,Math.min(100,Number.isFinite(fatorJanela)?fatorJanela:100))};",
-              1
-          )
-          replace_required(
-              path,
-              "const inicio=performance.now(),banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(faixa.percentual/100));",
-              "const inicio=performance.now(),banco=await db(),pontos=faixa.faixa==='estourado'?0:(Number(t.pontosMaximos)||0);",
-              1
-          )
-          replace_required(path,"log('perf.modulo_pronto',{versao:3,commitWaitMs:UX_COMMIT_WAIT_MS});","log('perf.modulo_pronto',{versao:4,commitWaitMs:UX_COMMIT_WAIT_MS,pontuacao:'integral',percentuais:'tempo'});",1)
-
-          # 2) Cliente legado: normaliza configuração e corrige texto educativo.
-          path='index-CLIENTE-v6.html'
-          replace_required(
-              path,
-              "const REGRA_ATRASO_PADRAO = { dentroLimites:100, atrasoLeve:75, atrasoMaior:50, estourado:0 };",
-              "const REGRA_ATRASO_PADRAO = { dentroLimites:100, atrasoLeve:75, atrasoMaior:50, estourado:0, janelaAdicionalPct:100 };",
-              1
-          )
-          replace_required(
-              path,
-              "return {dentroLimites:n(r.dentroLimites,100),atrasoLeve:n(r.atrasoLeve,75),atrasoMaior:n(r.atrasoMaior,50),estourado:0};",
-              "const fator=n(r.janelaAdicionalPct ?? r.percentualJanelaAdicional ?? r.dentroLimites,100);\n            return {dentroLimites:100,atrasoLeve:75,atrasoMaior:50,estourado:0,janelaAdicionalPct:fator};",
-              1
-          )
-          text=read(path)
-          pattern=r"        function textoRegraAtrasoCliente\(\)\{.*?\n        \}\n        window\.abrirInfoRegraAtraso"
-          replacement="""        function textoRegraAtrasoCliente(){
-            const r=regraAtrasoAtual;
-            const fator=Math.max(0,Math.min(100,Number(r.janelaAdicionalPct)||0));
-            const extraEfetivo=(25*fator/100);
-            const metade=extraEfetivo/2;
-            const fmt=v=>Number(v.toFixed(2)).toLocaleString('pt-BR');
-            return `<strong>Como funciona o saldo de tolerância</strong><br><br>`+
-            `Cada tarefa tem uma tolerância-base em minutos. O atraso no início e o atraso no término consomem o mesmo saldo.<br><br>`+
-            `✅ <strong>Faixa 100%</strong>: enquanto o consumo estiver dentro da tolerância-base.<br>`+
-            `🟡 <strong>Faixa 75%</strong>: primeira metade da janela adicional (${fmt(metade)}% da tolerância-base).<br>`+
-            `🟠 <strong>Faixa 50%</strong>: segunda metade da janela adicional (${fmt(metade)}% da tolerância-base).<br>`+
-            `🔴 <strong>Faixa 0%</strong>: quando toda a tolerância válida for consumida.<br><br>`+
-            `O grupo está usando <strong>${fmt(fator)}%</strong> da janela adicional padrão de 25%, ou seja, até <strong>${fmt(extraEfetivo)}%</strong> da tolerância-base além do saldo principal.<br><br>`+
-            `<strong>Importante:</strong> esses percentuais representam tempo/faixa de tolerância. Eles <strong>não reduzem os pontos</strong>. Uma tarefa concluída nas faixas 100%, 75% ou 50% recebe todos os pontos cadastrados; somente a faixa 0% zera a pontuação automática.`;
-        }
-        window.abrirInfoRegraAtraso"""
-          text2,n=re.subn(pattern,replacement,text,flags=re.S)
-          if n!=1:
-              raise SystemExit(f'Could not replace client rule explanation; matches={n}')
-          write(path,text2)
-
-          # Corrige o cálculo legado de pontos em resultados válidos.
-          text=read(path)
-          old="const pts=Math.round((Number(tarefa.pontosMaximos)||0)*(percentual/100));"
-          if old in text:
-              text=text.replace(old,"const pts=percentual===0?0:(Number(tarefa.pontosMaximos)||0);")
-          write(path,text)
-
-          # 3) Renova carregadores/cache para todos os grupos e rotas.
-          path='client-ui-pro.js'
-          replace_required(path,'window.__rotinaMascoteLoaderVersion=8;','window.__rotinaMascoteLoaderVersion=9;',1)
-          replace_required(path,"import('./client-time-guard-v3.js?v=1')","import('./client-time-guard-v3.js?v=4')",1)
-          replace_required(path,"import('./client-history-reconciler.js?v=1')","import('./client-history-reconciler.js?v=3')",1)
-          replace_required(path,"import('./client-dog-bark-mobile.js?v=2')","import('./client-dog-bark-mobile.js?v=4')",1)
-          replace_required(path,"import('./client-mascot-rewards.js?v=4')","import('./client-mascot-rewards.js?v=5')",1)
-          replace_required(path,"import('./client-mascot-trigger-bridge.js?v=1')","import('./client-mascot-trigger-bridge.js?v=2')",1)
-
-          path='index-CLIENTE-v6.html'
-          replace_required(path,'./client-ui-pro.js?v=27','./client-ui-pro.js?v=38',1)
-          replace_required(path,"navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=41')",1)
-
-          path='index.html'
-          replace_required(path,".replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=37')",".replace('./client-ui-pro.js?v=38','./client-ui-pro.js?v=38').replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=38')",1)
-          replace_required(path,".replace('./sw.js?v=30','./sw.js?v=40')",".replace('./sw.js?v=41','./sw.js?v=41').replace('./sw.js?v=30','./sw.js?v=41')",1)
-
-          path='sw.js'
-          replace_required(path,"const CACHE_NAME='rotina-family-cliente-v51';","const CACHE_NAME='rotina-family-cliente-v52';",1)
-
-          print('Tolerance/scoring rebuild completed.')
-
-      - name: Validate JavaScript syntax where possible
+      - name: Validate JavaScript syntax
         run: |
           node --check scoring-core.js
-          node --check client-history-reconciler.js
           node --check client-time-guard-v3.js
           node --check client-ui-pro.js
-          node --check client-dog-bark-mobile.js
-          node --check client-mascot-trigger-bridge.js
 
-      - name: Commit rebuilt client
+      - name: Commit stabilized client
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add client-time-guard-v3.js index-CLIENTE-v6.html client-ui-pro.js index.html sw.js
+          git add client-time-guard-v3.js index-CLIENTE-v6.html client-ui-pro.js sw.js
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
-          git commit -m "Rebuild tolerance rule and keep task points integral"
+          git commit -m "Stabilize scoring and tolerance rules"
           git push
