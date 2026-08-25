@@ -1,1 +1,1 @@
-trigger: 2026-08-23 tolerance-scoring-v2
+trigger: 2026-08-24 tolerance-scoring-v2 rerun
