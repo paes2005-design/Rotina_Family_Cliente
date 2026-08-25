@@ -1,0 +1,80 @@
+name: Audit Family rule v4
+
+on:
+  push:
+    paths:
+      - '.github/triggers/audit-family-rule-v4.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test rule boundaries and scoring separation
+        shell: bash
+        run: |
+          cp scoring-core.js /tmp/scoring-core.mjs
+          cat > /tmp/audit.mjs <<'JS'
+          import {
+            limitesToleranciaExata,
+            classificarConsumoToleranciaSegundos,
+            calcularPontuacao,
+            horarioSugeridoEstourado,
+            calcularConsumoAtraso
+          } from 'file:///tmp/scoring-core.mjs';
+
+          const assert=(cond,msg)=>{if(!cond)throw new Error(msg)};
+          const rule80={versao:4,janelaAdicionalMaximaPct:25,usoJanelaAdicionalPct:80};
+          const rule0={versao:4,janelaAdicionalMaximaPct:25,usoJanelaAdicionalPct:0};
+
+          // Minuto sugerido inteiro: 00..59 válido, minuto seguinte no segundo 00 já saiu.
+          const base=new Date('2026-08-24T07:00:00');
+          assert(horarioSugeridoEstourado(new Date('2026-08-24T07:00:59.999'),base)===false,'07:00:59 deve continuar válido');
+          assert(horarioSugeridoEstourado(new Date('2026-08-24T07:01:00.000'),base)===true,'07:01:00 deve sair do horário sugerido');
+
+          // 2 min de tolerância, 80% da janela adicional de 25%.
+          const l=limitesToleranciaExata(2,rule80);
+          assert(l.limite100Seg===120,'base deve ter 120s');
+          assert(l.janelaPadraoSeg===30,'25% de 120s deve dar 30s');
+          assert(l.janelaParcialSeg===24,'80% de 30s deve dar 24s');
+          assert(l.faixa75Seg===12&&l.faixa50Seg===12,'janela adicional deve dividir 12s/12s');
+
+          assert(classificarConsumoToleranciaSegundos(2,119,rule80).percentual===100,'segundo 119 ainda é 100%');
+          assert(classificarConsumoToleranciaSegundos(2,120,rule80).percentual===75,'segundo 120 inicia 75%');
+          assert(classificarConsumoToleranciaSegundos(2,131,rule80).percentual===75,'segundo 131 ainda é 75%');
+          assert(classificarConsumoToleranciaSegundos(2,132,rule80).percentual===50,'segundo 132 inicia 50%');
+          assert(classificarConsumoToleranciaSegundos(2,143,rule80).percentual===50,'segundo 143 ainda é 50%');
+          assert(classificarConsumoToleranciaSegundos(2,144,rule80).percentual===0,'segundo 144 deve zerar');
+
+          // Uso adicional 0% não altera a tolerância-base, apenas elimina 75/50.
+          assert(classificarConsumoToleranciaSegundos(2,119,rule0).percentual===100,'uso extra 0 mantém base');
+          assert(classificarConsumoToleranciaSegundos(2,120,rule0).percentual===0,'uso extra 0 vai direto de 100 para 0');
+
+          // Pontuação é fixa por faixa e independente do 80% temporal.
+          assert(calcularPontuacao(100,100)===100,'100% pontos');
+          assert(calcularPontuacao(100,75)===75,'75% pontos');
+          assert(calcularPontuacao(100,50)===50,'50% pontos');
+          assert(calcularPontuacao(100,0)===0,'0% pontos');
+          assert(calcularPontuacao(40,75)===30,'40 pontos na faixa 75 deve dar 30');
+
+          // Início + término consomem o mesmo saldo; antecipação não gera crédito.
+          const d=s=>new Date(`2026-08-24T${s}`);
+          let c=calcularConsumoAtraso({
+            inicioPrevisto:d('07:01:00'),inicioReal:d('07:01:40'),
+            fimPrevisto:d('08:01:00'),fimReal:d('08:01:50')
+          });
+          assert(c.consumoTotalSeg===90,'40s + 50s deve consumir 90s');
+
+          c=calcularConsumoAtraso({
+            inicioPrevisto:d('07:01:00'),inicioReal:d('07:00:20'),
+            fimPrevisto:d('08:01:00'),fimReal:d('08:01:30')
+          });
+          assert(c.consumoTotalSeg===30,'antecipação não pode gerar crédito');
+
+          console.log('AUDIT_OK family-rule-v4');
+          JS
+          node /tmp/audit.mjs
