@@ -143,7 +143,7 @@
   }
   function enqueue(type,kind,message,opts){queue=queue.catch(()=>{}).then(()=>runReaction(type,kind,message,opts));return queue;}
 
-  function phrase(kind){const n=nome();return kind==='day'?`Parabéns, ${n}! Você finalizou bem o dia!`:kind==='sad'?`Poxa, ${n}! Você não conseguiu concluir essa tarefa dentro do seu horário.`:`Parabéns, ${n}! Você completou essa tarefa dentro do seu horário!`;}
+  function phrase(kind){const n=nome();return kind==='day'?`Parabéns, ${n}! Você finalizou bem o dia!`:kind==='sad'?`${n}, dessa vez você não conseguiu. Sua pontuação é 0%.`:`Parabéns, ${n}! Você completou essa tarefa dentro do seu horário!`;}
   window.rotinaPreviewMascoteV3=(type,kind)=>enqueue(type==='cat'?'cat':'dog',kind,phrase(kind),{force:true,audio:true});
 
   /* ---------- escolha e preview ---------- */

@@ -8,15 +8,12 @@
   const selectedMascot=()=>{try{return window.obterMascoteRotina?.()||'dog';}catch{return 'dog';}};
 
   function showFeedback(taskId=''){
-    if(feedbackOpen||document.getElementById('guardZeroFeedbackV4'))return;
+    if(feedbackOpen)return;
     feedbackOpen=true;
     const type=selectedMascot();
-    const m=document.createElement('div');m.id='guardZeroFeedbackV4';m.style.cssText='position:fixed;inset:0;z-index:21000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';
-    m.innerHTML=`<div style="width:min(92vw,430px);background:#fff;border-radius:22px;padding:24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.25)"><div style="font-size:3rem">${type==='cat'?'🐱':'🐶'}</div><h2 style="margin:5px 0 8px;color:#9f1239">Você não conseguiu</h2><p style="font-size:1.05rem;color:#555;margin:0 0 18px">Não foi dessa vez. Esta tarefa ficou em <strong>0%</strong>.</p><button type="button" id="guardZeroCloseV4" class="btn" style="background:var(--cor-primaria,#ff4d6d);color:#fff;padding:11px 22px">OK</button></div>`;
-    document.body.appendChild(m);
-    m.querySelector('#guardZeroCloseV4').onclick=()=>{m.remove();feedbackOpen=false;};
-    log('tarefa.zero_feedback_exibido',{tarefaId:String(taskId||''),percentual:0,aposJustificativa:true,mascote:type});
+    log('tarefa.zero_feedback_exibido',{tarefaId:String(taskId||''),percentual:0,aposJustificativa:true,mascote:type,modo:'mascote-unico'});
     window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:String(taskId||''),percentual:0,origem:'apos-justificativa',audioHandled:false,mascote:type,versao:VERSION}}));
+    setTimeout(()=>{feedbackOpen=false;},3800);
   }
 
   function waitForSuccessfulClose(modal,taskId,action){
