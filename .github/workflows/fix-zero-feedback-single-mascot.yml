@@ -1,0 +1,52 @@
+name: Fix zero feedback single mascot
+
+on:
+  push:
+    paths:
+      - '.github/triggers/fix-zero-feedback-single-mascot.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Unify zero percent feedback
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('client-zero-feedback-v4.js')
+          s = p.read_text(encoding='utf-8')
+          old = """  function showFeedback(taskId=''){\n    if(feedbackOpen||document.getElementById('guardZeroFeedbackV4'))return;\n    feedbackOpen=true;\n    const type=selectedMascot();\n    const m=document.createElement('div');m.id='guardZeroFeedbackV4';m.style.cssText='position:fixed;inset:0;z-index:21000;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:14px';\n    m.innerHTML=`<div style=\"width:min(92vw,430px);background:#fff;border-radius:22px;padding:24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.25)\"><div style=\"font-size:3rem\">${type==='cat'?'🐱':'🐶'}</div><h2 style=\"margin:5px 0 8px;color:#9f1239\">Você não conseguiu</h2><p style=\"font-size:1.05rem;color:#555;margin:0 0 18px\">Não foi dessa vez. Esta tarefa ficou em <strong>0%</strong>.</p><button type=\"button\" id=\"guardZeroCloseV4\" class=\"btn\" style=\"background:var(--cor-primaria,#ff4d6d);color:#fff;padding:11px 22px\">OK</button></div>`;\n    document.body.appendChild(m);\n    m.querySelector('#guardZeroCloseV4').onclick=()=>{m.remove();feedbackOpen=false;};\n    log('tarefa.zero_feedback_exibido',{tarefaId:String(taskId||''),percentual:0,aposJustificativa:true,mascote:type});\n    window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:String(taskId||''),percentual:0,origem:'apos-justificativa',audioHandled:false,mascote:type,versao:VERSION}}));\n  }\n"""
+          new = """  function showFeedback(taskId=''){\n    if(feedbackOpen)return;\n    feedbackOpen=true;\n    const type=selectedMascot();\n    log('tarefa.zero_feedback_exibido',{tarefaId:String(taskId||''),percentual:0,aposJustificativa:true,mascote:type,modo:'mascote-unico'});\n    window.dispatchEvent(new CustomEvent('rotina-task-zero',{detail:{tarefaId:String(taskId||''),percentual:0,origem:'apos-justificativa',audioHandled:false,mascote:type,versao:VERSION}}));\n    setTimeout(()=>{feedbackOpen=false;},3800);\n  }\n"""
+          if old not in s:
+              raise SystemExit('Bloco de feedback 0% esperado não encontrado')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+
+          p = Path('client-mascot-v3.js')
+          s = p.read_text(encoding='utf-8')
+          old = "function phrase(kind){const n=nome();return kind==='day'?`Parabéns, ${n}! Você finalizou bem o dia!`:kind==='sad'?`Poxa, ${n}! Você não conseguiu concluir essa tarefa dentro do seu horário.`:`Parabéns, ${n}! Você completou essa tarefa dentro do seu horário!`; }"
+          if old not in s:
+              old = "function phrase(kind){const n=nome();return kind==='day'?`Parabéns, ${n}! Você finalizou bem o dia!`:kind==='sad'?`Poxa, ${n}! Você não conseguiu concluir essa tarefa dentro do seu horário.`:`Parabéns, ${n}! Você completou essa tarefa dentro do seu horário!`; }".replace('; }',';}')
+          new = "function phrase(kind){const n=nome();return kind==='day'?`Parabéns, ${n}! Você finalizou bem o dia!`:kind==='sad'?`${n}, dessa vez você não conseguiu. Sua pontuação é 0%.`:`Parabéns, ${n}! Você completou essa tarefa dentro do seu horário!`; }"
+          new = new.replace('; }',';}')
+          if old not in s:
+              raise SystemExit('Função phrase esperada não encontrada')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+      - name: Validate syntax
+        run: |
+          node --check client-zero-feedback-v4.js
+          node --check client-mascot-v3.js
+      - name: Commit changes
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-zero-feedback-v4.js client-mascot-v3.js
+          git commit -m "Unify zero percent feedback in mascot"
+          git push
