@@ -17,7 +17,7 @@
         let html=await r.text();
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=5')
-          .replace('./client-ui-pro.js?v=27','./client-ui-pro.js?v=40')
+          .replace('./client-ui-pro.js?v=44','./client-ui-pro.js?v=44')
           .replace('./sw.js?v=30','./sw.js?v=70');
         const commercial='<script type="module" src="./commercial-access-client.js?v=2"><\/script>';
         if(!html.includes('commercial-access-client.js'))html=html.replace('</body>',commercial+'\n</body>');

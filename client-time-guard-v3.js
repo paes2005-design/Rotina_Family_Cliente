@@ -59,8 +59,11 @@ async function regraAtual(){
   if(ruleCache.value&&ruleCache.grupoId===g&&Date.now()-ruleCache.at<RULE_CACHE_MS){log('perf.regra_busca',{origem:'memoria',tempoMs:Math.round(performance.now()-inicio)});return ruleCache.value;}
   try{
     const banco=await db(),{snap,origem}=await docRapido(doc(banco,'configGrupos',g));
-    const r=snap.exists()?(snap.data().regraAtraso||{}):{};
-    const value={dentroLimites:Number(r.dentroLimites??100),atrasoLeve:Number(r.atrasoLeve??75),atrasoMaior:Number(r.atrasoMaior??50),estourado:0};
+    const cfg=snap.exists()?snap.data():{};
+    const nova=cfg.regraTolerancia||{};
+    const legado=cfg.regraAtraso||{};
+    const uso=Number(nova.usoJanelaAdicionalPct ?? legado.janelaAdicionalPct ?? legado.percentualJanelaAdicional ?? 100);
+    const value={versao:4,janelaAdicionalMaximaPct:25,usoJanelaAdicionalPct:Math.max(0,Math.min(100,Number.isFinite(uso)?uso:100))};
     ruleCache={grupoId:g,at:Date.now(),value};
     log('perf.regra_busca',{origem,tempoMs:Math.round(performance.now()-inicio)});
     return value;
@@ -149,7 +152,7 @@ async function iniciar(id){
 }
 
 async function salvarResultado(t,agora,j,ini,calc,faixa,justificativa='',opcoes={}){
-  const inicio=performance.now(),banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(faixa.percentual/100));
+  const inicio=performance.now(),banco=await db(),pontos=Math.round((Number(t.pontosMaximos)||0)*(Number(faixa.percentual)||0)/100);
   const status=faixa.faixa==='dentro-limites'?`No Prazo (${faixa.percentual}%)`:faixa.faixa==='atraso-leve'?`No Prazo — atraso leve (${faixa.percentual}%)`:faixa.faixa==='atraso-maior'?`No Prazo — atraso maior (${faixa.percentual}%)`:'Atrasado (0%)';
   const temJustificativa=Boolean(justificativa.trim());
   const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,toleranciaConsumidaMin:calc.consumoTotal,toleranciaConsumidaSeg:calc.consumoTotalSeg,atrasoInicioMin:calc.atrasoInicio,atrasoFimMin:calc.atrasoFim,limite75Min:faixa.limite75,limite50Min:faixa.limite50,limite75Seg:faixa.limite75Seg,limite50Seg:faixa.limite50Seg,justificativaAtraso:justificativa,revisaoStatus:temJustificativa?'aguardando':'sem-revisao',iniciouComAtraso:t.iniciouComAtraso===true,tipoJustificativa:temJustificativa?(opcoes.vozUsada?'voz-transcrita':'texto'):'',justificativaRecusada:!temJustificativa&&opcoes.recusou===true};
@@ -180,10 +183,11 @@ async function finalizar(id){
   const total=performance.now();
   const [t,regra]=await Promise.all([buscarTarefa(id),regraAtual()]);if(!t||t.status!=='Em andamento')return;
   const agora=new Date(),j=janela(t,agora),ini=inicioReal(t,j,agora),tolerancia=Math.max(0,Number(t.tempoLimite)||0);
-  const calc=tolerancia===0?calcularConsumoAtraso({inicioPrevisto:j.inicio,inicioReal:ini,fimPrevisto:j.fim,fimReal:agora}):calcularConsumoAtraso({inicioPrevisto:aposMinutoSugerido(j.inicio),inicioReal:ini,fimPrevisto:aposMinutoSugerido(j.fim),fimReal:agora});
+  const inicioTol=aposMinutoSugerido(j.inicio),fimTol=aposMinutoSugerido(j.fim);
+  const calc=calcularConsumoAtraso({inicioPrevisto:inicioTol,inicioReal:ini,fimPrevisto:fimTol,fimReal:agora});
+  const saiuMinutoSugerido=ini>=inicioTol||agora>=fimTol;
   const semTolBase={tolerancia:0,limite100:0,limite75:0,limite50:0,extra75:0,extra50:0,limite100Seg:0,limite75Seg:0,limite50Seg:0,faixa75Seg:0,faixa50Seg:0,janelaParcialSeg:0};
-  const horarioEstourado=horarioSugeridoEstourado(ini,j.inicio)||horarioSugeridoEstourado(agora,j.fim);
-  const faixa=tolerancia===0?{percentual:horarioEstourado?0:Number(regra.dentroLimites??100),faixa:horarioEstourado?'estourado':'dentro-limites',consumoSeg:0,...semTolBase}:classificarConsumoToleranciaSegundos(tolerancia,calc.consumoTotalSeg,regra);
+  const faixa=tolerancia===0?(saiuMinutoSugerido?{percentual:0,faixa:'estourado',consumoSeg:0,...semTolBase}:{percentual:100,faixa:'dentro-limites',consumoSeg:0,...semTolBase}):classificarConsumoToleranciaSegundos(tolerancia,calc.consumoTotalSeg,regra);
   log('perf.finalizar_preparacao',{tarefaId:id,tempoMs:Math.round(performance.now()-total),percentual:faixa.percentual});
   if(faixa.percentual===0){pedirJustificativa(t,agora,j,ini,calc,faixa);return;}
   await salvarResultado(t,agora,j,ini,calc,faixa,'');log('perf.finalizar_total',{tarefaId:id,tempoMs:Math.round(performance.now()-total)});try{window.confetti?.({particleCount:45,spread:60,origin:{y:.75}});}catch{}
@@ -194,7 +198,7 @@ function instalar(tentativa=0){
   if(typeof window.iniciarTarefa!=='function'||typeof window.finalizarTarefa!=='function'||!getApps().length){if(tentativa<120)setTimeout(()=>instalar(tentativa+1),50);return;}
   window.iniciarTarefa=id=>executarUmaVez(`iniciar:${id}`,()=>iniciar(id)).catch(e=>{console.error('Validação de início:',e);alert('Não foi possível iniciar a tarefa agora. Tente novamente.');});
   window.finalizarTarefa=id=>executarUmaVez(`finalizar:${id}`,()=>finalizar(id)).catch(e=>{console.error('Validação de término:',e);alert('Não foi possível finalizar a tarefa agora. Tente novamente.');});
-  instalado=true;log('perf.modulo_pronto',{versao:3,commitWaitMs:UX_COMMIT_WAIT_MS});window.dispatchEvent(new CustomEvent('rotina-time-guard-ready'));
+  instalado=true;log('perf.modulo_pronto',{versao:4,commitWaitMs:UX_COMMIT_WAIT_MS,regra:'tempo-pontos-separados',minutoSugerido:'00-59'});window.dispatchEvent(new CustomEvent('rotina-time-guard-ready'));
   const diaBoot=dataISO(new Date()),checarVirada=()=>{if(dataISO(new Date())!==diaBoot)location.reload();};window.addEventListener('focus',checarVirada);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checarVirada();});
 }
 instalar();
