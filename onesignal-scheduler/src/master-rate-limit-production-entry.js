@@ -184,7 +184,7 @@ export default {
           const audit = await auditCommercialMigration(env);
           return Response.json({ ok:true, maintenance, audit }, { headers: { 'cache-control': 'no-store' } });
         } catch (error) {
-          return Response.json({ ok:false, error:String(error?.message || error).replace(/\s+/g,' ').slice(0,320) }, { headers: { 'cache-control': 'no-store' } });
+          return Response.json({ ok:false, error:String(error?.message || error).replace(/\s+/g,' ').slice(0,320), stack:String(error?.stack || '').split('\n').slice(0,6).join(' | ').slice(0,900) }, { headers: { 'cache-control': 'no-store' } });
         }
       }
       const accessResponse = await handleCommercialAccessStatus(request, env);
