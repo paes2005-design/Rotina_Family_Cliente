@@ -28,6 +28,9 @@ jobs:
           s = p.read_text(encoding='utf-8')
           s = s.replace("grant_type: 'urn:ietf:params:oauth-type:jwt-bearer'", "grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer'")
           s = s.replace("\n    estadoComercial: state", "")
+          s = s.replace("await saveRole(env, { uid, papel: 'participante', grupoId, perfilId, now });", "await saveRole(env, { uid, papel: 'participante', grupoId: groupId, perfilId, now });")
+          s = s.replace("token: await customToken(env, uid, { papel: 'participante', grupoId, perfilId }, now),", "token: await customToken(env, uid, { papel: 'participante', grupoId: groupId, perfilId }, now),")
+          s = s.replace("    papel: 'participante',\n    grupoId,\n    perfilId,", "    papel: 'participante',\n    grupoId: groupId,\n    perfilId,")
           p.write_text(s, encoding='utf-8')
 
           p = Path('index-CLIENTE-v6.html')
@@ -80,6 +83,9 @@ jobs:
           grep -F "where('perfilId','==',clientePerfilId)" index-CLIENTE-v6.html
           grep -F "where('perfilId','==',p)" family-alarm-client.js
           ! grep -F "estadoComercial: state" onesignal-scheduler/src/family-auth-session.js
+          grep -F "grupoId: groupId" onesignal-scheduler/src/family-auth-session.js
+          ! grep -F "saveRole(env, { uid, papel: 'participante', grupoId, perfilId" onesignal-scheduler/src/family-auth-session.js
+          ! grep -F "{ papel: 'participante', grupoId, perfilId }" onesignal-scheduler/src/family-auth-session.js
           node --check client-auth-session-v1.js
           node --check client-session-integrity.js
           node --check family-alarm-client.js
@@ -99,7 +105,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html index-CLIENTE-v6.html client-session-integrity.js family-alarm-client.js onesignal-scheduler/src/family-auth-session.js
-          git diff --cached --quiet || git commit -m "Activate secure participant sessions"
+          git diff --cached --quiet || git commit -m "Fix participant group id scope"
           git push origin main
 
       - name: Deploy Worker
