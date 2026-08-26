@@ -1,0 +1,133 @@
+name: Fix authRoles 429
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-authroles-429.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Patch auth role writes
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('onesignal-scheduler/src/family-auth-session.js')
+          s = p.read_text(encoding='utf-8')
+
+          old_upsert = '''async function upsertDocument(env, collectionId, id, data, now = new Date()) {
+            const url = new URL(`${firestoreBase(env)}/${encodeURIComponent(collectionId)}/${encodeURIComponent(id)}`);
+            for (const field of Object.keys(data)) url.searchParams.append('updateMask.fieldPaths', field);
+            const response = await firestoreRequest(env, url.toString(), {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ fields: jsToFirestoreFields(data) })
+            }, now);
+            if (!response.ok) throw new Error(`Gravação ${collectionId} recusada (${response.status}).`);
+          }'''
+
+          new_upsert = '''async function upsertDocument(env, collectionId, id, data, now = new Date()) {
+            const url = new URL(`${firestoreBase(env)}/${encodeURIComponent(collectionId)}/${encodeURIComponent(id)}`);
+            for (const field of Object.keys(data)) url.searchParams.append('updateMask.fieldPaths', field);
+            const payload = {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ fields: jsToFirestoreFields(data) })
+            };
+            let response = null;
+            for (let attempt = 0; attempt < 4; attempt += 1) {
+              response = await firestoreRequest(env, url.toString(), payload, new Date());
+              if (response.ok) return;
+              if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 3) break;
+              const retryAfter = Number(response.headers.get('retry-after') || 0);
+              const delay = retryAfter > 0 ? Math.min(retryAfter * 1000, 4000) : 250 * (2 ** attempt) + Math.floor(Math.random() * 120);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            const error = new Error(`Gravação ${collectionId} recusada (${response?.status || 0}).`);
+            error.status = Number(response?.status || 503);
+            throw error;
+          }'''
+
+          old_role = '''async function saveRole(env, { uid, papel, grupoId = '', perfilId = '', now = new Date() }) {
+            const current = await getDocument(env, 'authRoles', uid, now).catch(() => null);
+            const permissions = current?.data?.permissoes && typeof current.data.permissoes === 'object'
+              ? current.data.permissoes
+              : roleDefaults(papel);
+            await upsertDocument(env, 'authRoles', uid, {
+              uid,
+              papel,
+              grupoId,
+              perfilId,
+              ativo: true,
+              permissoes: permissions,
+              atualizadoEm: now.toISOString()
+            }, now);
+          }'''
+
+          new_role = '''async function saveRole(env, { uid, papel, grupoId = '', perfilId = '', now = new Date() }) {
+            const current = await getDocument(env, 'authRoles', uid, now).catch(() => null);
+            const currentData = current?.data || {};
+            const permissions = currentData.permissoes && typeof currentData.permissoes === 'object'
+              ? currentData.permissoes
+              : roleDefaults(papel);
+            const alreadyCorrect = current &&
+              String(currentData.uid || uid) === String(uid) &&
+              String(currentData.papel || '') === String(papel) &&
+              normalizeGroup(currentData.grupoId) === normalizeGroup(grupoId) &&
+              String(currentData.perfilId || '') === String(perfilId || '') &&
+              currentData.ativo === true;
+            if (alreadyCorrect) return { changed: false };
+            await upsertDocument(env, 'authRoles', uid, {
+              uid,
+              papel,
+              grupoId,
+              perfilId,
+              ativo: true,
+              permissoes: permissions,
+              atualizadoEm: now.toISOString()
+            }, now);
+            return { changed: true };
+          }'''
+
+          if old_upsert not in s:
+            raise SystemExit('upsertDocument marker not found')
+          if old_role not in s:
+            raise SystemExit('saveRole marker not found')
+          s = s.replace(old_upsert, new_upsert, 1).replace(old_role, new_role, 1)
+          p.write_text(s, encoding='utf-8')
+
+      - name: Validate backend
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          node --check src/family-auth-session.js
+          node --check src/master-rate-limit-production-entry.js
+          npm test
+          npx wrangler deploy --dry-run
+
+      - name: Commit backend fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add onesignal-scheduler/src/family-auth-session.js
+          git commit -m 'Make authRoles writes idempotent and retry transient limits'
+          git push origin HEAD:main
+
+      - name: Deploy Worker
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
