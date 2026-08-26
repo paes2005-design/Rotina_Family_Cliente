@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/security-auth-v1-trigger.txt'
+      - '.github/security-auth-v1-trigger-2.txt'
 
 permissions:
   contents: write
@@ -66,8 +67,6 @@ jobs:
 
           p = Path('index.html')
           s = p.read_text(encoding='utf-8')
-          s = s.replace("const BUILD='cliente-clean-v70';", "const BUILD='cliente-clean-v71';")
-          s = s.replace('cliente-clean-v70', 'cliente-clean-v71')
           auth = "        const secureAuth='<script type=\"module\" src=\"./client-auth-session-v1.js?v=1\"><\\/script>';\n        if(!html.includes('client-auth-session-v1.js'))html=html.replace('</body>',secureAuth+'\\n</body>');\n"
           commercial = "        const commercial='<script type=\"module\" src=\"./commercial-access-client.js?v=2\"><\\/script>';"
           if 'client-auth-session-v1.js' not in s:
@@ -87,9 +86,11 @@ jobs:
           ! grep -F "saveRole(env, { uid, papel: 'participante', grupoId, perfilId" onesignal-scheduler/src/family-auth-session.js
           ! grep -F "{ papel: 'participante', grupoId, perfilId }" onesignal-scheduler/src/family-auth-session.js
           node --check client-auth-session-v1.js
+          node --check client-emergency-compensation-20260826.js
           node --check client-session-integrity.js
           node --check family-alarm-client.js
           node --check onesignal-scheduler/src/family-auth-session.js
+          node --check onesignal-scheduler/src/emergency-compensation-20260826.js
           node --check onesignal-scheduler/src/master-rate-limit-production-entry.js
 
       - name: Validate Worker
