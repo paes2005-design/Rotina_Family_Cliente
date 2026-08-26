@@ -1,7 +1,7 @@
 import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import { getFirestore, collection, query, where, onSnapshot, doc, getDoc, getDocFromCache, updateDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const VERSION = 2;
+const VERSION = 3;
 const PREFIX = 'rotina_execucao_concluida_v1';
 let stopHistory = null;
 let installed = false;
@@ -48,24 +48,36 @@ function normalizeFinal(taskId, data = {}) {
     minutosAlemTolerancia: data.minutosAlemTolerancia == null ? null : Number(data.minutosAlemTolerancia),
     faixaLeveMinutos: data.faixaLeveMinutos == null ? null : Number(data.faixaLeveMinutos),
     regraAtrasoAplicada: data.regraAtrasoAplicada && typeof data.regraAtrasoAplicada === 'object' ? data.regraAtrasoAplicada : undefined,
+    serverAuthoritative: data.serverAuthoritative === true,
     lockedAt: new Date().toISOString()
   };
 }
 
-function lockFirstCompletion(taskId, data = {}, source = 'unknown') {
-  const candidate = normalizeFinal(taskId, data);
-  if (!candidate.taskId || !candidate.grupoId || !candidate.perfilId || !candidate.date || !isFinal(candidate.status)) return null;
+function writeLock(candidate, source = 'unknown', force = false) {
+  if (!candidate?.taskId || !candidate?.grupoId || !candidate?.perfilId || !candidate?.date || !isFinal(candidate.status)) return null;
   const existing = readLock(candidate.taskId, candidate.date);
-  if (existing) return existing;
+  if (existing && !force) return existing;
   try {
     localStorage.setItem(storageKey(candidate.taskId, candidate.date), JSON.stringify(candidate));
-    log('integridade_offline.primeira_conclusao_travada', { tarefaId: candidate.taskId, data: candidate.date, status: candidate.status, origem: source });
+    log(force ? 'integridade_offline.trava_atualizada_pelo_servidor' : 'integridade_offline.primeira_conclusao_travada', {
+      tarefaId: candidate.taskId,
+      data: candidate.date,
+      status: candidate.status,
+      origem: source,
+      substituiuLocal: Boolean(existing && force)
+    });
   } catch (error) {
     log('integridade_offline.trava_local_erro', { tarefaId: candidate.taskId, mensagem: clean(error?.message || error) }, 'warning');
-    return null;
+    return existing || null;
   }
   applyLocksToDom();
   return candidate;
+}
+
+function lockFirstCompletion(taskId, data = {}, source = 'unknown', force = false) {
+  const candidate = normalizeFinal(taskId, data);
+  if (force) candidate.serverAuthoritative = true;
+  return writeLock(candidate, source, force);
 }
 
 function listLocksToday() {
@@ -93,6 +105,7 @@ function applyLockToRow(row, lock) {
   if (!row || !lock) return;
   row.dataset.familyTaskStatus = lock.status;
   row.dataset.rfCompletionLocked = '1';
+  row.dataset.rfCompletionSource = lock.serverAuthoritative ? 'servidor' : 'local';
   const badge = row.querySelector('.status-badge');
   if (badge) {
     badge.classList.remove('status-pendente', 'status-andamento', 'status-prazo', 'status-prazo-75', 'status-prazo-50', 'status-atrasado');
@@ -124,32 +137,35 @@ function applyLocksToDom() {
   });
 }
 
-async function cachedHistory(taskId, date = isoDate(), allowServer = true) {
+async function authoritativeHistory(taskId, date = isoDate(), allowServer = true) {
   if (!getApps().length || !group() || !profile()) return null;
   const ref = doc(getFirestore(getApp()), 'historico', `${profile()}_${clean(taskId)}_${date}`);
-  try {
-    const snap = await getDocFromCache(ref);
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
-  } catch {
-    if (!allowServer || navigator.onLine === false) return null;
+  if (allowServer && navigator.onLine !== false) {
     try {
       const snap = await getDoc(ref);
-      return snap.exists() ? { id: snap.id, ...snap.data() } : null;
-    } catch {
-      return null;
-    }
+      if (snap.exists()) return { id: snap.id, ...snap.data(), __source: 'server' };
+    } catch {}
+  }
+  try {
+    const snap = await getDocFromCache(ref);
+    return snap.exists() ? { id: snap.id, ...snap.data(), __source: 'cache' } : null;
+  } catch {
+    return null;
   }
 }
 
 async function captureCompletion(taskId, source, allowServer = true) {
-  const existing = readLock(taskId);
-  if (existing) return existing;
-  const history = await cachedHistory(taskId, isoDate(), allowServer);
-  return history && isFinal(history.status) ? lockFirstCompletion(taskId, history, source) : null;
+  const history = await authoritativeHistory(taskId, isoDate(), allowServer);
+  if (history && isFinal(history.status)) {
+    return lockFirstCompletion(taskId, history, `${source}-${history.__source}`, history.__source === 'server');
+  }
+  return readLock(taskId);
 }
 
 async function blockIfAlreadyDone(taskId) {
-  let lock = readLock(taskId);
+  let lock = null;
+  if (navigator.onLine !== false) lock = await captureCompletion(taskId, 'pre-start', true);
+  if (!lock) lock = readLock(taskId);
   if (!lock) lock = await captureCompletion(taskId, 'pre-start-cache', false);
   if (!lock) return false;
   applyLocksToDom();
@@ -173,6 +189,12 @@ function wrapActions() {
   const finish = window.finalizarTarefa;
   if (typeof finish === 'function' && !finish.__rfOfflineIntegrity) {
     const wrappedFinish = async id => {
+      const serverHistory = navigator.onLine !== false ? await authoritativeHistory(id, isoDate(), true) : null;
+      if (serverHistory && isFinal(serverHistory.status)) {
+        lockFirstCompletion(id, serverHistory, 'finalizacao-bloqueada-servidor', true);
+        applyLocksToDom();
+        return;
+      }
       if (readLock(id)) {
         applyLocksToDom();
         log('integridade_offline.finalizacao_duplicada_bloqueada', { tarefaId: clean(id) }, 'warning');
@@ -218,10 +240,11 @@ function watchHistory(detail = {}) {
     { includeMetadataChanges: true },
     snapshot => {
       const today = isoDate();
+      const fromServer = snapshot.metadata.fromCache === false;
       snapshot.docs.forEach(item => {
         const data = item.data();
         if (clean(data.data || data.dataExecucao) !== today || !isFinal(data.status)) return;
-        lockFirstCompletion(clean(data.tarefaId), data, snapshot.metadata.fromCache ? 'historico-cache' : 'historico-servidor');
+        lockFirstCompletion(clean(data.tarefaId), data, fromServer ? 'historico-servidor' : 'historico-cache', fromServer);
       });
       applyLocksToDom();
     },
@@ -252,17 +275,22 @@ async function reconcileLocks() {
     try {
       const historyRef = doc(db, 'historico', `${lock.perfilId}_${lock.taskId}_${lock.date}`);
       const historySnap = await getDoc(historyRef);
-      if (!historySnap.exists() || !isFinal(historySnap.data()?.status)) {
-        await setDoc(historyRef, {
-          grupoId: lock.grupoId,
-          perfilId: lock.perfilId,
-          tarefaId: lock.taskId,
-          data: lock.date,
-          ...taskPatch(lock),
-          recuperadoDaTravaLocal: true,
-          recuperadoEm: new Date().toISOString()
-        }, { merge: true });
+      if (historySnap.exists() && isFinal(historySnap.data()?.status)) {
+        const authoritative = { id: historySnap.id, ...historySnap.data() };
+        lockFirstCompletion(lock.taskId, authoritative, 'reconciliacao-servidor', true);
+        log('integridade_offline.reconciliacao_servidor_prioritario', { tarefaId: lock.taskId, data: lock.date, status: authoritative.status });
+        continue;
       }
+
+      await setDoc(historyRef, {
+        grupoId: lock.grupoId,
+        perfilId: lock.perfilId,
+        tarefaId: lock.taskId,
+        data: lock.date,
+        ...taskPatch(lock),
+        recuperadoDaTravaLocal: true,
+        recuperadoEm: new Date().toISOString()
+      }, { merge: true });
       await updateDoc(doc(db, 'tarefas', lock.taskId), taskPatch(lock));
       log('integridade_offline.trava_reconciliada', { tarefaId: lock.taskId, data: lock.date });
     } catch (error) {
@@ -285,8 +313,13 @@ function install() {
     });
     window.addEventListener('rotina-family-tasks-rendered', () => setTimeout(applyLocksToDom, 0));
     window.addEventListener('online', () => setTimeout(reconcileLocks, 250));
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) applyLocksToDom(); });
-    log('integridade_offline.modulo_pronto', { versao: VERSION });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        if (navigator.onLine !== false) reconcileLocks();
+        else applyLocksToDom();
+      }
+    });
+    log('integridade_offline.modulo_pronto', { versao: VERSION, prioridade: 'historico-servidor' });
   }
   if (group() && profile()) watchHistory({ grupo: group(), perfilId: profile() });
 }
