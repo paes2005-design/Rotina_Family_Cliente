@@ -9,7 +9,7 @@
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
   sessionStorage.setItem(chave100Legado,'mascote-v3');
 
-  import('./client-time-guard-v3.js?v=4').catch(e=>{
+  import('./client-time-guard-v3.js?v=6').catch(e=>{
     window.rotinaLog?.('perf.time_guard_v3_erro',{mensagem:String(e?.message||e)},'error');
     console.error('Validação temporal v3:',e);
   });
