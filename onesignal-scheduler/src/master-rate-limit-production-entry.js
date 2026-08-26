@@ -4,6 +4,7 @@ import { handleMasterLogsFallback } from './master-logs-fallback.js';
 import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
 import { handleFamilyAuthSession } from './family-auth-session.js';
+import { runSecurityMaintenance } from './security-maintenance-v1.js';
 
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
@@ -186,6 +187,10 @@ export default {
     }
   },
   async scheduled(controller, env, ctx) {
+    const now = new Date(controller.scheduledTime);
+    ctx.waitUntil(runSecurityMaintenance(env, now).catch(error => {
+      console.error(JSON.stringify({event:'security.maintenance_error',message:String(error?.message||error)}));
+    }));
     return app.scheduled(controller, env, ctx);
   }
 };
