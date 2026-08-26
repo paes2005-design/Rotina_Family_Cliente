@@ -46,6 +46,29 @@ await assertFails(getDoc(doc(participantDb,'tarefas','t2')));
 await assertFails(getDoc(doc(participantDb,'tarefas','t3')));
 await assertSucceeds(updateDoc(doc(participantDb,'tarefas','t1'),{status:'Em andamento',horarioInicio:'09:01'}));
 await assertFails(updateDoc(doc(participantDb,'tarefas','t1'),{pontosMaximos:999}));
+
+// Integridade da ocorrência: uma tarefa pode ir de Pendente -> Em andamento -> final apenas uma vez.
+await assertSucceeds(updateDoc(doc(participantDb,'tarefas','t1'),{status:'No Prazo',horarioTermino:'09:50',pontosGanhos:10,percentualAplicado:100,faixaAtraso:'dentro-limites'}));
+await assertFails(updateDoc(doc(participantDb,'tarefas','t1'),{status:'Em andamento',horarioInicio:'09:45'}));
+await assertFails(updateDoc(doc(participantDb,'tarefas','t1'),{pontosGanhos:0,percentualAplicado:0}));
+await assertSucceeds(updateDoc(doc(participantDb,'tarefas','t1'),{justificativaAtraso:'ajuste posterior permitido'}));
+
+// Histórico final não pode ter horário/pontuação/status sobrescritos pelo Participante.
+await assertSucceeds(setDoc(doc(participantDb,'historico','PF1_t1_2026-08-25'),{
+  grupoId:'G1',perfilId:'PF1',perfilNome:'Filho',tarefaId:'t1',nomeTarefa:'Estudar',data:'2026-08-25',status:'No Prazo',horarioInicio:'09:01',horarioTermino:'09:50',pontosGanhos:10,percentualAplicado:100
+}));
+await assertFails(updateDoc(doc(participantDb,'historico','PF1_t1_2026-08-25'),{status:'Atrasado',horarioTermino:'10:30',pontosGanhos:0,percentualAplicado:0}));
+await assertSucceeds(updateDoc(doc(participantDb,'historico','PF1_t1_2026-08-25'),{justificativaAtraso:'texto ajustado depois'}));
+
+// Execução permite finalizar o registro iniciado, mas nunca reabri-lo depois de finalizado.
+await assertSucceeds(setDoc(doc(participantDb,'execucoes','2026-08-25__t1'),{
+  grupoId:'G1',perfilId:'PF1',perfilNome:'Filho',tarefaId:'t1',nomeTarefa:'Estudar',data:'2026-08-25',status:'Em andamento',horarioInicio:'09:01'
+}));
+await assertSucceeds(updateDoc(doc(participantDb,'execucoes','2026-08-25__t1'),{status:'No Prazo',horarioTermino:'09:50',pontosGanhos:10,percentualAplicado:100}));
+await assertFails(updateDoc(doc(participantDb,'execucoes','2026-08-25__t1'),{status:'Em andamento',horarioInicio:'10:20'}));
+await assertFails(updateDoc(doc(participantDb,'execucoes','2026-08-25__t1'),{pontosGanhos:0,percentualAplicado:0}));
+await assertSucceeds(updateDoc(doc(participantDb,'execucoes','2026-08-25__t1'),{justificativaAtraso:'ajuste sem alterar resultado'}));
+
 await assertSucceeds(getDoc(doc(participantDb,'configGrupos','G1')));
 await assertFails(getDoc(doc(participantDb,'estadoComercial','G1')));
 await assertFails(getDoc(doc(participantDb,'appLogs','l1')));
@@ -82,4 +105,4 @@ await assertSucceeds(getDoc(doc(masterDb,'appLogsSecure','s1')));
 await assertSucceeds(getDoc(doc(masterDb,'coisaInterna','i1')));
 
 await env.cleanup();
-console.log('FIRESTORE ROLE SECURITY CHECKS PASSED');
+console.log('FIRESTORE ROLE SECURITY + IDEMPOTENCY CHECKS PASSED');
