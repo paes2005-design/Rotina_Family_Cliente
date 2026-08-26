@@ -1,7 +1,7 @@
 import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import { getFirestore, collection, query, where, onSnapshot, doc, getDoc, getDocFromCache, updateDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const VERSION = 1;
+const VERSION = 2;
 const PREFIX = 'rotina_execucao_concluida_v1';
 let stopHistory = null;
 let installed = false;
@@ -124,14 +124,14 @@ function applyLocksToDom() {
   });
 }
 
-async function cachedHistory(taskId, date = isoDate()) {
+async function cachedHistory(taskId, date = isoDate(), allowServer = true) {
   if (!getApps().length || !group() || !profile()) return null;
   const ref = doc(getFirestore(getApp()), 'historico', `${profile()}_${clean(taskId)}_${date}`);
   try {
     const snap = await getDocFromCache(ref);
     return snap.exists() ? { id: snap.id, ...snap.data() } : null;
   } catch {
-    if (navigator.onLine === false) return null;
+    if (!allowServer || navigator.onLine === false) return null;
     try {
       const snap = await getDoc(ref);
       return snap.exists() ? { id: snap.id, ...snap.data() } : null;
@@ -141,16 +141,16 @@ async function cachedHistory(taskId, date = isoDate()) {
   }
 }
 
-async function captureCompletion(taskId, source) {
+async function captureCompletion(taskId, source, allowServer = true) {
   const existing = readLock(taskId);
   if (existing) return existing;
-  const history = await cachedHistory(taskId);
+  const history = await cachedHistory(taskId, isoDate(), allowServer);
   return history && isFinal(history.status) ? lockFirstCompletion(taskId, history, source) : null;
 }
 
 async function blockIfAlreadyDone(taskId) {
   let lock = readLock(taskId);
-  if (!lock) lock = await captureCompletion(taskId, 'pre-start-cache');
+  if (!lock) lock = await captureCompletion(taskId, 'pre-start-cache', false);
   if (!lock) return false;
   applyLocksToDom();
   log('integridade_offline.reexecucao_bloqueada', { tarefaId: clean(taskId), data: lock.date, statusOriginal: lock.status }, 'warning');

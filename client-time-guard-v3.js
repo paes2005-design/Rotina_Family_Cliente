@@ -92,7 +92,7 @@ async function aguardarCommitAteLimite(commitPromise,meta={}){
     const terminou=await Promise.race([observado,new Promise(resolve=>setTimeout(()=>resolve(false),UX_COMMIT_WAIT_MS))]);
     if(terminou===true)return {emSegundoPlano:false};
     log('perf.firebase_commit_segundo_plano',{...meta,limiteMs:UX_COMMIT_WAIT_MS});
-    observado.catch(e=>{log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');avisarFalhaSincronizacao();});
+    observado.catch(e=>{const texto=String(e?.code||e?.message||e);const offline=navigator.onLine===false||/unavailable|network|offline|disconnected/i.test(texto);log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e),offline},offline?'warning':'error');if(!offline)avisarFalhaSincronizacao();});
     return {emSegundoPlano:true};
   }catch(e){log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');throw e;}
 }
