@@ -44,8 +44,6 @@ function percentualDaFaixa(faixa){return faixa==='dentro-limites'?100:faixa==='a
 function statusDaFaixa(faixa){return faixa==='dentro-limites'?'No Prazo (100%)':faixa==='atraso-leve'?'No Prazo — atraso leve (75%)':faixa==='atraso-maior'?'No Prazo — atraso maior (50%)':'Atrasado (0%)';}
 
 function patchPontuacaoIntegral(reg={}){
-  // Uma decisão explícita do responsável é autoridade final e nunca é sobrescrita
-  // pela migração automática de pontuação.
   if(reg.revisaoStatus==='revisado'&&reg.revisaoDecisao)return null;
   const max=Math.max(0,Number(reg.pontosMaximos)||0);
   const faixa=faixaNormalizada(reg);
@@ -102,17 +100,18 @@ async function executarOperacoes(banco,operacoes=[]){
 }
 
 function chaveMigracao(g,p,n){return `rotina_pontuacao_integral_v${MIGRATION_VERSION}_${g}_${p||n}`;}
+function consultaPropria(banco,colecao,g,p){return query(collection(banco,colecao),where('grupoId','==',g),where('perfilId','==',p));}
 
 export async function reconciliarPontuacaoIntegral(forcar=false){
   if(navigator.onLine===false||!getApps().length)return {corrigidos:0,pontos:0};
-  const g=grupo(),p=perfil(),n=nome();if(!g||(!p&&!n))return {corrigidos:0,pontos:0};
+  const g=grupo(),p=perfil(),n=nome();if(!g||!p)return {corrigidos:0,pontos:0};
   const chave=chaveMigracao(g,p,n);
   if(!forcar&&localStorage.getItem(chave)==='1')return {corrigidos:0,pontos:0};
   const banco=getFirestore(getApp());
   const [tarefasSnap,historicoSnap,execSnap]=await Promise.all([
-    getDocs(query(collection(banco,'tarefas'),where('grupoId','==',g))),
-    getDocs(query(collection(banco,'historico'),where('grupoId','==',g))),
-    getDocs(query(collection(banco,'execucoes'),where('grupoId','==',g)))
+    getDocs(consultaPropria(banco,'tarefas',g,p)),
+    getDocs(consultaPropria(banco,'historico',g,p)),
+    getDocs(consultaPropria(banco,'execucoes',g,p))
   ]);
   const operacoes=[];let pontos=0,corrigidos=0;
   const adicionar=(snap,contarPontos=false)=>{
@@ -161,13 +160,13 @@ function instalarHookHistoricoLocal(tentativa=0){
 export async function reconciliarHistoricoHoje(forcar=false){
   if(executando||navigator.onLine===false||!getApps().length)return {reparados:0,pontos:0};
   if(!forcar&&Date.now()-ultimaExecucao<30000)return {reparados:0,pontos:0};
-  const g=grupo(),p=perfil(),n=nome();if(!g||(!p&&!n))return {reparados:0,pontos:0};
+  const g=grupo(),p=perfil(),n=nome();if(!g||!p)return {reparados:0,pontos:0};
   executando=true;
   try{
     const banco=getFirestore(getApp());
     const [tarefasSnap,historicoSnap]=await Promise.all([
-      getDocs(query(collection(banco,'tarefas'),where('grupoId','==',g))),
-      getDocs(query(collection(banco,'historico'),where('grupoId','==',g)))
+      getDocs(consultaPropria(banco,'tarefas',g,p)),
+      getDocs(consultaPropria(banco,'historico',g,p))
     ]);
     const hoje=dataLocal(new Date());
     const historicos=historicoSnap.docs.map(d=>d.data());
@@ -191,7 +190,7 @@ export async function reconciliarHistoricoHoje(forcar=false){
 
 function iniciar(tentativa=0){
   instalarHookHistoricoLocal();
-  if(!getApps().length||!grupo()){if(tentativa<120)setTimeout(()=>iniciar(tentativa+1),100);return;}
+  if(!getApps().length||!grupo()||!perfil()){if(tentativa<120)setTimeout(()=>iniciar(tentativa+1),100);return;}
   setTimeout(()=>reconciliarPontuacaoIntegral(false).catch(e=>console.warn('Reconciliação integral de pontos:',e)),250);
   setTimeout(()=>reconciliarHistoricoHoje(true).catch(e=>console.warn('Reconciliação do histórico:',e)),500);
 }
