@@ -1,0 +1,41 @@
+name: Inspect Worker migration bundle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-inspect-worker-bundle.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build dry-run bundle and inspect migration lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd onesignal-scheduler
+          npm ci
+          rm -rf ../wrangler-out
+          npx wrangler deploy --dry-run --outdir ../wrangler-out
+          cd ..
+          FILE="$(grep -rl "async function migrateCommercialState" wrangler-out | head -n 1)"
+          if [ -z "$FILE" ]; then
+            echo 'Bundle with migrateCommercialState not found'
+            find wrangler-out -maxdepth 2 -type f -print
+            exit 1
+          fi
+          echo "BUNDLE_FILE=$FILE"
+          LINE="$(grep -n "async function migrateCommercialState" "$FILE" | head -n1 | cut -d: -f1)"
+          echo "MIGRATION_START_LINE=$LINE"
+          START=$(( LINE > 5 ? LINE - 5 : 1 ))
+          END=$(( LINE + 45 ))
+          echo '--- MIGRATION BUNDLE ---'
+          nl -ba "$FILE" | sed -n "${START},${END}p"
+          echo '--- ERROR LINE 1824 CONTEXT ---'
+          nl -ba "$FILE" | sed -n '1815,1832p'
