@@ -1,0 +1,68 @@
+name: Temporary commercial migration audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-commercial-audit-route.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Add temporary aggregate audit route
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p=Path('onesignal-scheduler/src/security-maintenance-v1.js')
+          s=p.read_text(encoding='utf-8')
+          marker="export async function readCommercialState(env, groupId, now = new Date()) {"
+          fn="""export async function auditCommercialMigration(env, now = new Date()) {\n  const markerDoc = await getDoc(env,'systemMigrations','commercial-state-v1',now);\n  const configs = await listCollection(env,'configGrupos',now);\n  let remainingLegacy = 0;\n  for (const config of configs) {\n    if (COMMERCIAL_FIELDS.some(field => Object.prototype.hasOwnProperty.call(config.data,field))) remainingLegacy += 1;\n  }\n  const markerComplete = markerDoc?.data?.concluida === true;\n  return {\n    ready: markerComplete && remainingLegacy === 0,\n    markerComplete,\n    remainingLegacy,\n    migrated: Number(markerDoc?.data?.migrados || 0)\n  };\n}\n\n"""
+          if 'export async function auditCommercialMigration' not in s:
+              if marker not in s: raise SystemExit('readCommercialState marker not found')
+              s=s.replace(marker,fn+marker,1)
+              p.write_text(s,encoding='utf-8')
+
+          p=Path('onesignal-scheduler/src/master-rate-limit-production-entry.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("import { runSecurityMaintenance } from './security-maintenance-v1.js';", "import { runSecurityMaintenance, auditCommercialMigration } from './security-maintenance-v1.js';")
+          needle="""    try {\n      const accessResponse = await handleCommercialAccessStatus(request, env);"""
+          replacement="""    try {\n      const url = new URL(request.url);\n      if (url.pathname === '/security/commercial-migration-ready' && request.method === 'GET') {\n        const audit = await auditCommercialMigration(env);\n        return Response.json(audit, { headers: { 'cache-control': 'no-store' } });\n      }\n      const accessResponse = await handleCommercialAccessStatus(request, env);"""
+          if "'/security/commercial-migration-ready'" not in s:
+              if needle not in s: raise SystemExit('fetch marker not found')
+              s=s.replace(needle,replacement,1)
+          p.write_text(s,encoding='utf-8')
+
+      - name: Validate Worker source
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          node --check src/security-maintenance-v1.js
+          node --check src/master-rate-limit-production-entry.js
+          npm test
+          npx wrangler deploy --dry-run
+
+      - name: Commit temporary route
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/security-maintenance-v1.js onesignal-scheduler/src/master-rate-limit-production-entry.js
+          git diff --cached --quiet || git commit -m "Expose aggregate commercial migration readiness temporarily"
+          git push origin main
+
+      - name: Deploy Worker
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
