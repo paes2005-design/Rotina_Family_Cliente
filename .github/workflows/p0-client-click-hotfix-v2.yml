@@ -1,0 +1,73 @@
+name: P0 client click hotfix v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/p0-client-click-hotfix-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch participant click and sync feedback
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p=Path('client-offline-execution-integrity-v1.js')
+          s=p.read_text(encoding='utf-8')
+          replacements=[
+            ("const VERSION = 1;", "const VERSION = 2;"),
+            ("async function cachedHistory(taskId, date = isoDate()) {", "async function cachedHistory(taskId, date = isoDate(), allowServer = true) {"),
+            ("    if (navigator.onLine === false) return null;", "    if (!allowServer || navigator.onLine === false) return null;"),
+            ("async function captureCompletion(taskId, source) {", "async function captureCompletion(taskId, source, allowServer = true) {"),
+            ("  const history = await cachedHistory(taskId);", "  const history = await cachedHistory(taskId, isoDate(), allowServer);"),
+            ("  if (!lock) lock = await captureCompletion(taskId, 'pre-start-cache');", "  if (!lock) lock = await captureCompletion(taskId, 'pre-start-cache', false);")
+          ]
+          for old,new in replacements:
+            if old not in s: raise SystemExit(f'Missing integrity marker: {old}')
+            s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('client-time-guard-v3.js')
+          s=p.read_text(encoding='utf-8')
+          old="""    observado.catch(e=>{log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');avisarFalhaSincronizacao();});"""
+          new="""    observado.catch(e=>{const texto=String(e?.code||e?.message||e);const offline=navigator.onLine===false||/unavailable|network|offline|disconnected/i.test(texto);log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e),offline},offline?'warning':'error');if(!offline)avisarFalhaSincronizacao();});"""
+          if old not in s: raise SystemExit('Missing sync feedback marker')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          if "cliente-clean-v73" not in s: raise SystemExit('Missing v73 build marker')
+          s=s.replace('cliente-clean-v73','cliente-clean-v74')
+          s=s.replace('client-offline-execution-integrity-v1.js?v=1','client-offline-execution-integrity-v1.js?v=2')
+          s=s.replace('offlineIntegrity:1','offlineIntegrity:2')
+          p.write_text(s,encoding='utf-8')
+
+      - name: Validate hotfix
+        run: |
+          node --check client-offline-execution-integrity-v1.js
+          node --check client-time-guard-v3.js
+          grep -q "const VERSION = 2" client-offline-execution-integrity-v1.js
+          grep -q "pre-start-cache', false" client-offline-execution-integrity-v1.js
+          grep -q "cliente-clean-v74" index.html
+          grep -q "client-offline-execution-integrity-v1.js?v=2" index.html
+
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-offline-execution-integrity-v1.js client-time-guard-v3.js index.html
+          git commit -m "Fix participant task click and offline sync feedback"
+          git push origin main
