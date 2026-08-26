@@ -27,55 +27,62 @@ jobs:
 
           rules=Path('firestore.rules').read_text(encoding='utf-8')
           rules_literal=json.dumps(rules,ensure_ascii=False)
-          module=f'''const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+          template=r'''const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
           const RULES_API = 'https://firebaserules.googleapis.com/v1';
-          const FIRESTORE_RULES_SOURCE = {rules_literal};
-          let tokenCache = {{ value:'', expiresAt:0, email:'' }};
+          const FIRESTORE_RULES_SOURCE = __RULES__;
+          let tokenCache = { value:'', expiresAt:0, email:'' };
 
-          const required=(value,name)=>{{if(!value)throw new Error(`Configuração obrigatória ausente: ${{name}}`);return value;}};
-          function base64Url(bytes){{let text='';for(const byte of bytes)text+=String.fromCharCode(byte);return btoa(text).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');}}
-          function encodeJson(value){{return base64Url(new TextEncoder().encode(JSON.stringify(value)));}}
-          function pemBytes(pem){{const normalized=String(pem||'').replaceAll('\\\\n','\\n').replace(/-----BEGIN PRIVATE KEY-----/g,'').replace(/-----END PRIVATE KEY-----/g,'').replace(/\\s/g,'');const binary=atob(normalized);return Uint8Array.from(binary,c=>c.charCodeAt(0));}}
-          function credentials(env){{const value=JSON.parse(required(env.GOOGLE_SERVICE_ACCOUNT_JSON,'GOOGLE_SERVICE_ACCOUNT_JSON'));required(value.client_email,'client_email');required(value.private_key,'private_key');return value;}}
-          async function googleToken(env,now=new Date()){{
+          const required=(value,name)=>{if(!value)throw new Error('Configuração obrigatória ausente: '+name);return value;};
+          function base64Url(bytes){let text='';for(const byte of bytes)text+=String.fromCharCode(byte);return btoa(text).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');}
+          function encodeJson(value){return base64Url(new TextEncoder().encode(JSON.stringify(value)));}
+          function pemBytes(pem){const normalized=String(pem||'').replaceAll('\\n','\n').replace(/-----BEGIN PRIVATE KEY-----/g,'').replace(/-----END PRIVATE KEY-----/g,'').replace(/\s/g,'');const binary=atob(normalized);return Uint8Array.from(binary,c=>c.charCodeAt(0));}
+          function credentials(env){const value=JSON.parse(required(env.GOOGLE_SERVICE_ACCOUNT_JSON,'GOOGLE_SERVICE_ACCOUNT_JSON'));required(value.client_email,'client_email');required(value.private_key,'private_key');return value;}
+          async function googleToken(env,now=new Date()){
             const c=credentials(env);if(tokenCache.value&&tokenCache.email===c.client_email&&tokenCache.expiresAt>now.getTime()+60000)return tokenCache.value;
             const iat=Math.floor(now.getTime()/1000);
-            const unsigned=`${{encodeJson({{alg:'RS256',typ:'JWT'}})}}.${{encodeJson({{iss:c.client_email,sub:c.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:GOOGLE_TOKEN_URL,iat,exp:iat+3600}})}}`;
-            const key=await crypto.subtle.importKey('pkcs8',pemBytes(c.private_key),{{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'}},false,['sign']);
+            const unsigned=encodeJson({alg:'RS256',typ:'JWT'})+'.'+encodeJson({iss:c.client_email,sub:c.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:GOOGLE_TOKEN_URL,iat,exp:iat+3600});
+            const key=await crypto.subtle.importKey('pkcs8',pemBytes(c.private_key),{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
             const signature=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(unsigned));
-            const assertion=`${{unsigned}}.${{base64Url(new Uint8Array(signature))}}`;
-            const response=await fetch(GOOGLE_TOKEN_URL,{{method:'POST',headers:{{'content-type':'application/x-www-form-urlencoded'}},body:new URLSearchParams({{grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}})}});
-            const body=await response.json().catch(()=>({{}}));if(!response.ok||!body.access_token)throw new Error(`OAuth Google recusado (${{response.status}}): ${{String(body?.error_description||body?.error||'sem detalhe').slice(0,180)}}`);
-            tokenCache={{value:body.access_token,email:c.client_email,expiresAt:now.getTime()+Number(body.expires_in||3600)*1000}};return tokenCache.value;
-          }}
-          async function api(env,url,options={{}},now=new Date()){{
-            const response=await fetch(url,{{...options,headers:{{authorization:`Bearer ${{await googleToken(env,now)}}`,...(options.headers||{{}})}}}});
-            const body=await response.json().catch(()=>({{}}));return {{response,body}};
-          }}
-          function apiError(label,result){{const message=String(result.body?.error?.message||result.body?.error||'sem detalhe').replace(/\\s+/g,' ').slice(0,300);return new Error(`${{label}} recusado (${{result.response.status}}): ${{message}}`);}}
+            const assertion=unsigned+'.'+base64Url(new Uint8Array(signature));
+            const response=await fetch(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth-type:jwt-bearer',assertion})});
+            if(!response.ok){
+              const retry=await fetch(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
+              const retryBody=await retry.json().catch(()=>({}));
+              if(!retry.ok||!retryBody.access_token)throw new Error('OAuth Google recusado ('+retry.status+'): '+String(retryBody.error_description||retryBody.error||'sem detalhe').slice(0,180));
+              tokenCache={value:retryBody.access_token,email:c.client_email,expiresAt:now.getTime()+Number(retryBody.expires_in||3600)*1000};return tokenCache.value;
+            }
+            const body=await response.json().catch(()=>({}));if(!body.access_token)throw new Error('OAuth Google não retornou token.');
+            tokenCache={value:body.access_token,email:c.client_email,expiresAt:now.getTime()+Number(body.expires_in||3600)*1000};return tokenCache.value;
+          }
+          async function api(env,url,options={},now=new Date()){
+            const response=await fetch(url,{...options,headers:{authorization:'Bearer '+await googleToken(env,now),...(options.headers||{})}});
+            const body=await response.json().catch(()=>({}));return {response,body};
+          }
+          function apiError(label,result){const message=String(result.body?.error?.message||result.body?.error||'sem detalhe').replace(/\s+/g,' ').slice(0,300);return new Error(label+' recusado ('+result.response.status+'): '+message);}
 
-          export async function deployFirestoreRulesV1(env,now=new Date()){{
+          export async function deployFirestoreRulesV1(env,now=new Date()){
             const projectId=required(env.FIREBASE_PROJECT_ID,'FIREBASE_PROJECT_ID');
-            const project=`projects/${{projectId}}`;
-            const created=await api(env,`${{RULES_API}}/${{project}}/rulesets`,{{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify({{source:{{files:[{{name:'firestore.rules',content:FIRESTORE_RULES_SOURCE}}]}}}})}},now);
+            const project='projects/'+projectId;
+            const created=await api(env,RULES_API+'/'+project+'/rulesets',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({source:{files:[{name:'firestore.rules',content:FIRESTORE_RULES_SOURCE}]}})},now);
             if(!created.response.ok||!created.body?.name)throw apiError('Criação do ruleset',created);
             const rulesetName=String(created.body.name);
-            const releaseName=`${{project}}/releases/cloud.firestore`;
-            const current=await api(env,`${{RULES_API}}/${{releaseName}}`,{{}},now);
+            const releaseName=project+'/releases/cloud.firestore';
+            const current=await api(env,RULES_API+'/'+releaseName,{},now);
             let released;
-            if(current.response.status===404){{
-              released=await api(env,`${{RULES_API}}/${{project}}/releases`,{{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify({{name:releaseName,rulesetName}})}},now);
-            }}else{{
+            if(current.response.status===404){
+              released=await api(env,RULES_API+'/'+project+'/releases',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:releaseName,rulesetName})},now);
+            }else{
               if(!current.response.ok)throw apiError('Leitura da release atual',current);
-              released=await api(env,`${{RULES_API}}/${{releaseName}}`,{{method:'PATCH',headers:{{'content-type':'application/json'}},body:JSON.stringify({{release:{{name:releaseName,rulesetName}},updateMask:'rulesetName'}})}},now);
-            }}
+              released=await api(env,RULES_API+'/'+releaseName,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({release:{name:releaseName,rulesetName},updateMask:'rulesetName'})},now);
+            }
             if(!released.response.ok)throw apiError('Publicação da release',released);
-            const verified=await api(env,`${{RULES_API}}/${{releaseName}}`,{{}},now);
+            const verified=await api(env,RULES_API+'/'+releaseName,{},now);
             if(!verified.response.ok)throw apiError('Verificação da release',verified);
             const activeRuleset=String(verified.body?.rulesetName||'');
-            return {{ok:true,rulesetName,releaseName,activeRuleset,releaseMatches:activeRuleset===rulesetName,updateTime:String(verified.body?.updateTime||'')}};
-          }}
+            return {ok:true,rulesetName,releaseName,activeRuleset,releaseMatches:activeRuleset===rulesetName,updateTime:String(verified.body?.updateTime||'')};
+          }
           '''
+          module=template.replace('__RULES__',rules_literal)
           module='\n'.join(line.strip() for line in module.splitlines())+'\n'
           Path('onesignal-scheduler/src/firestore-rules-deploy-v1.js').write_text(module,encoding='utf-8')
 
