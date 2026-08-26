@@ -34,15 +34,15 @@ function encerrarEscuta(){
 function garantirEscuta(){
   const s=sessaoAtual();
   const novaChave=`${s.grupo}|${s.perfilId}|${s.nome}`;
-  if(!s.grupo||(!s.perfilId&&!s.nome)||!getApps().length){encerrarEscuta();return;}
+  if(!s.grupo||!s.perfilId||!getApps().length){encerrarEscuta();return;}
   if(novaChave===chaveSessao&&unsubscribeHistoricoRevisao)return;
   encerrarEscuta();
   chaveSessao=novaChave;
   const db=getFirestore(getApp());
   unsubscribeHistoricoRevisao=onSnapshot(
-    query(collection(db,'historico'),where('grupoId','==',s.grupo)),
+    query(collection(db,'historico'),where('grupoId','==',s.grupo),where('perfilId','==',s.perfilId)),
     snap=>{
-      historicoPerfil=snap.docs.map(d=>({id:d.id,...d.data()})).filter(h=>h.perfilId?h.perfilId===s.perfilId:h.perfilNome===s.nome);
+      historicoPerfil=snap.docs.map(d=>({id:d.id,...d.data()}));
       historicoCarregado=true;
       aplicarTudo(false);
       requestAnimationFrame(()=>aplicarTudo(false));
@@ -83,9 +83,6 @@ function historicoRevisadoDaLinha(row){
   if(tarefaId){
     return historicoPerfil.find(h=>String(h.data||h.dataExecucao||'')===hoje&&String(h.tarefaId||'')===tarefaId&&h.revisaoStatus==='revisado')||null;
   }
-
-  // Compatibilidade com páginas/cache antigos que ainda não tenham data-family-task-id.
-  // Nunca escolhe arbitrariamente o primeiro registro quando há duas tarefas com o mesmo nome.
   const nome=row.children?.[1]?.querySelector('strong')?.textContent.trim()||'';
   if(!nome)return null;
   const horario=horarioDaLinha(row);
