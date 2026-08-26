@@ -103,8 +103,8 @@ jobs:
               if first not in s: raise SystemExit('Import marker not found')
               s = s.replace(first, first + imp, 1)
 
-          needle = "    try {\n      const accessResponse = await handleCommercialAccessStatus(request, env);"
-          route = "    try {\n      if (new URL(request.url).pathname === '/__security/firestore-rules-deploy-v1' && request.method === 'POST') {\n        if (request.headers.get('x-rf-deploy-key') !== __KEY__) return new Response('Not found', { status: 404 });\n        try {\n          const result = await deployFirestoreRulesV1(env);\n          return Response.json(result, { headers: { 'cache-control': 'no-store' } });\n        } catch (error) {\n          return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,500) }, { status:500, headers: { 'cache-control': 'no-store' } });\n        }\n      }\n      const accessResponse = await handleCommercialAccessStatus(request, env);".replace('__KEY__', key_literal)
+          needle = "    try {\n      const emergencyResponse = await handleEmergencyCompensation(request, env);"
+          route = "    try {\n      if (new URL(request.url).pathname === '/__security/firestore-rules-deploy-v1' && request.method === 'POST') {\n        if (request.headers.get('x-rf-deploy-key') !== __KEY__) return new Response('Not found', { status: 404 });\n        try {\n          const result = await deployFirestoreRulesV1(env);\n          return Response.json(result, { headers: { 'cache-control': 'no-store' } });\n        } catch (error) {\n          return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,500) }, { status:500, headers: { 'cache-control':'no-store' } });\n        }\n      }\n      const emergencyResponse = await handleEmergencyCompensation(request, env);".replace('__KEY__', key_literal)
           if needle not in s: raise SystemExit('Fetch marker not found')
           s = s.replace(needle, route, 1)
           p.write_text(s, encoding='utf-8')
