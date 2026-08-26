@@ -10,7 +10,7 @@
   <div class="loading">Carregando Rotina Family...</div>
   <script>
     (async()=>{
-      const BUILD='cliente-clean-v71';
+      const BUILD='cliente-clean-v72';
       try{
         const r=await fetch(`./index-CLIENTE-v6.html?build=${BUILD}`,{cache:'no-store'});
         if(!r.ok)throw new Error(`Falha ao carregar aplicativo: HTTP ${r.status}`);
@@ -21,7 +21,7 @@
           .replace('./sw.js?v=30','./sw.js?v=70');
         const secureAuth='<script type="module" src="./client-auth-session-v1.js?v=1"><\/script>';
         if(!html.includes('client-auth-session-v1.js'))html=html.replace('</body>',secureAuth+'\n</body>');
-        const commercial='<script type="module" src="./commercial-access-client.js?v=2"><\/script>';
+        const commercial='<script type="module" src="./commercial-access-client.js?v=3"><\/script>';
         if(!html.includes('commercial-access-client.js'))html=html.replace('</body>',commercial+'\n</body>');
         const telemetry='<script src="./app-monitoring-extra-v1.js?v=3"><\/script>';
         if(!html.includes('app-monitoring-extra-v1.js'))html=html.replace('</body>',telemetry+'\n</body>');
@@ -38,7 +38,7 @@
         html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',mascoteOverlay:4,catAssetFix:6,catLayoutSafe:5,mascoteFix:6,catContainer:8,catScale:1,catVisual:'2d',catSadVisual:'2d-aprovado-novo'});<\/script>\n</body>`);
         document.open();document.write(html);document.close();
       }catch(e){
-        document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html?build=cliente-clean-v71">Tentar abrir diretamente</a></div>';
+        document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><a href="./index-CLIENTE-v6.html?build=cliente-clean-v72">Tentar abrir diretamente</a></div>';
       }
     })();
   </script>

@@ -1,6 +1,7 @@
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { firestoreFieldsToJs } from './core.js';
 import { commercialState } from './commercial-policy.js';
+import { readCommercialState } from './security-maintenance-v1.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ALLOWED_ORIGIN = 'https://paes2005-design.github.io';
@@ -230,7 +231,7 @@ export async function loadMasterGroupSummaryData(env, groupIdInput, ownerHintInp
   const avisos = [];
   const admins = await safeRead('Administradores', () => groupAdmins(env, groupId, now), [], avisos);
   const profiles = await safeRead('Integrantes', () => groupProfiles(env, groupId, now), [], avisos);
-  const config = await safeRead('Estado comercial', () => groupConfig(env, groupId, now), {}, avisos);
+  const config = await safeRead('Estado comercial', async () => (await readCommercialState(env, groupId, now)) || {}, {}, avisos);
 
   const normalizedAdmins = normalizeAdmins(admins, env);
   const clientes = normalizeProfiles(profiles);

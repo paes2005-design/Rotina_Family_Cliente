@@ -1,5 +1,6 @@
 import { firestoreFieldsToJs, jsToFirestoreFields, sha256Hex } from './core.js';
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
+import { readCommercialState } from './security-maintenance-v1.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const CUSTOM_TOKEN_AUD = 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
@@ -188,8 +189,8 @@ function blockedCommercialState(state) {
 
 async function assertCommercialAccess(env, groupId, now = new Date()) {
   if (groupId === 'CLI-4071') return 'isento';
-  const config = await getDocument(env, 'configGrupos', groupId, now);
-  const state = commercialState(config?.data || {}, now.getTime());
+  const config = await readCommercialState(env, groupId, now);
+  const state = commercialState(config || {}, now.getTime());
   if (blockedCommercialState(state)) {
     const error = new Error(state === 'teste-expirado' ? 'O período de teste deste grupo terminou.' : 'Este grupo está temporariamente bloqueado.');
     error.status = 403;

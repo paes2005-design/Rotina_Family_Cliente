@@ -409,6 +409,8 @@
         // Reset semanal (aos domingos): o histórico já guardou tudo permanentemente antes disso,
         // então aqui é seguro só devolver as tarefas para "Pendente".
         async function verificarEExecutarResetSemanal(grupoId) {
+            // O reset semanal agora é executado pelo Worker com credenciais de servidor.
+            return;
             try {
                 const refConfig = doc(db, "configGrupos", grupoId);
                 const snapConfig = await getDoc(refConfig);
