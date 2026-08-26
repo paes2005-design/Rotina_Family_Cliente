@@ -151,12 +151,23 @@ async function getDocument(env, collectionId, id, now = new Date()) {
 async function upsertDocument(env, collectionId, id, data, now = new Date()) {
   const url = new URL(`${firestoreBase(env)}/${encodeURIComponent(collectionId)}/${encodeURIComponent(id)}`);
   for (const field of Object.keys(data)) url.searchParams.append('updateMask.fieldPaths', field);
-  const response = await firestoreRequest(env, url.toString(), {
+  const payload = {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ fields: jsToFirestoreFields(data) })
-  }, now);
-  if (!response.ok) throw new Error(`Gravação ${collectionId} recusada (${response.status}).`);
+  };
+  let response = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    response = await firestoreRequest(env, url.toString(), payload, new Date());
+    if (response.ok) return;
+    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 3) break;
+    const retryAfter = Number(response.headers.get('retry-after') || 0);
+    const delay = retryAfter > 0 ? Math.min(retryAfter * 1000, 4000) : 250 * (2 ** attempt) + Math.floor(Math.random() * 120);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  const error = new Error(`Gravação ${collectionId} recusada (${response?.status || 0}).`);
+  error.status = Number(response?.status || 503);
+  throw error;
 }
 
 async function createDocument(env, collectionId, id, data, now = new Date()) {
@@ -213,9 +224,17 @@ function roleDefaults(papel) {
 
 async function saveRole(env, { uid, papel, grupoId = '', perfilId = '', now = new Date() }) {
   const current = await getDocument(env, 'authRoles', uid, now).catch(() => null);
-  const permissions = current?.data?.permissoes && typeof current.data.permissoes === 'object'
-    ? current.data.permissoes
+  const currentData = current?.data || {};
+  const permissions = currentData.permissoes && typeof currentData.permissoes === 'object'
+    ? currentData.permissoes
     : roleDefaults(papel);
+  const alreadyCorrect = current &&
+    String(currentData.uid || uid) === String(uid) &&
+    String(currentData.papel || '') === String(papel) &&
+    normalizeGroup(currentData.grupoId) === normalizeGroup(grupoId) &&
+    String(currentData.perfilId || '') === String(perfilId || '') &&
+    currentData.ativo === true;
+  if (alreadyCorrect) return { changed: false };
   await upsertDocument(env, 'authRoles', uid, {
     uid,
     papel,
@@ -225,6 +244,7 @@ async function saveRole(env, { uid, papel, grupoId = '', perfilId = '', now = ne
     permissoes: permissions,
     atualizadoEm: now.toISOString()
   }, now);
+  return { changed: true };
 }
 
 function bearer(request) {
