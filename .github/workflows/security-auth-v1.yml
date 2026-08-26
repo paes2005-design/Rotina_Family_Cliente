@@ -1,0 +1,110 @@
+name: Security auth bridge v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/security-auth-v1-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch Client for authenticated participant sessions
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('onesignal-scheduler/src/family-auth-session.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("grant_type: 'urn:ietf:params:oauth-type:jwt-bearer'", "grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer'")
+          s = s.replace("\n    estadoComercial: state", "")
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('index-CLIENTE-v6.html')
+          s = p.read_text(encoding='utf-8')
+          exposure = "        window.rotinaIniciarSessaoCliente=(...args)=>iniciarSessaoCliente(...args);\n\n"
+          marker = "        window.sairCliente=()=>{"
+          if 'window.rotinaIniciarSessaoCliente=' not in s:
+              if marker not in s: raise SystemExit('Client session starter marker not found')
+              s = s.replace(marker, exposure + marker, 1)
+
+          old_restore = "        window.addEventListener('DOMContentLoaded',()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g) iniciarSessaoCliente(n,g,s,p||''); });"
+          new_restore = "        window.addEventListener('DOMContentLoaded',async()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g){ if(typeof window.rotinaRestaurarSessaoParticipante==='function') await window.rotinaRestaurarSessaoParticipante(n,g,s,p||''); else iniciarSessaoCliente(n,g,s,p||''); } });"
+          if old_restore in s: s = s.replace(old_restore, new_restore, 1)
+
+          replacements = {
+            "query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo))": "query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId))",
+            "query(collection(db,'historico'),where('grupoId','==',codigoGrupo))": "query(collection(db,'historico'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId))",
+            "query(collection(db,'resgates'),where('grupoId','==',codigoGrupo))": "query(collection(db,'resgates'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId))"
+          }
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('client-session-integrity.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("query(collection(banco,'resgates'),where('grupoId','==',g))", "query(collection(banco,'resgates'),where('grupoId','==',g),where('perfilId','==',p))")
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('family-alarm-client.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("query(collection(getFirestore(getApp()),'despertadores'),where('grupoId','==',g))", "query(collection(getFirestore(getApp()),'despertadores'),where('grupoId','==',g),where('perfilId','==',p))")
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("const BUILD='cliente-clean-v70';", "const BUILD='cliente-clean-v71';")
+          s = s.replace('cliente-clean-v70', 'cliente-clean-v71')
+          auth = "        const secureAuth='<script type=\"module\" src=\"./client-auth-session-v1.js?v=1\"><\\/script>';\n        if(!html.includes('client-auth-session-v1.js'))html=html.replace('</body>',secureAuth+'\\n</body>');\n"
+          commercial = "        const commercial='<script type=\"module\" src=\"./commercial-access-client.js?v=2\"><\\/script>';"
+          if 'client-auth-session-v1.js' not in s:
+              if commercial not in s: raise SystemExit('Client loader commercial marker not found')
+              s = s.replace(commercial, auth + commercial, 1)
+          p.write_text(s, encoding='utf-8')
+
+      - name: Verify security bridge source
+        run: |
+          grep -F "window.rotinaIniciarSessaoCliente" index-CLIENTE-v6.html
+          grep -F "rotinaRestaurarSessaoParticipante" index-CLIENTE-v6.html
+          grep -F "client-auth-session-v1.js" index.html
+          grep -F "where('perfilId','==',clientePerfilId)" index-CLIENTE-v6.html
+          grep -F "where('perfilId','==',p)" family-alarm-client.js
+          ! grep -F "estadoComercial: state" onesignal-scheduler/src/family-auth-session.js
+          node --check client-auth-session-v1.js
+          node --check client-session-integrity.js
+          node --check family-alarm-client.js
+          node --check onesignal-scheduler/src/family-auth-session.js
+          node --check onesignal-scheduler/src/master-rate-limit-production-entry.js
+
+      - name: Validate Worker
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npx wrangler deploy --dry-run
+
+      - name: Commit authenticated Client bridge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html index-CLIENTE-v6.html client-session-integrity.js family-alarm-client.js onesignal-scheduler/src/family-auth-session.js
+          git diff --cached --quiet || git commit -m "Activate secure participant sessions"
+          git push origin main
+
+      - name: Deploy Worker
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
