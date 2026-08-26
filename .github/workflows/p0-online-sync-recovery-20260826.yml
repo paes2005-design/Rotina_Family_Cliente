@@ -1,0 +1,195 @@
+name: P0 online sync recovery 2026-08-26
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/p0-online-sync-recovery-20260826.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch authoritative online flow
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p=Path('client-time-guard-v3.js')
+          s=p.read_text(encoding='utf-8')
+
+          def rep(old,new,label):
+              global s
+              if old not in s:
+                  raise SystemExit(f'Missing marker: {label}')
+              s=s.replace(old,new,1)
+
+          rep(
+            "import {getFirestore,doc,getDoc,getDocFromCache,writeBatch,collection,query,where,getDocs} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';",
+            "import {getFirestore,doc,getDoc,getDocFromCache,getDocFromServer,writeBatch,collection,query,where,getDocs} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';",
+            'firestore import')
+
+          rep("""async function docRapido(ref){
+            try{const cached=await getDocFromCache(ref);if(cached.exists())return {snap:cached,origem:'cache'};}catch{}
+            return {snap:await getDoc(ref),origem:'servidor'};
+          }""", """async function docRapido(ref){
+            if(navigator.onLine!==false){
+              try{return {snap:await getDocFromServer(ref),origem:'servidor'};}
+              catch(e){
+                const texto=String(e?.code||e?.message||e);
+                if(!/unavailable|network|offline|disconnected/i.test(texto))throw e;
+                log('perf.leitura_servidor_indisponivel',{mensagem:String(e?.message||e)},'warning');
+              }
+            }
+            try{const cached=await getDocFromCache(ref);if(cached.exists())return {snap:cached,origem:'cache'};}catch{}
+            return {snap:await getDoc(ref),origem:'fallback'};
+          }""", 'server first read')
+
+          rep(
+            "if(cached&&Date.now()-cached.at<TASK_CACHE_MS){log('perf.tarefa_busca',{tarefaId:id,origem:'memoria',tempoMs:Math.round(performance.now()-inicio)});return {...cached.value};}",
+            "if(navigator.onLine===false&&cached&&Date.now()-cached.at<TASK_CACHE_MS){log('perf.tarefa_busca',{tarefaId:id,origem:'memoria-offline',tempoMs:Math.round(performance.now()-inicio)});return {...cached.value};}",
+            'memory only offline')
+
+          old_commit="""async function aguardarCommitAteLimite(commitPromise,meta={}){
+            const inicio=performance.now();
+            const observado=commitPromise.then(()=>{log('perf.firebase_commit_ok',{...meta,tempoMs:Math.round(performance.now()-inicio)});return true;});
+            if(navigator.onLine===false){observado.catch(e=>{log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');});return {emSegundoPlano:true};}
+            try{
+              const terminou=await Promise.race([observado,new Promise(resolve=>setTimeout(()=>resolve(false),UX_COMMIT_WAIT_MS))]);
+              if(terminou===true)return {emSegundoPlano:false};
+              log('perf.firebase_commit_segundo_plano',{...meta,limiteMs:UX_COMMIT_WAIT_MS});
+              observado.catch(e=>{const texto=String(e?.code||e?.message||e);const offline=navigator.onLine===false||/unavailable|network|offline|disconnected/i.test(texto);log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e),offline},offline?'warning':'error');if(!offline)avisarFalhaSincronizacao();});
+              return {emSegundoPlano:true};
+            }catch(e){log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e)},'error');throw e;}
+          }"""
+          new_commit="""async function aguardarCommitAteLimite(commitPromise,meta={}){
+            const inicio=performance.now();
+            const observado=commitPromise.then(()=>{log('perf.firebase_commit_ok',{...meta,tempoMs:Math.round(performance.now()-inicio)});return true;});
+            if(navigator.onLine===false){
+              observado.catch(e=>log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e),offline:true},'warning'));
+              return {emSegundoPlano:true};
+            }
+            let lento=false;
+            const timer=setTimeout(()=>{lento=true;log('perf.firebase_commit_lento',{...meta,limiteMs:UX_COMMIT_WAIT_MS},'warning');},UX_COMMIT_WAIT_MS);
+            try{
+              await observado;
+              return {emSegundoPlano:false,lento};
+            }catch(e){
+              const texto=String(e?.code||e?.message||e);
+              const offline=navigator.onLine===false||/unavailable|network|offline|disconnected/i.test(texto);
+              log('perf.firebase_commit_erro',{...meta,mensagem:String(e?.message||e),offline},offline?'warning':'error');
+              if(!offline)avisarFalhaSincronizacao();
+              throw e;
+            }finally{clearTimeout(timer);}
+          }"""
+          rep(old_commit,new_commit,'confirmed online commit')
+
+          old_order="""async function verificarOrdem(t){
+            const local=verificarOrdemRenderizada(t);if(local)return local;
+            const inicio=performance.now(),banco=await db(),g=grupo();if(!g)return {permitida:true};
+            const s=await getDocs(query(collection(banco,'tarefas'),where('grupoId','==',g)));
+            const lista=s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>(x.perfilId?x.perfilId===perfil():x.perfilNome===nome())&&x.diaSemana===t.diaSemana).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+            log('perf.ordem_busca_servidor',{tempoMs:Math.round(performance.now()-inicio),quantidade:lista.length});
+            return avaliarOrdemLista(lista,t);
+          }"""
+          new_order="""async function verificarOrdem(t){
+            if(navigator.onLine===false){
+              const local=verificarOrdemRenderizada(t);
+              return local||{permitida:true};
+            }
+            const inicio=performance.now(),banco=await db(),g=grupo(),p=perfil();if(!g||!p)return {permitida:true};
+            const s=await getDocs(query(collection(banco,'tarefas'),where('grupoId','==',g),where('perfilId','==',p)));
+            const lista=s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.diaSemana===t.diaSemana).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+            log('perf.ordem_busca_servidor',{tempoMs:Math.round(performance.now()-inicio),quantidade:lista.length});
+            return avaliarOrdemLista(lista,t);
+          }"""
+          rep(old_order,new_order,'participant scoped order query')
+
+          rep("""  atualizarCacheTarefa(t,dados);
+            await aguardarCommitAteLimite(batch.commit(),{acao:'inicio',tarefaId:t.id});""", """  atualizarCacheTarefa(t,dados);
+            try{await aguardarCommitAteLimite(batch.commit(),{acao:'inicio',tarefaId:t.id});}
+            catch(e){taskCache.delete(t.id);throw e;}""", 'start rollback')
+
+          rep(
+            "const base={horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,",
+            "const base={horarioInicio:t.horarioInicio||horaHM(ini),inicioExecutadoEm:t.inicioExecutadoEm||ini.toISOString(),dataExecucao:dataISO(j.ocorr),horarioTermino:horaHM(agora),terminoExecutadoEm:agora.toISOString(),status,pontosGanhos:pontos,pontosOriginais:pontos,percentualAplicado:faixa.percentual,percentualOriginal:faixa.percentual,faixaAtraso:faixa.faixa,",
+            'final authoritative fields')
+
+          rep("""  const resultado=await aguardarCommitAteLimite(batch.commit(),{acao:'resultado',tarefaId:t.id,percentual:faixa.percentual});""", """  let resultado;
+            try{resultado=await aguardarCommitAteLimite(batch.commit(),{acao:'resultado',tarefaId:t.id,percentual:faixa.percentual});}
+            catch(e){taskCache.delete(t.id);throw e;}""", 'result rollback')
+
+          rep("versao:4,commitWaitMs:UX_COMMIT_WAIT_MS", "versao:5,commitWaitMs:UX_COMMIT_WAIT_MS", 'time guard version')
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('client-history-reconciler.js')
+          s=p.read_text(encoding='utf-8')
+          old="""  const pct=percentualDaFaixa(faixa);
+            const status=statusDaFaixa(faixa);
+            const precisa=Number(reg.pontosGanhos)!==max||Number(reg.pontosOriginais)!==max||Number(reg.percentualAplicado)!==pct||String(reg.status||'')!==status||String(reg.faixaAtraso||'')!==faixa;
+            if(!precisa&&Number(reg.pontuacaoRegraVersao||0)>=MIGRATION_VERSION)return null;
+            return {
+              pontosGanhos:max,
+              pontosOriginais:max,"""
+          new="""  const pct=percentualDaFaixa(faixa);
+            const status=statusDaFaixa(faixa);
+            const pontos=Math.round(max*(pct/100));
+            const precisa=Number(reg.pontosGanhos)!==pontos||Number(reg.pontosOriginais)!==pontos||Number(reg.percentualAplicado)!==pct||String(reg.status||'')!==status||String(reg.faixaAtraso||'')!==faixa;
+            if(!precisa&&Number(reg.pontuacaoRegraVersao||0)>=MIGRATION_VERSION)return null;
+            return {
+              pontosGanhos:pontos,
+              pontosOriginais:pontos,"""
+          if old not in s: raise SystemExit('Missing history scoring marker')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          replacements=[
+            ("const BUILD='20260826.2';","const BUILD='20260826.3';"),
+            ('client-auth-session-v1.js?v=2','client-auth-session-v1.js?v=3'),
+            ('client-emergency-compensation-20260826.js?v=1','client-emergency-compensation-20260826.js?v=2'),
+            ('runtime-build-info.js?v=20260826.2','runtime-build-info.js?v=20260826.3'),
+            ("release:'cliente-clean-v77'","release:'cliente-recovery-v78'"),
+            ('authVersion:2','authVersion:3'),
+            ('emergencyCompensation:1','emergencyCompensation:2')
+          ]
+          for old,new in replacements:
+            if old not in s: raise SystemExit(f'Missing index marker: {old}')
+            s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('runtime-build-info.js')
+          s=p.read_text(encoding='utf-8')
+          if "build:'20260826.2'" not in s: raise SystemExit('Missing runtime build marker')
+          s=s.replace("build:'20260826.2'","build:'20260826.3'",1)
+          p.write_text(s,encoding='utf-8')
+
+      - name: Validate recovery build
+        run: |
+          node --check client-time-guard-v3.js
+          node --check client-history-reconciler.js
+          node --check client-auth-session-v1.js
+          node --check client-emergency-compensation-20260826.js
+          grep -F "getDocFromServer" client-time-guard-v3.js
+          grep -F "versao:5" client-time-guard-v3.js
+          grep -F "pontos=Math.round(max*(pct/100))" client-history-reconciler.js
+          grep -F "cliente-recovery-v78" index.html
+          grep -F "build:'20260826.3'" runtime-build-info.js
+
+      - name: Commit recovery build
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-time-guard-v3.js client-history-reconciler.js index.html runtime-build-info.js
+          git diff --cached --quiet || git commit -m "Recover authoritative online participant sync"
+          git push origin main
