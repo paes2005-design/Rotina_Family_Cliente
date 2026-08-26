@@ -2,7 +2,7 @@ import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/fireb
 import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 
 const API_ROOT = 'https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev';
-const VERSION = 5;
+const VERSION = 6;
 let installed = false;
 let authReadyPromise = null;
 
@@ -94,31 +94,59 @@ async function secureLogin() {
   }
 }
 
+function hardRestoreError(message) {
+  const error = new Error(message);
+  error.hardSessionFailure = true;
+  return error;
+}
+
 async function restoreSession(nome, grupoId, sexo, perfilId) {
-  try {
-    const user = await waitForAuth();
-    if (!user || !String(user.uid || '').startsWith('rfp_')) throw new Error('Sessão segura ausente.');
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const user = await waitForAuth();
+      if (!user) throw hardRestoreError('Sessão segura ausente.');
+      if (!String(user.uid || '').startsWith('rfp_')) throw hardRestoreError('Sessão autenticada não pertence a um participante.');
 
-    const token = await user.getIdTokenResult(true);
-    const claimGroup = group(token.claims?.grupoId);
-    const claimProfile = clean(token.claims?.perfilId);
-    if (claimGroup && claimGroup !== group(grupoId)) throw new Error('Grupo da sessão não confere.');
-    if (claimProfile && perfilId && claimProfile !== perfilId) throw new Error('Perfil da sessão não confere.');
-    if (typeof window.rotinaIniciarSessaoCliente !== 'function') throw new Error('Inicializador do Cliente indisponível.');
+      const token = await user.getIdTokenResult(attempt === 1);
+      const claimGroup = group(token.claims?.grupoId);
+      const claimProfile = clean(token.claims?.perfilId);
+      if (claimGroup && claimGroup !== group(grupoId)) throw hardRestoreError('Grupo da sessão não confere.');
+      if (claimProfile && perfilId && claimProfile !== perfilId) throw hardRestoreError('Perfil da sessão não confere.');
+      if (typeof window.rotinaIniciarSessaoCliente !== 'function') throw new Error('Inicializador do Cliente indisponível.');
 
-    await window.rotinaIniciarSessaoCliente(nome, grupoId, sexo || 'Feminino', perfilId || claimProfile);
-    window.rotinaLog?.('auth.participante_sessao_restaurada', { grupoId: group(grupoId), perfilId: perfilId || claimProfile, authVersion: VERSION });
-    window.dispatchEvent(new CustomEvent('rotina-client-auth-confirmed', { detail: { grupoId: group(grupoId), perfilId: perfilId || claimProfile, version: VERSION } }));
-    return true;
-  } catch (error) {
-    console.warn('Restauração segura da sessão:', error);
+      await window.rotinaIniciarSessaoCliente(nome, grupoId, sexo || 'Feminino', perfilId || claimProfile);
+      window.rotinaLog?.('auth.participante_sessao_restaurada', { grupoId: group(grupoId), perfilId: perfilId || claimProfile, authVersion: VERSION, tentativa: attempt });
+      window.dispatchEvent(new CustomEvent('rotina-client-auth-confirmed', { detail: { grupoId: group(grupoId), perfilId: perfilId || claimProfile, version: VERSION } }));
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (error?.hardSessionFailure) break;
+      window.rotinaLog?.('auth.participante_restauracao_retry', { tentativa: attempt, mensagem: clean(error?.message || error), authVersion: VERSION }, 'warning');
+      if (attempt < 3) await sleep(700 * attempt);
+    }
+  }
+
+  const error = lastError || new Error('Não foi possível restaurar a sessão.');
+  console.warn('Restauração segura da sessão:', error);
+
+  if (error?.hardSessionFailure) {
     try { await signOut(await auth()); } catch {}
+    authReadyPromise = null;
     ['cliente_nome', 'cliente_grupo', 'cliente_sexo', 'cliente_perfil_id'].forEach(key => localStorage.removeItem(key));
     document.getElementById('telaApp')?.style.setProperty('display', 'none');
     document.getElementById('telaAuth')?.style.setProperty('display', 'block');
     window.rotinaLog?.('auth.participante_restauracao_recusada', { mensagem: clean(error?.message || error), authVersion: VERSION }, 'warning');
-    return false;
+  } else {
+    // Falha transitória (rede, inicialização lenta, indisponibilidade momentânea):
+    // preserva Firebase Auth e os dados locais para uma nova tentativa automática.
+    window.rotinaLog?.('auth.participante_restauracao_adiada', { mensagem: clean(error?.message || error), authVersion: VERSION }, 'warning');
+    window.dispatchEvent(new CustomEvent('rotina-client-auth-restore-deferred', { detail: { version: VERSION } }));
+    setTimeout(() => {
+      restoreSession(nome, grupoId, sexo, perfilId).catch(() => {});
+    }, 3000);
   }
+  return false;
 }
 
 async function safeLogout(originalLogout, ...args) {
@@ -137,9 +165,9 @@ function install() {
   window.conectarCliente = secureLogin;
   window.rotinaRestaurarSessaoParticipante = restoreSession;
 
-  if (originalLogout && !originalLogout.__authSessionV5) {
+  if (originalLogout && !originalLogout.__authSessionV6) {
     const wrapped = (...args) => safeLogout(originalLogout, ...args);
-    wrapped.__authSessionV5 = true;
+    wrapped.__authSessionV6 = true;
     window.sairCliente = wrapped;
   }
 
