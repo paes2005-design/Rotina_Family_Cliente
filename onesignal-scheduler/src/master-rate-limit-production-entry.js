@@ -5,6 +5,7 @@ import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
 import { handleFamilyAuthSession } from './family-auth-session.js';
 import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
+import { deployFirestoreRulesV1 } from './firestore-rules-deploy-v1.js';
 import { runSecurityMaintenance, auditCommercialMigration } from './security-maintenance-v1.js';
 
 let masterReadQueue = Promise.resolve();
@@ -177,6 +178,14 @@ export default {
       if (url.pathname === '/security/commercial-migration-ready' && request.method === 'GET') {
         const audit = await auditCommercialMigration(env);
         return Response.json(audit, { headers: { 'cache-control': 'no-store' } });
+      }
+      if (url.pathname === '/security/deploy-firestore-rules-v1' && request.method === 'POST') {
+        try {
+          const result = await deployFirestoreRulesV1(env);
+          return Response.json(result, { headers: { 'cache-control': 'no-store' } });
+        } catch (error) {
+          return Response.json({ ok:false, error:String(error?.message || error).replace(/\s+/g,' ').slice(0,500) }, { headers: { 'cache-control': 'no-store' } });
+        }
       }
       if (url.pathname === '/security/run-commercial-migration-once' && request.method === 'POST') {
         try {
