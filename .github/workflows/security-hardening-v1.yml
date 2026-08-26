@@ -1,0 +1,96 @@
+name: Security hardening v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/security-hardening-v1-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Finish role and commercial separation patches
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('onesignal-scheduler/src/family-auth-session.js')
+          s = p.read_text(encoding='utf-8')
+          imp = "import { readCommercialState } from './security-maintenance-v1.js';\n"
+          if imp not in s:
+              s = s.replace("import { verifyFirebaseIdToken, isMasterEmail } from './index.js';\n", "import { verifyFirebaseIdToken, isMasterEmail } from './index.js';\n" + imp, 1)
+          old = "  const config = await getDocument(env, 'configGrupos', groupId, now);\n  const state = commercialState(config?.data || {}, now.getTime());"
+          new = "  const config = await readCommercialState(env, groupId, now);\n  const state = commercialState(config || {}, now.getTime());"
+          if old not in s and new not in s: raise SystemExit('Commercial auth marker not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('onesignal-scheduler/src/master-group-summary.js')
+          s = p.read_text(encoding='utf-8')
+          imp = "import { readCommercialState } from './security-maintenance-v1.js';\n"
+          if imp not in s:
+              s = s.replace("import { commercialState } from './commercial-policy.js';\n", "import { commercialState } from './commercial-policy.js';\n" + imp, 1)
+          s = s.replace("const config = await safeRead('Estado comercial', () => groupConfig(env, groupId, now), {}, avisos);", "const config = await safeRead('Estado comercial', async () => (await readCommercialState(env, groupId, now)) || {}, {}, avisos);")
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('index-CLIENTE-v6.html')
+          s = p.read_text(encoding='utf-8')
+          marker = "        async function verificarEExecutarResetSemanal(grupoId) {\n"
+          if marker in s and "reset semanal agora é executado pelo Worker" not in s:
+              s = s.replace(marker, marker + "            // O reset semanal agora é executado pelo Worker com credenciais de servidor.\n            return;\n", 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("const BUILD='cliente-clean-v71';", "const BUILD='cliente-clean-v72';")
+          s = s.replace('cliente-clean-v71', 'cliente-clean-v72')
+          s = s.replace('commercial-access-client.js?v=2', 'commercial-access-client.js?v=3')
+          p.write_text(s, encoding='utf-8')
+
+      - name: Verify hardened source
+        run: |
+          grep -F "readCommercialState(env, groupId" onesignal-scheduler/src/family-auth-session.js
+          grep -F "readCommercialState(env, groupId" onesignal-scheduler/src/master-group-summary.js
+          grep -F "reset semanal agora é executado pelo Worker" index-CLIENTE-v6.html
+          grep -F "cliente-clean-v72" index.html
+          grep -F "commercial-access-client.js?v=3" index.html
+          node --check commercial-access-client.js
+          node --check onesignal-scheduler/src/security-maintenance-v1.js
+          node --check onesignal-scheduler/src/commercial-access-status-v1.js
+          node --check onesignal-scheduler/src/family-auth-session.js
+          node --check onesignal-scheduler/src/commercial-safe-v2-entry.js
+          node --check onesignal-scheduler/src/master-group-summary.js
+          node --check onesignal-scheduler/src/master-rate-limit-production-entry.js
+
+      - name: Validate Worker
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npx wrangler deploy --dry-run
+
+      - name: Commit hardening patches
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html index-CLIENTE-v6.html onesignal-scheduler/src/family-auth-session.js onesignal-scheduler/src/master-group-summary.js
+          git diff --cached --quiet || git commit -m "Complete commercial state separation"
+          git push origin main
+
+      - name: Deploy Worker
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
