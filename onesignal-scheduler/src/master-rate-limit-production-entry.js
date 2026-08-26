@@ -4,6 +4,7 @@ import { handleMasterLogsFallback } from './master-logs-fallback.js';
 import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
 import { handleFamilyAuthSession } from './family-auth-session.js';
+import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
 import { runSecurityMaintenance } from './security-maintenance-v1.js';
 
 let masterReadQueue = Promise.resolve();
@@ -172,6 +173,8 @@ async function queuedMasterRead(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      const accessResponse = await handleCommercialAccessStatus(request, env);
+      if (accessResponse) return accessResponse;
       const authResponse = await handleFamilyAuthSession(request, env);
       if (authResponse) return authResponse;
       if (isMasterGroupMutation(request)) {
