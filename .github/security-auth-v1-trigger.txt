@@ -1,1 +1,1 @@
-security-auth-v1 2026-08-25
+security-auth-v1 2026-08-26 participant-auth-redeploy
