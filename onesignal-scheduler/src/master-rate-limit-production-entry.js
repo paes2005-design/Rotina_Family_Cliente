@@ -5,7 +5,7 @@ import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
 import { handleFamilyAuthSession } from './family-auth-session.js';
 import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
-import { runSecurityMaintenance } from './security-maintenance-v1.js';
+import { runSecurityMaintenance, auditCommercialMigration } from './security-maintenance-v1.js';
 
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
@@ -173,6 +173,11 @@ async function queuedMasterRead(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      const url = new URL(request.url);
+      if (url.pathname === '/security/commercial-migration-ready' && request.method === 'GET') {
+        const audit = await auditCommercialMigration(env);
+        return Response.json(audit, { headers: { 'cache-control': 'no-store' } });
+      }
       const accessResponse = await handleCommercialAccessStatus(request, env);
       if (accessResponse) return accessResponse;
       const authResponse = await handleFamilyAuthSession(request, env);

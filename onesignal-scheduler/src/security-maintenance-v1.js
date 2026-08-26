@@ -166,6 +166,22 @@ export async function runSecurityMaintenance(env, now = new Date()) {
   return {migration,reset};
 }
 
+export async function auditCommercialMigration(env, now = new Date()) {
+  const markerDoc = await getDoc(env,'systemMigrations','commercial-state-v1',now);
+  const configs = await listCollection(env,'configGrupos',now);
+  let remainingLegacy = 0;
+  for (const config of configs) {
+    if (COMMERCIAL_FIELDS.some(field => Object.prototype.hasOwnProperty.call(config.data,field))) remainingLegacy += 1;
+  }
+  const markerComplete = markerDoc?.data?.concluida === true;
+  return {
+    ready: markerComplete && remainingLegacy === 0,
+    markerComplete,
+    remainingLegacy,
+    migrated: Number(markerDoc?.data?.migrados || 0)
+  };
+}
+
 export async function readCommercialState(env, groupId, now = new Date()) {
   const id = String(groupId || '').trim().toUpperCase();
   if (!id) return null;
