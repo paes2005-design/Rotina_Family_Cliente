@@ -288,12 +288,12 @@ async function participantSession(request, env, now = new Date()) {
   const state = await assertCommercialAccess(env, groupId, now);
   const perfilId = String(profile.data.perfilId || docId(profile.name));
   const uid = `rfp_${perfilId}`.slice(0, 128);
-  await saveRole(env, { uid, papel: 'participante', grupoId, perfilId, now });
+  await saveRole(env, { uid, papel: 'participante', grupoId: groupId, perfilId, now });
   return {
     success: true,
-    token: await customToken(env, uid, { papel: 'participante', grupoId, perfilId }, now),
+    token: await customToken(env, uid, { papel: 'participante', grupoId: groupId, perfilId }, now),
     papel: 'participante',
-    grupoId,
+    grupoId: groupId,
     perfilId,
     nome: String(profile.data.nome || name),
     sexo: String(profile.data.sexo || 'Feminino'),
