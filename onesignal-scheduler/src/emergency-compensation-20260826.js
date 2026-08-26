@@ -6,6 +6,9 @@ const TIME_ZONE = 'America/Bahia';
 const PATH = '/emergency/compensate-2026-08-26';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ALLOWED_ORIGIN = 'https://paes2005-design.github.io';
+const OUTAGE_RECOVERY_MINUTE = 12 * 60 + 10;
+const RECOVERY_ATTEMPT_START_MINUTE = 11 * 60 + 30;
+const RECOVERY_ATTEMPT_END_MINUTE = 12 * 60 + 15;
 let tokenCache = { value: '', expiresAt: 0, email: '' };
 
 const clean = value => String(value || '').trim();
@@ -162,6 +165,17 @@ function hmMinutes(value) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+function actualStartMinute(task) {
+  const fromHm = hmMinutes(task.horarioInicio);
+  if (Number.isFinite(fromHm)) return fromHm;
+  const iso = clean(task.inicioExecutadoEm);
+  if (!iso) return NaN;
+  const parsed = new Date(iso);
+  if (!Number.isFinite(parsed.getTime())) return NaN;
+  const p = zonedParts(parsed, TIME_ZONE);
+  return p.hour * 60 + p.minute;
+}
+
 function localIso(date, hm, seconds = 0) {
   const match = clean(hm).match(/^(\d{1,2}):(\d{2})/);
   if (!match) return '';
@@ -213,8 +227,31 @@ function compensationRecord(task, { groupId, perfilId, taskId, now }) {
     compensacaoTecnica: true,
     compensacaoTecnicaMotivo: 'indisponibilidade_app_2026-08-26',
     compensacaoTecnicaEm: now.toISOString(),
-    compensacaoTecnicaVersao: 1
+    compensacaoTecnicaVersao: 2
   };
+}
+
+function eligibleForCompensation(task) {
+  if (task.compensacaoTecnica === true) return false;
+  const startMinute = hmMinutes(task.horaSugeridaInicio);
+  let endMinute = hmMinutes(task.horaSugeridaFim);
+  if (!Number.isFinite(startMinute) || !Number.isFinite(endMinute)) return false;
+  if (endMinute <= startMinute) endMinute += 1440;
+  if (endMinute > OUTAGE_RECOVERY_MINUTE) return false;
+
+  const status = clean(task.status);
+  if (!isFinal(status)) return ['Pendente', 'Em andamento', ''].includes(status);
+
+  const pct = Number(task.percentualAplicado ?? task.percentualOriginal ?? 0);
+  const pts = Number(task.pontosGanhos ?? 0);
+  const actualStart = actualStartMinute(task);
+  const recoveredAttempt = /Atrasado/i.test(status)
+    && pct === 0
+    && pts === 0
+    && Number.isFinite(actualStart)
+    && actualStart >= RECOVERY_ATTEMPT_START_MINUTE
+    && actualStart <= RECOVERY_ATTEMPT_END_MINUTE;
+  return recoveredAttempt;
 }
 
 async function compensate(request, env, now = new Date()) {
@@ -230,21 +267,13 @@ async function compensate(request, env, now = new Date()) {
   if (localDate(now) !== ACTIVE_DATE) {
     return { success: true, active: false, compensated: 0, date: ACTIVE_DATE };
   }
-  const current = zonedParts(now, TIME_ZONE);
-  const nowMinute = current.hour * 60 + current.minute;
   const dayName = localDayName(now);
   const tasks = await queryProfileTasks(env, perfilId, now);
   const eligible = tasks.filter(item => {
     const task = item.data || {};
     if (clean(task.grupoId).toUpperCase() !== groupId) return false;
     if (clean(task.diaSemana) !== dayName) return false;
-    if (isFinal(task.status)) return false;
-    if (!['Pendente', 'Em andamento', ''].includes(clean(task.status))) return false;
-    const startMinute = hmMinutes(task.horaSugeridaInicio);
-    let endMinute = hmMinutes(task.horaSugeridaFim);
-    if (!Number.isFinite(startMinute) || !Number.isFinite(endMinute)) return false;
-    if (endMinute <= startMinute) endMinute += 1440;
-    return nowMinute > endMinute;
+    return eligibleForCompensation(task);
   });
 
   const results = [];
