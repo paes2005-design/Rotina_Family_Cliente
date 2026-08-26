@@ -500,25 +500,27 @@
             verificarEExecutarResetSemanal(codigoGrupo).catch(e=>console.error('Falha ao conferir a virada semanal',e));
         }
 
+        window.rotinaIniciarSessaoCliente=(...args)=>iniciarSessaoCliente(...args);
+
         window.sairCliente=()=>{ [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u()); window.desvincularClienteDoPush?.(); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
 
-        window.addEventListener('DOMContentLoaded',()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g) iniciarSessaoCliente(n,g,s,p||''); });
+        window.addEventListener('DOMContentLoaded',async()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g){ if(typeof window.rotinaRestaurarSessaoParticipante==='function') await window.rotinaRestaurarSessaoParticipante(n,g,s,p||''); else iniciarSessaoCliente(n,g,s,p||''); } });
 
         function inicializarEscutasFirebase() {
             // Busca por grupo e filtra por perfilId; assim registros antigos por nome continuam compatíveis.
             [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u());
-            unsubscribeTarefas = onSnapshot(query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo)),{includeMetadataChanges:true}, snapshot=>{
+            unsubscribeTarefas = onSnapshot(query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId)),{includeMetadataChanges:true}, snapshot=>{
                 const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome));
                 cacheTarefasTodas=lista; cacheTarefasHoje=lista.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
                 renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
                 window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem:snapshot.metadata.fromCache?'cache':'servidor'}}));
             });
-            unsubscribeHistorico = onSnapshot(query(collection(db,'historico'),where('grupoId','==',codigoGrupo)),{includeMetadataChanges:true}, snapshot=>{
+            unsubscribeHistorico = onSnapshot(query(collection(db,'historico'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId)),{includeMetadataChanges:true}, snapshot=>{
                 cacheHistorico=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(h=>(h.perfilId ? h.perfilId===clientePerfilId : h.perfilNome===clienteNome));
                 atualizarPainelPontos(); atualizarConquistas(); renderizarRecompensasCliente(); renderizarJustificativasCliente();
             });
             unsubscribeRecompensas=onSnapshot(query(collection(db,'recompensas'),where('grupoId','==',codigoGrupo)),s=>{recompensasCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>r.ativa!==false);renderizarRecompensasCliente();});
-            unsubscribeResgates=onSnapshot(query(collection(db,'resgates'),where('grupoId','==',codigoGrupo)),s=>{resgatesCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente(); verificarRetornosResgates();});
+            unsubscribeResgates=onSnapshot(query(collection(db,'resgates'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId)),s=>{resgatesCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente(); verificarRetornosResgates();});
             if(unsubscribeConfigGrupo) unsubscribeConfigGrupo();
             unsubscribeConfigGrupo=onSnapshot(doc(db,'configGrupos',codigoGrupo),snap=>{ regraAtrasoAtual=normalizarRegraAtraso(snap.exists()?snap.data():{}); const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); });
         }

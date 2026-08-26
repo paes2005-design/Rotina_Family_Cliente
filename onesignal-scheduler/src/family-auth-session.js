@@ -88,7 +88,7 @@ async function googleToken(env, now = new Date()) {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth-type:jwt-bearer', assertion })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
   });
   // Compatibility with the OAuth JWT bearer grant spelling used by Google.
   if (!response.ok) {
@@ -296,7 +296,6 @@ async function participantSession(request, env, now = new Date()) {
     perfilId,
     nome: String(profile.data.nome || name),
     sexo: String(profile.data.sexo || 'Feminino'),
-    estadoComercial: state
   };
 }
 

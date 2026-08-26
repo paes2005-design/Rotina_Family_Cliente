@@ -135,7 +135,7 @@ async function prepararRetornosResgate(detail={}){
   try{
     const banco=db();
     if(!banco)throw new Error('Firebase ainda não inicializado');
-    const snap=await getDocs(query(collection(banco,'resgates'),where('grupoId','==',g)));
+    const snap=await getDocs(query(collection(banco,'resgates'),where('grupoId','==',g),where('perfilId','==',p)));
     const lista=snap.docs.map(d=>({id:d.id,...d.data()})).filter(r=>{
       if(r.perfilId)return String(r.perfilId)===p;
       return String(r.perfilNome||'')===n;
