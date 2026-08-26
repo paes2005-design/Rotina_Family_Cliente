@@ -4,7 +4,7 @@ import { getAuth } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth
 const ACTIVE_DATE='2026-08-26';
 const TIME_ZONE='America/Bahia';
 const API_ROOT='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev';
-const VERSION=1;
+const VERSION=2;
 let running=false;
 let installed=false;
 
@@ -46,17 +46,16 @@ function showOverlay(text){
 async function runCompensation(){
   if(running||alreadyDone()||localDate()!==ACTIVE_DATE)return false;
   if(navigator.onLine===false){
-    showOverlay('Conecte à internet para aplicar a compensação de hoje.');
-    setTimeout(()=>document.getElementById('rotinaEmergencyCompensationOverlay')?.remove(),2200);
+    log('emergencia.compensacao_aguardando_rede',{data:ACTIVE_DATE},'warning');
     return false;
   }
   if(!getApps().length)return false;
   const user=getAuth(getApp()).currentUser;
-  if(!user)return false;
+  if(!user||!String(user.uid||'').startsWith('rfp_'))return false;
   running=true;
   showOverlay('Corrigindo as tarefas afetadas pela indisponibilidade…');
   try{
-    const token=await user.getIdToken();
+    const token=await user.getIdToken(true);
     const response=await fetch(`${API_ROOT}/emergency/compensate-2026-08-26`,{
       method:'POST',cache:'no-store',
       headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
@@ -67,30 +66,30 @@ async function runCompensation(){
     markDone();
     log('emergencia.compensacao_aplicada',{quantidade:Number(result.compensated)||0,data:ACTIVE_DATE});
     showOverlay(result.compensated>0?`${result.compensated} tarefa(s) compensada(s). Atualizando sua rotina…`:'Rotina conferida. Atualizando…');
-    setTimeout(()=>location.reload(),900);
+    setTimeout(()=>location.reload(),1000);
     return true;
   }catch(error){
     running=false;
     log('emergencia.compensacao_erro',{mensagem:clean(error?.message||error)},'error');
-    showOverlay('Não consegui aplicar a compensação agora. Toque novamente em instantes.');
-    setTimeout(()=>document.getElementById('rotinaEmergencyCompensationOverlay')?.remove(),2600);
+    showOverlay('Não consegui aplicar a compensação agora. Vou tentar novamente quando a conexão estiver confirmada.');
+    setTimeout(()=>document.getElementById('rotinaEmergencyCompensationOverlay')?.remove(),3000);
     return false;
   }
 }
 
+function scheduleRun(delay=350){
+  if(alreadyDone()||localDate()!==ACTIVE_DATE)return;
+  setTimeout(()=>runCompensation(),delay);
+}
+
 function install(){
   if(installed)return;installed=true;
-  document.addEventListener('click',async event=>{
-    if(running||alreadyDone()||localDate()!==ACTIVE_DATE)return;
-    const app=document.getElementById('telaApp');
-    if(!app||getComputedStyle(app).display==='none'||!app.contains(event.target))return;
-    const user=getApps().length?getAuth(getApp()).currentUser:null;
-    if(!user)return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    await runCompensation();
-  },true);
-  log('emergencia.gatilho_pronto',{data:ACTIVE_DATE,modo:'proximo-clique'});
+  window.rotinaExecutarCompensacaoHoje=runCompensation;
+  window.addEventListener('rotina-client-session-ready',()=>scheduleRun(450));
+  window.addEventListener('rotina-firestore-online',()=>scheduleRun(250));
+  window.addEventListener('online',()=>scheduleRun(700));
+  if(group()&&profile())scheduleRun(1200);
+  log('emergencia.gatilho_pronto',{data:ACTIVE_DATE,modo:'automatico-pos-sessao'});
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});
