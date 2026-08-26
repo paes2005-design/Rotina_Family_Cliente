@@ -37,13 +37,41 @@
     console.error('Feedback de 0% após justificativa:',e);
   });
 
+  let guardNoticeTimer=null;
+  function mostrarPreparacaoGuard(){
+    let el=document.getElementById('rotinaGuardPreparingToast');
+    if(!el){
+      el=document.createElement('div');el.id='rotinaGuardPreparingToast';
+      el.style.cssText='position:fixed;left:16px;right:16px;bottom:88px;z-index:25000;background:#173a5e;color:#fff;padding:11px 14px;border-radius:12px;font-weight:700;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.18)';
+      document.body.appendChild(el);
+    }
+    el.textContent='Preparando as tarefas… tente novamente em um instante.';
+    clearTimeout(guardNoticeTimer);guardNoticeTimer=setTimeout(()=>el?.remove(),2600);
+  }
+
   // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
-  // muito rápido caia nas funções legadas do HTML.
+  // muito rápido caia nas funções legadas do HTML. O primeiro toque é repetido
+  // automaticamente quando o guardião fica pronto, em vez de desaparecer sem resposta.
   document.addEventListener('click',e=>{
     const btn=e.target.closest?.('.btn-iniciar,.btn-finalizar');
     if(!btn||window.__rotinaTimeGuardReady===true)return;
     e.preventDefault();
     e.stopImmediatePropagation();
+    if(btn.dataset.rfGuardQueued==='1')return;
+    btn.dataset.rfGuardQueued='1';
+    mostrarPreparacaoGuard();
+    let finished=false;
+    const release=()=>{
+      if(finished)return;finished=true;delete btn.dataset.rfGuardQueued;
+      if(window.__rotinaTimeGuardReady===true&&btn.isConnected)setTimeout(()=>btn.click(),0);
+    };
+    window.addEventListener('rotina-time-guard-ready',release,{once:true});
+    setTimeout(()=>{
+      if(finished)return;
+      finished=true;delete btn.dataset.rfGuardQueued;
+      window.rotinaLog?.('perf.time_guard_inicio_demorado',{limiteMs:8000},'warning');
+      mostrarPreparacaoGuard();
+    },8000);
   },true);
 
   const iconeTarefa=(nome='')=>{
