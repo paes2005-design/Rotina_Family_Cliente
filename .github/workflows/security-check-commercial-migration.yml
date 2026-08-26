@@ -1,0 +1,28 @@
+name: Verify commercial migration readiness
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-check-commercial-migration.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Worker migration audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/security/commercial-migration-ready'
+          BODY="$(curl --fail --silent --show-error --retry 5 --retry-delay 2 "$URL")"
+          echo "Migration audit: $BODY"
+          python3 - "$BODY" <<'PY'
+          import json,sys
+          data=json.loads(sys.argv[1])
+          assert data.get('ready') is True, f"migration not ready: {data}"
+          assert int(data.get('remainingLegacy',-1)) == 0, f"legacy commercial fields remain: {data}"
+          assert data.get('markerComplete') is True, f"migration marker incomplete: {data}"
+          print('COMMERCIAL MIGRATION READY')
+          PY
