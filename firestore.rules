@@ -1,0 +1,219 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function rolePath() {
+      return /databases/$(database)/documents/authRoles/$(request.auth.uid);
+    }
+
+    function role() {
+      return get(rolePath()).data;
+    }
+
+    function activeRole() {
+      return signedIn() && exists(rolePath()) && role().ativo == true;
+    }
+
+    function isMaster() {
+      return activeRole() && role().papel == 'master';
+    }
+
+    function isFamilyAdmin() {
+      return activeRole() && role().papel == 'adm_familia';
+    }
+
+    function isGuestAdmin() {
+      return activeRole() && role().papel == 'adm_convidado';
+    }
+
+    function isParticipant() {
+      return activeRole() && role().papel == 'participante';
+    }
+
+    function myGroup() {
+      return activeRole() ? role().grupoId : '';
+    }
+
+    function myProfile() {
+      return isParticipant() ? role().perfilId : '';
+    }
+
+    function sameGroup(data) {
+      return activeRole() && data.grupoId == myGroup();
+    }
+
+    function participantOwn(data) {
+      return isParticipant()
+        && data.grupoId == myGroup()
+        && data.perfilId == myProfile();
+    }
+
+    function familyOperatorFor(data) {
+      return (isFamilyAdmin() || isGuestAdmin()) && data.grupoId == myGroup();
+    }
+
+    function guestPermission(key) {
+      return isGuestAdmin()
+        && role().permissoes is map
+        && role().permissoes[key] == true;
+    }
+
+    function taskIdentityUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'grupoId','perfilId','perfilNome','nome','diaSemana','horaSugeridaInicio',
+        'horaSugeridaFim','tempoLimite','pontosMaximos','justificativaObrigatoria',
+        'tarefaGrupoId'
+      ]);
+    }
+
+    function historyIdentityUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'grupoId','perfilId','perfilNome','tarefaId','tarefaGrupoId','data','nomeTarefa'
+      ]);
+    }
+
+    function alarmIdentityUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'grupoId','perfilId','tarefaId'
+      ]);
+    }
+
+    match /authRoles/{uid} {
+      allow read, write: if false;
+    }
+
+    match /administradores/{id} {
+      allow read: if isMaster() || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup());
+      allow create, update, delete: if isMaster();
+    }
+
+    match /perfis/{id} {
+      allow read: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup())
+        || participantOwn(resource.data);
+      allow create: if isMaster()
+        || (isFamilyAdmin() && request.resource.data.grupoId == myGroup())
+        || (guestPermission('participantesGerenciar') && request.resource.data.grupoId == myGroup());
+      allow update, delete: if isMaster()
+        || (isFamilyAdmin() && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (guestPermission('participantesGerenciar') && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup());
+    }
+
+    match /tarefas/{id} {
+      allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);
+      allow create: if isMaster()
+        || (isFamilyAdmin() && request.resource.data.grupoId == myGroup())
+        || (guestPermission('tarefasGerenciar') && request.resource.data.grupoId == myGroup());
+      allow update: if isMaster()
+        || (isFamilyAdmin() && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (guestPermission('tarefasGerenciar') && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (participantOwn(resource.data) && participantOwn(request.resource.data) && taskIdentityUnchanged());
+      allow delete: if isMaster()
+        || (isFamilyAdmin() && resource.data.grupoId == myGroup())
+        || (guestPermission('tarefasGerenciar') && resource.data.grupoId == myGroup());
+    }
+
+    match /historico/{id} {
+      allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);
+      allow create: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())
+        || participantOwn(request.resource.data);
+      allow update: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (participantOwn(resource.data) && participantOwn(request.resource.data) && historyIdentityUnchanged());
+      allow delete: if isMaster() || (isFamilyAdmin() && resource.data.grupoId == myGroup());
+    }
+
+    match /execucoes/{id} {
+      allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);
+      allow create: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())
+        || participantOwn(request.resource.data);
+      allow update: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (participantOwn(resource.data) && participantOwn(request.resource.data) && historyIdentityUnchanged());
+      allow delete: if isMaster() || (isFamilyAdmin() && resource.data.grupoId == myGroup());
+    }
+
+    match /recompensas/{id} {
+      allow read: if isMaster() || sameGroup(resource.data);
+      allow create: if isMaster()
+        || (isFamilyAdmin() && request.resource.data.grupoId == myGroup())
+        || (guestPermission('recompensasGerenciar') && request.resource.data.grupoId == myGroup());
+      allow update, delete: if isMaster()
+        || (isFamilyAdmin() && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (guestPermission('recompensasGerenciar') && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup());
+    }
+
+    match /resgates/{id} {
+      allow read: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup())
+        || participantOwn(resource.data);
+      allow create: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())
+        || (participantOwn(request.resource.data) && request.resource.data.status == 'Pendente');
+      allow update: if isMaster()
+        || (isFamilyAdmin() && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (guestPermission('resgatesDecidir') && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (participantOwn(resource.data)
+            && participantOwn(request.resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pushClientePendente','clienteRetornoVistoEm']));
+      allow delete: if isMaster() || (isFamilyAdmin() && resource.data.grupoId == myGroup());
+    }
+
+    match /despertadores/{id} {
+      allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);
+      allow create: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())
+        || participantOwn(request.resource.data);
+      allow update: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
+        || (participantOwn(resource.data) && participantOwn(request.resource.data) && alarmIdentityUnchanged());
+      allow delete: if isMaster()
+        || (isFamilyAdmin() && resource.data.grupoId == myGroup())
+        || (participantOwn(resource.data));
+    }
+
+    match /configGrupos/{groupId} {
+      allow read: if isMaster()
+        || (isFamilyAdmin() && groupId == myGroup())
+        || (isGuestAdmin() && groupId == myGroup())
+        || (isParticipant() && groupId == myGroup());
+      allow create, update: if isMaster() || (isFamilyAdmin() && groupId == myGroup());
+      allow delete: if isMaster();
+    }
+
+    match /estadoComercial/{groupId} {
+      allow read: if isMaster() || (isFamilyAdmin() && groupId == myGroup());
+      allow create, update, delete: if isMaster();
+    }
+
+    match /appLogs/{id} {
+      allow create: if isMaster()
+        || (activeRole() && request.resource.data.grupoId == myGroup());
+      allow read, update, delete: if isMaster();
+    }
+
+    match /appLogsSecure/{id} {
+      allow read: if isMaster();
+      allow create, update, delete: if false;
+    }
+
+    match /systemMigrations/{id} {
+      allow read: if isMaster();
+      allow write: if false;
+    }
+
+    match /systemMaintenance/{id} {
+      allow read: if isMaster();
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if isMaster();
+    }
+  }
+}
