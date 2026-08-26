@@ -178,6 +178,11 @@ export default {
         const audit = await auditCommercialMigration(env);
         return Response.json(audit, { headers: { 'cache-control': 'no-store' } });
       }
+      if (url.pathname === '/security/run-commercial-migration-once' && request.method === 'POST') {
+        const maintenance = await runSecurityMaintenance(env);
+        const audit = await auditCommercialMigration(env);
+        return Response.json({ maintenance, audit }, { headers: { 'cache-control': 'no-store' } });
+      }
       const accessResponse = await handleCommercialAccessStatus(request, env);
       if (accessResponse) return accessResponse;
       const authResponse = await handleFamilyAuthSession(request, env);
