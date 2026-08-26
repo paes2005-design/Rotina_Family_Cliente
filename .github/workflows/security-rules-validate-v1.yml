@@ -5,55 +5,18 @@ on:
   push:
     branches: [main]
     paths:
+      - 'firestore.rules'
+      - 'security-tests/**'
       - '.github/workflows/security-rules-validate-v1.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Patch legacy admin compatibility and tests
-        shell: python
-        run: |
-          from pathlib import Path
-
-          rules = Path('firestore.rules')
-          s = rules.read_text(encoding='utf-8')
-          old = """    match /administradores/{id} {\n      allow read: if isMaster() || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup());\n      allow create, update, delete: if isMaster();\n    }"""
-          new = """    match /administradores/{id} {\n      // ADM comum só precisa ler o próprio cadastro. A condição por uid também\n      // mantém compatibilidade com registros legados que ainda usam codigoCliente.\n      allow read: if isMaster()\n        || (activeRole() && (isFamilyAdmin() || isGuestAdmin()) && resource.data.uid == request.auth.uid);\n      allow create, update, delete: if isMaster();\n    }"""
-          if old not in s and new not in s:
-              raise SystemExit('Bloco administradores esperado não encontrado')
-          s = s.replace(old, new, 1)
-          rules.write_text(s, encoding='utf-8')
-
-          test = Path('security-tests/firestore-rules.test.mjs')
-          t = test.read_text(encoding='utf-8')
-          seed = """  await setDoc(doc(db,'perfis','PF2'),{grupoId:'G1',perfilId:'PF2',nome:'Irmã'});"""
-          seed_new = seed + """\n  await setDoc(doc(db,'administradores','adm-a1'),{uid:'a1',codigoCliente:'G1',email:'familia@example.com',tipoAcesso:'proprietario'});\n  await setDoc(doc(db,'administradores','adm-g1'),{uid:'g1',grupoId:'G1',codigoCliente:'G1',email:'convidado@example.com',tipoAcesso:'convidado'});\n  await setDoc(doc(db,'administradores','adm-outro'),{uid:'a2',grupoId:'G1',codigoCliente:'G1',email:'outro@example.com',tipoAcesso:'convidado'});"""
-          if "adm-a1" not in t:
-              if seed not in t: raise SystemExit('Seed de perfis não encontrado')
-              t = t.replace(seed, seed_new, 1)
-
-          marker = """await assertFails(getDoc(doc(adminDb,'appLogs','l1')));"""
-          marker_new = marker + """\nawait assertSucceeds(getDoc(doc(adminDb,'administradores','adm-a1')));\nawait assertFails(getDoc(doc(adminDb,'administradores','adm-outro')));"""
-          if "administradores','adm-a1" not in t.split('// ADM Convidado:')[0].split('// ADM da Família:')[-1]:
-              if marker not in t: raise SystemExit('Marcador de teste ADM não encontrado')
-              t = t.replace(marker, marker_new, 1)
-
-          guest_marker = """await assertFails(getDoc(doc(guestDb,'appLogs','l1')));"""
-          guest_new = guest_marker + """\nawait assertSucceeds(getDoc(doc(guestDb,'administradores','adm-g1')));\nawait assertFails(getDoc(doc(guestDb,'administradores','adm-a1')));"""
-          if "guestDb,'administradores','adm-g1" not in t:
-              if guest_marker not in t: raise SystemExit('Marcador de teste convidado não encontrado')
-              t = t.replace(guest_marker, guest_new, 1)
-
-          test.write_text(t, encoding='utf-8')
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -67,11 +30,3 @@ jobs:
 
       - name: Run Firestore emulator security tests
         run: npx -y firebase-tools emulators:exec --project sistema-de-metas-diarias --only firestore "cd security-tests && npm test"
-
-      - name: Commit validated rule compatibility
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add firestore.rules security-tests/firestore-rules.test.mjs
-          git diff --cached --quiet || git commit -m "Validate Firestore role boundaries and legacy ADM access"
-          git push origin main
