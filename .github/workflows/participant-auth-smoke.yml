@@ -1,0 +1,29 @@
+name: Participant auth endpoint smoke
+on:
+  push:
+    paths:
+      - '.github/workflows/participant-auth-smoke.yml'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CORS preflight
+        run: |
+          code=$(curl -sS -o /tmp/options.txt -w '%{http_code}' -X OPTIONS \
+            -H 'Origin: https://paes2005-design.github.io' \
+            -H 'Access-Control-Request-Method: POST' \
+            -H 'Access-Control-Request-Headers: content-type' \
+            https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/family-session/participant)
+          test "$code" = "204"
+      - name: Verify participant handler is active
+        run: |
+          code=$(curl -sS -o /tmp/body.json -w '%{http_code}' -X POST \
+            -H 'Origin: https://paes2005-design.github.io' \
+            -H 'Content-Type: application/json' \
+            --data '{"grupoId":"x","nome":"x","pin":"1"}' \
+            https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/family-session/participant)
+          cat /tmp/body.json
+          test "$code" = "400"
+          grep -q 'Dados de acesso inválidos' /tmp/body.json
