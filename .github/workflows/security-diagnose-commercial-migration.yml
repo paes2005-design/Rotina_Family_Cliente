@@ -1,0 +1,59 @@
+name: Diagnose commercial migration failure
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-diagnose-commercial-migration.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-deploy-diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Make one-time route return safe diagnostic
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('onesignal-scheduler/src/master-rate-limit-production-entry.js')
+          s=p.read_text(encoding='utf-8')
+          old="""      if (url.pathname === '/security/run-commercial-migration-once' && request.method === 'POST') {\n        const maintenance = await runSecurityMaintenance(env);\n        const audit = await auditCommercialMigration(env);\n        return Response.json({ maintenance, audit }, { headers: { 'cache-control': 'no-store' } });\n      }"""
+          new="""      if (url.pathname === '/security/run-commercial-migration-once' && request.method === 'POST') {\n        try {\n          const maintenance = await runSecurityMaintenance(env);\n          const audit = await auditCommercialMigration(env);\n          return Response.json({ ok:true, maintenance, audit }, { headers: { 'cache-control': 'no-store' } });\n        } catch (error) {\n          return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,320) }, { headers: { 'cache-control': 'no-store' } });\n        }\n      }"""
+          if old not in s and "ok:false, error:String(error?.message" not in s:
+              raise SystemExit('One-time route marker not found')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+      - name: Validate and deploy
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          node --check src/master-rate-limit-production-entry.js
+          npm test
+          npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Commit diagnostic route
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/master-rate-limit-production-entry.js
+          git diff --cached --quiet || git commit -m "Return safe commercial migration diagnostics"
+          git push origin main
+
+      - name: Read diagnostic
+        shell: bash
+        run: |
+          URL='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/security/run-commercial-migration-once'
+          curl --silent --show-error --retry 3 --retry-delay 1 -X POST "$URL"
+          echo
