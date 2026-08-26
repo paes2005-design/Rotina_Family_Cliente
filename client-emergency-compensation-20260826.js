@@ -4,14 +4,14 @@ import { getAuth } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth
 const ACTIVE_DATE='2026-08-26';
 const TIME_ZONE='America/Bahia';
 const API_ROOT='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev';
-const VERSION=2;
+const VERSION=3;
 let running=false;
 let installed=false;
 
 const clean=value=>String(value||'').trim();
 const group=()=>clean(localStorage.getItem('cliente_grupo')).toUpperCase();
 const profile=()=>clean(localStorage.getItem('cliente_perfil_id'));
-const key=()=>`rotina_emergencia_compensada_${ACTIVE_DATE}_${group()}_${profile()}`;
+const key=()=>`rotina_emergencia_compensada_v${VERSION}_${ACTIVE_DATE}_${group()}_${profile()}`;
 const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{...details,emergencyVersion:VERSION},level);}catch{}};
 
 function localDate(){
@@ -71,7 +71,7 @@ async function runCompensation(){
   }catch(error){
     running=false;
     log('emergencia.compensacao_erro',{mensagem:clean(error?.message||error)},'error');
-    showOverlay('Não consegui aplicar a compensação agora. Vou tentar novamente quando a conexão estiver confirmada.');
+    showOverlay('Não consegui aplicar a compensação agora. Vou tentar novamente quando a sessão online estiver confirmada.');
     setTimeout(()=>document.getElementById('rotinaEmergencyCompensationOverlay')?.remove(),3000);
     return false;
   }
@@ -85,11 +85,12 @@ function scheduleRun(delay=350){
 function install(){
   if(installed)return;installed=true;
   window.rotinaExecutarCompensacaoHoje=runCompensation;
+  window.addEventListener('rotina-client-auth-confirmed',()=>scheduleRun(250));
   window.addEventListener('rotina-client-session-ready',()=>scheduleRun(450));
   window.addEventListener('rotina-firestore-online',()=>scheduleRun(250));
   window.addEventListener('online',()=>scheduleRun(700));
   if(group()&&profile())scheduleRun(1200);
-  log('emergencia.gatilho_pronto',{data:ACTIVE_DATE,modo:'automatico-pos-sessao'});
+  log('emergencia.gatilho_pronto',{data:ACTIVE_DATE,modo:'automatico-pos-auth',versao:VERSION});
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});
