@@ -3,6 +3,7 @@ import { handleMasterUsersFallback } from './master-users-fallback.js';
 import { handleMasterLogsFallback } from './master-logs-fallback.js';
 import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
+import { handleFamilyAuthSession } from './family-auth-session.js';
 
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
@@ -170,6 +171,8 @@ async function queuedMasterRead(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      const authResponse = await handleFamilyAuthSession(request, env);
+      if (authResponse) return authResponse;
       if (isMasterGroupMutation(request)) {
         const response = await app.fetch(request, env, ctx);
         if (response.ok) responseCache.clear();
