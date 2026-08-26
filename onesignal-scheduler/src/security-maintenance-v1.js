@@ -106,7 +106,7 @@ async function migrateCommercialState(env, now = new Date()) {
     if (!groupId) continue;
     const present = COMMERCIAL_FIELDS.filter(field => Object.prototype.hasOwnProperty.call(config.data,field));
     if (!present.length) continue;
-    const commercial = {grupoId, atualizadoEmMigracao:now.toISOString()};
+    const commercial = {grupoId:groupId, atualizadoEmMigracao:now.toISOString()};
     for (const field of present) commercial[field] = config.data[field];
     await upsert(env,'estadoComercial',groupId,commercial,now);
     await deleteFields(env,'configGrupos',groupId,present,now);
