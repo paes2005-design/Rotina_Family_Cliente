@@ -5,8 +5,7 @@ import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
 import { handleFamilyAuthSession } from './family-auth-session.js';
 import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
-import { deployFirestoreRulesV1 } from './firestore-rules-deploy-v1.js';
-import { runSecurityMaintenance, auditCommercialMigration } from './security-maintenance-v1.js';
+import { runSecurityMaintenance } from './security-maintenance-v1.js';
 
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
@@ -174,28 +173,6 @@ async function queuedMasterRead(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      const url = new URL(request.url);
-      if (url.pathname === '/security/commercial-migration-ready' && request.method === 'GET') {
-        const audit = await auditCommercialMigration(env);
-        return Response.json(audit, { headers: { 'cache-control': 'no-store' } });
-      }
-      if (url.pathname === '/security/deploy-firestore-rules-v1' && request.method === 'POST') {
-        try {
-          const result = await deployFirestoreRulesV1(env);
-          return Response.json(result, { headers: { 'cache-control': 'no-store' } });
-        } catch (error) {
-          return Response.json({ ok:false, error:String(error?.message || error).replace(/\s+/g,' ').slice(0,500) }, { headers: { 'cache-control': 'no-store' } });
-        }
-      }
-      if (url.pathname === '/security/run-commercial-migration-once' && request.method === 'POST') {
-        try {
-          const maintenance = await runSecurityMaintenance(env);
-          const audit = await auditCommercialMigration(env);
-          return Response.json({ ok:true, maintenance, audit }, { headers: { 'cache-control': 'no-store' } });
-        } catch (error) {
-          return Response.json({ ok:false, error:String(error?.message || error).replace(/\s+/g,' ').slice(0,320), stack:String(error?.stack || '').split('\n').slice(0,6).join(' | ').slice(0,900) }, { headers: { 'cache-control': 'no-store' } });
-        }
-      }
       const accessResponse = await handleCommercialAccessStatus(request, env);
       if (accessResponse) return accessResponse;
       const authResponse = await handleFamilyAuthSession(request, env);
