@@ -1,78 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function rolePath() {
-      return /databases/$(database)/documents/authRoles/$(request.auth.uid);
-    }
-
-    function role() {
-      return get(rolePath()).data;
-    }
-
-    function activeRole() {
-      return signedIn() && exists(rolePath()) && role().ativo == true;
-    }
-
-    function isMaster() {
-      return activeRole() && role().papel == 'master';
-    }
-
-    function isFamilyAdmin() {
-      return activeRole() && role().papel == 'adm_familia';
-    }
-
-    function isGuestAdmin() {
-      return activeRole() && role().papel == 'adm_convidado';
-    }
-
-    function isParticipant() {
-      return activeRole() && role().papel == 'participante';
-    }
-
-    function myGroup() {
-      return activeRole() ? role().grupoId : '';
-    }
-
-    function myProfile() {
-      return isParticipant() ? role().perfilId : '';
-    }
-
-    function sameGroup(data) {
-      return activeRole() && data.grupoId == myGroup();
-    }
-
-    function participantOwn(data) {
-      return isParticipant()
-        && data.grupoId == myGroup()
-        && data.perfilId == myProfile();
-    }
-
-    function familyOperatorFor(data) {
-      return (isFamilyAdmin() || isGuestAdmin()) && data.grupoId == myGroup();
-    }
-
-    function guestPermission(key) {
-      return isGuestAdmin()
-        && role().permissoes is map
-        && role().permissoes[key] == true;
-    }
+    function signedIn() { return request.auth != null; }
+    function rolePath() { return /databases/$(database)/documents/authRoles/$(request.auth.uid); }
+    function role() { return get(rolePath()).data; }
+    function activeRole() { return signedIn() && exists(rolePath()) && role().ativo == true; }
+    function isMaster() { return activeRole() && role().papel == 'master'; }
+    function isFamilyAdmin() { return activeRole() && role().papel == 'adm_familia'; }
+    function isGuestAdmin() { return activeRole() && role().papel == 'adm_convidado'; }
+    function isParticipant() { return activeRole() && role().papel == 'participante'; }
+    function myGroup() { return activeRole() ? role().grupoId : ''; }
+    function myProfile() { return isParticipant() ? role().perfilId : ''; }
+    function sameGroup(data) { return activeRole() && data.grupoId == myGroup(); }
+    function participantOwn(data) { return isParticipant() && data.grupoId == myGroup() && data.perfilId == myProfile(); }
+    function familyOperatorFor(data) { return (isFamilyAdmin() || isGuestAdmin()) && data.grupoId == myGroup(); }
+    function guestPermission(key) { return isGuestAdmin() && role().permissoes is map && role().permissoes[key] == true; }
 
     function taskIdentityUnchanged() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'grupoId','perfilId','perfilNome','nome','diaSemana','horaSugeridaInicio',
-        'horaSugeridaFim','tempoLimite','pontosMaximos','justificativaObrigatoria',
-        'tarefaGrupoId'
+        'horaSugeridaFim','tempoLimite','pontosMaximos','justificativaObrigatoria','tarefaGrupoId'
       ]);
+    }
+
+    // Registros criados antes do hardening podem não ter tarefaGrupoId. Permitimos
+    // preencher esse campo uma única vez, sem abrir alteração das demais identidades.
+    function legacyTaskGroupFillAllowed() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tarefaGrupoId'])
+        || (!('tarefaGrupoId' in resource.data)
+            && request.resource.data.tarefaGrupoId is string);
     }
 
     function historyIdentityUnchanged() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'grupoId','perfilId','perfilNome','tarefaId','tarefaGrupoId','data','nomeTarefa'
-      ]);
+        'grupoId','perfilId','perfilNome','tarefaId','data','nomeTarefa'
+      ]) && legacyTaskGroupFillAllowed();
     }
 
     function finalState(data) {
@@ -123,14 +85,10 @@ service cloud.firestore {
     }
 
     function alarmIdentityUnchanged() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'grupoId','perfilId','tarefaId'
-      ]);
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['grupoId','perfilId','tarefaId']);
     }
 
-    match /authRoles/{uid} {
-      allow read, write: if false;
-    }
+    match /authRoles/{uid} { allow read, write: if false; }
 
     match /administradores/{id} {
       allow read: if isMaster()
@@ -240,8 +198,7 @@ service cloud.firestore {
     }
 
     match /appLogs/{id} {
-      allow create: if isMaster()
-        || (activeRole() && request.resource.data.grupoId == myGroup());
+      allow create: if isMaster() || (activeRole() && request.resource.data.grupoId == myGroup());
       allow read, update, delete: if isMaster();
     }
 
@@ -260,8 +217,6 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /{document=**} {
-      allow read, write: if isMaster();
-    }
+    match /{document=**} { allow read, write: if isMaster(); }
   }
 }
