@@ -1,0 +1,60 @@
+name: P0 validate offline execution integrity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/p0-offline-integrity-validate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Remove broad DOM observer from integrity guard
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('client-offline-execution-integrity-v1.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("    const bodyObserver = new MutationObserver(() => applyLocksToDom());\n    const body = document.body;\n    if (body) bodyObserver.observe(body, { childList: true, subtree: true });\n","")
+          p.write_text(s,encoding='utf-8')
+
+      - name: Static client validation
+        run: |
+          node --check client-offline-execution-integrity-v1.js
+          grep -q "cliente-clean-v73" index.html
+          grep -q "client-offline-execution-integrity-v1.js?v=1" index.html
+          grep -q "reexecucao_bloqueada" client-offline-execution-integrity-v1.js
+          grep -q "primeira_conclusao_travada" client-offline-execution-integrity-v1.js
+          ! grep -q "bodyObserver" client-offline-execution-integrity-v1.js
+
+      - name: Install Firestore rules test dependencies
+        working-directory: security-tests
+        run: npm ci
+
+      - name: Run Firestore role and idempotency tests
+        run: |
+          cat > firebase.json <<'JSON'
+          {
+            "firestore": { "rules": "firestore.rules" },
+            "emulators": { "firestore": { "port": 8080 } }
+          }
+          JSON
+          npx --yes firebase-tools@latest emulators:exec --only firestore --project sistema-de-metas-diarias "cd security-tests && npm test"
+
+      - name: Commit validated client guard cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-offline-execution-integrity-v1.js
+          git diff --cached --quiet || git commit -m "Validate offline first-completion guard"
+          git push origin main
