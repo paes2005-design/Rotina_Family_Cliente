@@ -1,6 +1,7 @@
 import worker, { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { firestoreFieldsToJs, jsToFirestoreFields } from './core.js';
 import { commercialState, confirmFamilyPatch, familyBlockPatch, isCommercialExemptGroup, isTrialV2, startFamilyTrialPatch } from './commercial-policy.js';
+import { readCommercialState, writeCommercialState } from './security-maintenance-v1.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ALLOWED_ORIGIN = 'https://paes2005-design.github.io';
@@ -39,10 +40,7 @@ async function queryString(env,collectionId,field,value,now=new Date(),limit=100
   return (Array.isArray(rows)?rows:[]).filter(r=>r.document).map(r=>({name:r.document.name,createTime:r.document.createTime||'',data:firestoreFieldsToJs(r.document.fields||{})||{}}));
 }
 async function getDoc(env,name,now=new Date()){const response=await requestFirestore(env,`https://firestore.googleapis.com/v1/${name}`,{},now);if(response.status===404)return null;const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(`Leitura Firestore recusada (${response.status}).`);return{name:body.name,createTime:body.createTime||'',data:firestoreFieldsToJs(body.fields||{})||{}};}
-async function patchDoc(env,name,patch,now=new Date()){const url=new URL(`https://firestore.googleapis.com/v1/${name}`);for(const field of Object.keys(patch))url.searchParams.append('updateMask.fieldPaths',field);const response=await requestFirestore(env,url.toString(),{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({name,fields:jsToFirestoreFields(patch)})},now);if(!response.ok)throw new Error(`Atualização Firestore recusada (${response.status}).`);}
-async function createDoc(env,collectionId,id,data,now=new Date()){const url=new URL(`${firestoreBase(env)}/${encodeURIComponent(collectionId)}`);url.searchParams.set('documentId',id);const response=await requestFirestore(env,url.toString(),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({fields:jsToFirestoreFields(data)})},now);if(!response.ok&&response.status!==409)throw new Error(`Criação Firestore recusada (${response.status}).`);}
 async function deleteDoc(env,name,now=new Date()){const response=await requestFirestore(env,`https://firestore.googleapis.com/v1/${name}`,{method:'DELETE'},now);if(!response.ok&&response.status!==404)throw new Error(`Exclusão Firestore recusada (${response.status}).`);}
-async function upsertConfig(env,groupId,patch,now=new Date()){const name=`projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/configGrupos/${groupId}`;const current=await getDoc(env,name,now);if(current)await patchDoc(env,name,{grupoId:groupId,...patch},now);else await createDoc(env,'configGrupos',groupId,{grupoId:groupId,...patch},now);return getDoc(env,name,now);}
 
 function bearer(request){return request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]||'';}
 function cors(request){const origin=request.headers.get('origin')||'';return{'access-control-allow-origin':origin===ALLOWED_ORIGIN?origin:ALLOWED_ORIGIN,'access-control-allow-headers':'authorization, content-type','access-control-allow-methods':'GET, POST, OPTIONS','access-control-max-age':'86400','cache-control':'no-store',vary:'Origin'};}
@@ -59,34 +57,34 @@ async function registerTrial(request,env,now=new Date()){
   const administrator=await adminByUid(env,identity.uid,now);if(!administrator)throw new Error('Cadastro administrativo não encontrado.');
   const groupId=groupIdOf(administrator.data);if(!groupId)throw new Error('Grupo não encontrado.');
   if(isCommercialExemptGroup(groupId))return{success:true,grupoId:groupId,estado:'isento',isento:true,alterado:false};
-  const name=`projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/configGrupos/${groupId}`;
-  const current=await getDoc(env,name,now);
-  if(current?.data?.grupoConfirmado===true)return{success:true,grupoId:groupId,estado:'confirmado',confirmado:true};
-  if(current&&isTrialV2(current.data))return{success:true,grupoId:groupId,estado:commercialState(current.data,now.getTime()),trialFimEm:current.data.trialFimEm||''};
+  const current=await readCommercialState(env,groupId,now);
+  if(current?.grupoConfirmado===true)return{success:true,grupoId:groupId,estado:'confirmado',confirmado:true};
+  if(current&&isTrialV2(current))return{success:true,grupoId:groupId,estado:commercialState(current,now.getTime()),trialFimEm:current.trialFimEm||''};
   const admins=await groupAdmins(env,groupId,now);const owner=chooseOwner(admins,env)||administrator;
-  const startSource=current?.data?.trialInicioEm||owner?.data?.criadoEm||owner?.createTime||administrator.data?.criadoEm||administrator.createTime||now.toISOString();
+  const startSource=current?.trialInicioEm||owner?.data?.criadoEm||owner?.createTime||administrator.data?.criadoEm||administrator.createTime||now.toISOString();
   const patch=startFamilyTrialPatch(new Date(dateMs(startSource,now.getTime())));
-  if(current?.data?.grupoBloqueado===true){patch.grupoBloqueado=true;patch.bloqueioManual=true;}
-  const saved=await upsertConfig(env,groupId,patch,now);
-  return{success:true,grupoId:groupId,estado:commercialState(saved?.data||patch,now.getTime()),trialInicioEm:patch.trialInicioEm,trialFimEm:patch.trialFimEm};
+  if(current?.grupoBloqueado===true){patch.grupoBloqueado=true;patch.bloqueioManual=true;}
+  const saved=await writeCommercialState(env,groupId,patch,now);
+  return{success:true,grupoId:groupId,estado:commercialState(saved||patch,now.getTime()),trialInicioEm:patch.trialInicioEm,trialFimEm:patch.trialFimEm};
 }
 
 async function handleMasterGroupMutation(request,env,now=new Date()){
   const caller=await requireMaster(request,env,now);const body=await request.json().catch(()=>({}));const groupId=String(body.grupoId||'').trim().toUpperCase();if(!groupId)throw new Error('Grupo não informado.');
   if(isCommercialExemptGroup(groupId))return{success:true,grupoId:groupId,action:body.action,estado:'isento',isento:true,alterado:false,grupoBloqueado:false,grupoConfirmado:false};
+  const current=await readCommercialState(env,groupId,now)||{};
   let saved;
-  if(body.action==='set-group-blocked')saved=await upsertConfig(env,groupId,familyBlockPatch(body.disabled===true,now.toISOString()),now);
-  else if(body.action==='confirm-group')saved=await upsertConfig(env,groupId,{...confirmFamilyPatch(now.toISOString()),confirmadoPorMaster:caller.uid},now);
+  if(body.action==='set-group-blocked')saved=await writeCommercialState(env,groupId,{...current,...familyBlockPatch(body.disabled===true,now.toISOString())},now);
+  else if(body.action==='confirm-group')saved=await writeCommercialState(env,groupId,{...current,...confirmFamilyPatch(now.toISOString()),confirmadoPorMaster:caller.uid},now);
   else throw new Error('Ação de grupo inválida.');
-  return{success:true,grupoId:groupId,action:body.action,estado:commercialState(saved?.data||{},now.getTime()),grupoBloqueado:saved?.data?.grupoBloqueado===true,grupoConfirmado:saved?.data?.grupoConfirmado===true};
+  return{success:true,grupoId:groupId,action:body.action,estado:commercialState(saved||{},now.getTime()),grupoBloqueado:saved?.grupoBloqueado===true,grupoConfirmado:saved?.grupoConfirmado===true};
 }
 
 export async function commercialStorageSelfTest(env,now=new Date()){
-  const groupId=`TESTE-SMOKE-${now.getTime()}`;const name=`projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/configGrupos/${groupId}`;
+  const groupId=`TESTE-SMOKE-${now.getTime()}`;const name=`projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/estadoComercial/${groupId}`;
   try{
-    let saved=await upsertConfig(env,groupId,startFamilyTrialPatch(new Date(now.getTime()-16*86400000)),now);const expiredState=commercialState(saved?.data||{},now.getTime());if(expiredState!=='teste-expirado')throw new Error(`Esperado teste-expirado; recebido ${expiredState}`);
-    saved=await upsertConfig(env,groupId,confirmFamilyPatch(now.toISOString()),now);const confirmedState=commercialState(saved?.data||{},now.getTime());if(confirmedState!=='confirmado')throw new Error(`Esperado confirmado; recebido ${confirmedState}`);
-    saved=await upsertConfig(env,groupId,familyBlockPatch(true,now.toISOString()),now);const blockedState=commercialState(saved?.data||{},now.getTime());if(blockedState!=='bloqueado')throw new Error(`Esperado bloqueado; recebido ${blockedState}`);
+    let saved=await writeCommercialState(env,groupId,startFamilyTrialPatch(new Date(now.getTime()-16*86400000)),now);const expiredState=commercialState(saved||{},now.getTime());if(expiredState!=='teste-expirado')throw new Error(`Esperado teste-expirado; recebido ${expiredState}`);
+    saved=await writeCommercialState(env,groupId,confirmFamilyPatch(now.toISOString()),now);const confirmedState=commercialState(saved||{},now.getTime());if(confirmedState!=='confirmado')throw new Error(`Esperado confirmado; recebido ${confirmedState}`);
+    saved=await writeCommercialState(env,groupId,familyBlockPatch(true,now.toISOString()),now);const blockedState=commercialState(saved||{},now.getTime());if(blockedState!=='bloqueado')throw new Error(`Esperado bloqueado; recebido ${blockedState}`);
     return{ok:true,expiredState,confirmedState,blockedState};
   }finally{await deleteDoc(env,name,now).catch(()=>{});}
 }
