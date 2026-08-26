@@ -1,3 +1,4 @@
+# P0 offline integrity deployment
 name: Deploy validated Firestore security rules v1
 
 on:
