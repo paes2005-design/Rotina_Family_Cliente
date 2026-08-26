@@ -21,6 +21,9 @@ await env.withSecurityRulesDisabled(async context => {
   await setDoc(doc(db,'tarefas','t3'),{grupoId:'G2',perfilId:'PX',perfilNome:'Outro',nome:'Outra',diaSemana:'Segunda',horaSugeridaInicio:'10:00',horaSugeridaFim:'11:00',tempoLimite:5,pontosMaximos:10,status:'Pendente'});
   await setDoc(doc(db,'perfis','PF1'),{grupoId:'G1',perfilId:'PF1',nome:'Filho'});
   await setDoc(doc(db,'perfis','PF2'),{grupoId:'G1',perfilId:'PF2',nome:'Irmã'});
+  await setDoc(doc(db,'administradores','adm-a1'),{uid:'a1',codigoCliente:'G1',email:'familia@example.com',tipoAcesso:'proprietario'});
+  await setDoc(doc(db,'administradores','adm-g1'),{uid:'g1',grupoId:'G1',codigoCliente:'G1',email:'convidado@example.com',tipoAcesso:'convidado'});
+  await setDoc(doc(db,'administradores','adm-outro'),{uid:'a2',grupoId:'G1',codigoCliente:'G1',email:'outro@example.com',tipoAcesso:'convidado'});
   await setDoc(doc(db,'configGrupos','G1'),{grupoId:'G1',regraTolerancia:{versao:4}});
   await setDoc(doc(db,'configGrupos','G2'),{grupoId:'G2',regraTolerancia:{versao:4}});
   await setDoc(doc(db,'estadoComercial','G1'),{grupoId:'G1',grupoBloqueado:false,trialAtivo:true});
@@ -59,12 +62,16 @@ await assertSucceeds(setDoc(doc(adminDb,'perfis','PF3'),{grupoId:'G1',perfilId:'
 await assertSucceeds(getDoc(doc(adminDb,'estadoComercial','G1')));
 await assertFails(getDoc(doc(adminDb,'estadoComercial','G2')));
 await assertFails(getDoc(doc(adminDb,'appLogs','l1')));
+await assertSucceeds(getDoc(doc(adminDb,'administradores','adm-a1')));
+await assertFails(getDoc(doc(adminDb,'administradores','adm-outro')));
 
 // ADM Convidado: operação permitida, sem gestão de participantes/comercial/logs.
 await assertSucceeds(updateDoc(doc(guestDb,'tarefas','t2'),{status:'Pendente'}));
 await assertFails(setDoc(doc(guestDb,'perfis','PF4'),{grupoId:'G1',perfilId:'PF4',nome:'Convidado não pode'}));
 await assertFails(getDoc(doc(guestDb,'estadoComercial','G1')));
 await assertFails(getDoc(doc(guestDb,'appLogs','l1')));
+await assertSucceeds(getDoc(doc(guestDb,'administradores','adm-g1')));
+await assertFails(getDoc(doc(guestDb,'administradores','adm-a1')));
 await assertSucceeds(updateDoc(doc(guestDb,'resgates','x1'),{status:'Recusado',decididoEm:new Date().toISOString()}));
 
 // Master: visão global e acesso exclusivo aos logs.

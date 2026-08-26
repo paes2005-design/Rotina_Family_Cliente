@@ -86,7 +86,10 @@ service cloud.firestore {
     }
 
     match /administradores/{id} {
-      allow read: if isMaster() || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup());
+      // ADM comum só precisa ler o próprio cadastro. A condição por uid também
+      // mantém compatibilidade com registros legados que ainda usam codigoCliente.
+      allow read: if isMaster()
+        || (activeRole() && (isFamilyAdmin() || isGuestAdmin()) && resource.data.uid == request.auth.uid);
       allow create, update, delete: if isMaster();
     }
 
