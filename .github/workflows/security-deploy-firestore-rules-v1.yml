@@ -8,26 +8,35 @@ on:
       - '.github/workflows/security-deploy-firestore-rules-v1.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy-rules:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
 
-      - name: Generate fixed rules deployment module and route
+      - name: Create ephemeral deployment key
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY="$(openssl rand -hex 24)"
+          echo "::add-mask::$KEY"
+          echo "DEPLOY_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Generate temporary Firebase Rules deployment route
         shell: python
         run: |
           from pathlib import Path
-          import json
+          import json, os
 
-          rules=Path('firestore.rules').read_text(encoding='utf-8')
-          rules_literal=json.dumps(rules,ensure_ascii=False)
-          template=r'''const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+          rules = Path('firestore.rules').read_text(encoding='utf-8')
+          rules_literal = json.dumps(rules, ensure_ascii=False)
+          key_literal = json.dumps(os.environ['DEPLOY_KEY'])
+          template = r'''const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
           const RULES_API = 'https://firebaserules.googleapis.com/v1';
           const FIRESTORE_RULES_SOURCE = __RULES__;
           let tokenCache = { value:'', expiresAt:0, email:'' };
@@ -38,27 +47,25 @@ jobs:
           function pemBytes(pem){const normalized=String(pem||'').replaceAll('\\n','\n').replace(/-----BEGIN PRIVATE KEY-----/g,'').replace(/-----END PRIVATE KEY-----/g,'').replace(/\s/g,'');const binary=atob(normalized);return Uint8Array.from(binary,c=>c.charCodeAt(0));}
           function credentials(env){const value=JSON.parse(required(env.GOOGLE_SERVICE_ACCOUNT_JSON,'GOOGLE_SERVICE_ACCOUNT_JSON'));required(value.client_email,'client_email');required(value.private_key,'private_key');return value;}
           async function googleToken(env,now=new Date()){
-            const c=credentials(env);if(tokenCache.value&&tokenCache.email===c.client_email&&tokenCache.expiresAt>now.getTime()+60000)return tokenCache.value;
+            const c=credentials(env);
+            if(tokenCache.value&&tokenCache.email===c.client_email&&tokenCache.expiresAt>now.getTime()+60000)return tokenCache.value;
             const iat=Math.floor(now.getTime()/1000);
             const unsigned=encodeJson({alg:'RS256',typ:'JWT'})+'.'+encodeJson({iss:c.client_email,sub:c.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:GOOGLE_TOKEN_URL,iat,exp:iat+3600});
             const key=await crypto.subtle.importKey('pkcs8',pemBytes(c.private_key),{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
             const signature=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(unsigned));
             const assertion=unsigned+'.'+base64Url(new Uint8Array(signature));
-            const response=await fetch(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth-type:jwt-bearer',assertion})});
-            if(!response.ok){
-              const retry=await fetch(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
-              const retryBody=await retry.json().catch(()=>({}));
-              if(!retry.ok||!retryBody.access_token)throw new Error('OAuth Google recusado ('+retry.status+'): '+String(retryBody.error_description||retryBody.error||'sem detalhe').slice(0,180));
-              tokenCache={value:retryBody.access_token,email:c.client_email,expiresAt:now.getTime()+Number(retryBody.expires_in||3600)*1000};return tokenCache.value;
-            }
-            const body=await response.json().catch(()=>({}));if(!body.access_token)throw new Error('OAuth Google não retornou token.');
-            tokenCache={value:body.access_token,email:c.client_email,expiresAt:now.getTime()+Number(body.expires_in||3600)*1000};return tokenCache.value;
+            const response=await fetch(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
+            const body=await response.json().catch(()=>({}));
+            if(!response.ok||!body.access_token)throw new Error('OAuth Google recusado ('+response.status+'): '+String(body.error_description||body.error||'sem detalhe').slice(0,180));
+            tokenCache={value:body.access_token,email:c.client_email,expiresAt:now.getTime()+Number(body.expires_in||3600)*1000};
+            return tokenCache.value;
           }
           async function api(env,url,options={},now=new Date()){
             const response=await fetch(url,{...options,headers:{authorization:'Bearer '+await googleToken(env,now),...(options.headers||{})}});
-            const body=await response.json().catch(()=>({}));return {response,body};
+            const body=await response.json().catch(()=>({}));
+            return {response,body};
           }
-          function apiError(label,result){const message=String(result.body?.error?.message||result.body?.error||'sem detalhe').replace(/\s+/g,' ').slice(0,300);return new Error(label+' recusado ('+result.response.status+'): '+message);}
+          function apiError(label,result){const message=String(result.body?.error?.message||result.body?.error||'sem detalhe').replace(/\s+/g,' ').slice(0,320);return new Error(label+' recusado ('+result.response.status+'): '+message);}
 
           export async function deployFirestoreRulesV1(env,now=new Date()){
             const projectId=required(env.FIREBASE_PROJECT_ID,'FIREBASE_PROJECT_ID');
@@ -82,25 +89,25 @@ jobs:
             return {ok:true,rulesetName,releaseName,activeRuleset,releaseMatches:activeRuleset===rulesetName,updateTime:String(verified.body?.updateTime||'')};
           }
           '''
-          module=template.replace('__RULES__',rules_literal)
-          module='\n'.join(line.strip() for line in module.splitlines())+'\n'
-          Path('onesignal-scheduler/src/firestore-rules-deploy-v1.js').write_text(module,encoding='utf-8')
+          module = template.replace('__RULES__', rules_literal)
+          module = '\n'.join(line.strip() for line in module.splitlines()) + '\n'
+          Path('onesignal-scheduler/src/firestore-rules-deploy-v1.js').write_text(module, encoding='utf-8')
 
-          p=Path('onesignal-scheduler/src/master-rate-limit-production-entry.js')
-          s=p.read_text(encoding='utf-8')
-          imp="import { deployFirestoreRulesV1 } from './firestore-rules-deploy-v1.js';\n"
+          p = Path('onesignal-scheduler/src/master-rate-limit-production-entry.js')
+          s = p.read_text(encoding='utf-8')
+          imp = "import { deployFirestoreRulesV1 } from './firestore-rules-deploy-v1.js';\n"
+          first = "import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';\n"
           if imp not in s:
-              first="import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';\n"
               if first not in s: raise SystemExit('Import marker not found')
-              s=s.replace(first,first+imp,1)
-          marker="""      if (url.pathname === '/security/commercial-migration-ready' && request.method === 'GET') {\n        const audit = await auditCommercialMigration(env);\n        return Response.json(audit, { headers: { 'cache-control': 'no-store' } });\n      }"""
-          route=marker+"""\n      if (url.pathname === '/security/deploy-firestore-rules-v1' && request.method === 'POST') {\n        try {\n          const result = await deployFirestoreRulesV1(env);\n          return Response.json(result, { headers: { 'cache-control': 'no-store' } });\n        } catch (error) {\n          return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,500) }, { headers: { 'cache-control': 'no-store' } });\n        }\n      }"""
-          if "'/security/deploy-firestore-rules-v1'" not in s:
-              if marker not in s: raise SystemExit('Security route marker not found')
-              s=s.replace(marker,route,1)
-          p.write_text(s,encoding='utf-8')
+              s = s.replace(first, first + imp, 1)
 
-      - name: Validate Worker before publishing
+          needle = "    try {\n      const accessResponse = await handleCommercialAccessStatus(request, env);"
+          route = "    try {\n      if (new URL(request.url).pathname === '/__security/firestore-rules-deploy-v1' && request.method === 'POST') {\n        if (request.headers.get('x-rf-deploy-key') !== __KEY__) return new Response('Not found', { status: 404 });\n        try {\n          const result = await deployFirestoreRulesV1(env);\n          return Response.json(result, { headers: { 'cache-control': 'no-store' } });\n        } catch (error) {\n          return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,500) }, { status:500, headers: { 'cache-control': 'no-store' } });\n        }\n      }\n      const accessResponse = await handleCommercialAccessStatus(request, env);".replace('__KEY__', key_literal)
+          if needle not in s: raise SystemExit('Fetch marker not found')
+          s = s.replace(needle, route, 1)
+          p.write_text(s, encoding='utf-8')
+
+      - name: Validate temporary Worker
         working-directory: onesignal-scheduler
         run: |
           npm ci
@@ -109,26 +116,7 @@ jobs:
           npm test
           npx wrangler deploy --dry-run
 
-      - name: Reconfirm commercial migration gate
-        shell: bash
-        run: |
-          BODY="$(curl --fail --silent --show-error 'https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/security/commercial-migration-ready')"
-          echo "$BODY"
-          python3 - "$BODY" <<'PY'
-          import json,sys
-          a=json.loads(sys.argv[1])
-          assert a.get('ready') is True and a.get('markerComplete') is True and int(a.get('remainingLegacy',-1))==0, a
-          PY
-
-      - name: Commit fixed deployment source
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add onesignal-scheduler/src/firestore-rules-deploy-v1.js onesignal-scheduler/src/master-rate-limit-production-entry.js
-          git diff --cached --quiet || git commit -m "Prepare validated Firestore rules deployment"
-          git push origin main
-
-      - name: Deploy Worker with fixed rules route
+      - name: Deploy temporary rules publisher
         working-directory: onesignal-scheduler
         run: npx wrangler deploy
         env:
@@ -136,17 +124,64 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Publish ruleset and verify active release
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/security/deploy-firestore-rules-v1'
-          BODY="$(curl --silent --show-error --retry 3 --retry-delay 2 -X POST "$URL")"
-          echo "Rules deployment: $BODY"
-          python3 - "$BODY" <<'PY'
+          URL='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/__security/firestore-rules-deploy-v1'
+          OK=false
+          LAST=''
+          for ATTEMPT in 1 2 3 4 5 6 7 8; do
+            BODY="$(curl --silent --show-error -X POST -H "x-rf-deploy-key: $DEPLOY_KEY" "$URL" || true)"
+            LAST="$BODY"
+            if python3 - "$BODY" <<'PY'
           import json,sys
-          d=json.loads(sys.argv[1])
-          assert d.get('ok') is True, d
-          assert d.get('releaseMatches') is True, d
-          assert d.get('rulesetName') and d.get('activeRuleset')==d.get('rulesetName'), d
-          print('FIRESTORE RULESET RELEASE VERIFIED')
+          try: d=json.loads(sys.argv[1])
+          except Exception: raise SystemExit(1)
+          raise SystemExit(0 if d.get('ok') is True and d.get('releaseMatches') is True and d.get('activeRuleset')==d.get('rulesetName') else 1)
           PY
+            then
+              echo "FIRESTORE RULESET RELEASE VERIFIED"
+              echo "$BODY"
+              OK=true
+              break
+            fi
+            echo "Tentativa $ATTEMPT ainda não concluída; aguardando propagação do IAM."
+            sleep 8
+          done
+          if [ "$OK" != true ]; then
+            echo "Falha ao publicar após tentativas: $LAST"
+            exit 1
+          fi
+
+      - name: Restore clean Worker source
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- onesignal-scheduler/src/master-rate-limit-production-entry.js
+          rm -f onesignal-scheduler/src/firestore-rules-deploy-v1.js
+          cd onesignal-scheduler
+          node --check src/master-rate-limit-production-entry.js
+          npm test
+
+      - name: Redeploy clean Worker
+        if: always()
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Confirm temporary publisher is gone
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/__security/firestore-rules-deploy-v1'
+          BODY="$(curl --silent --show-error -X POST -H "x-rf-deploy-key: $DEPLOY_KEY" "$URL")"
+          if printf '%s' "$BODY" | grep -Eq 'rulesetName|releaseMatches|activeRuleset'; then
+            echo 'Temporary Firestore rules publisher still active.'
+            exit 1
+          fi
+          echo 'TEMPORARY RULES PUBLISHER REMOVED'
