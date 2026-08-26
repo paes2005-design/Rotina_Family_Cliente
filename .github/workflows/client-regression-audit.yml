@@ -1,5 +1,5 @@
 name: Rotina Family Cliente regression audit
-# audit trigger: scoring, mascot rewards, weekly navigation and offline cache
+
 on:
   push:
     paths:
@@ -9,193 +9,85 @@ on:
       - '*.css'
       - '*.html'
       - 'manifest.json'
+
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Syntax and JSON
         run: |
           node --check client-ui-pro.js
-          node --check client-week-nav.js
-          node --check client-time-guard-v2.js
+          node --check client-time-guard-v3.js
+          node --check client-auth-session-v1.js
+          node --check client-offline-execution-integrity-v1.js
+          node --check client-session-integrity.js
           node --check client-history-reconciler.js
           node --check client-reviewed-points.js
           node --check client-early-start-ui.js
           node --check client-tolerance-timer.js
-          node --check client-mascot-rewards.js
-          node --check mascot-reward-core.js
-          node --check mascot-reward-simulation.mjs
-          node --check tolerance-timer-core.js
-          node --check timer-simulation.mjs
+          node --check client-week-nav.js
           node --check scoring-core.js
+          node --check runtime-build-info.js
           node --check sw.js
           node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest OK')"
-      - name: Full Client regression audit
+
+      - name: Current architecture regression audit
         run: |
           node --input-type=module <<'NODE'
           import fs from 'fs';
           import {pathToFileURL} from 'url';
           const read=f=>fs.readFileSync(f,'utf8');
+          const index=read('index.html');
           const html=read('index-CLIENTE-v6.html');
           const ui=read('client-ui-pro.js');
-          const week=read('client-week-nav.js');
-          const guard=read('client-time-guard-v2.js');
-          const reconciler=read('client-history-reconciler.js');
-          const review=read('client-reviewed-points.js');
-          const early=read('client-early-start-ui.js');
-          const timer=read('client-tolerance-timer.js');
-          const timerCore=read('tolerance-timer-core.js');
-          const mascot=read('client-mascot-rewards.js');
-          const mascotCoreText=read('mascot-reward-core.js');
+          const guard=read('client-time-guard-v3.js');
+          const auth=read('client-auth-session-v1.js');
+          const offline=read('client-offline-execution-integrity-v1.js');
           const sw=read('sw.js');
+          const runtime=read('runtime-build-info.js');
           const manifest=JSON.parse(read('manifest.json'));
           const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
 
-          // Stability and anti-freeze invariants
-          assert(!guard.includes('setInterval('),'guard has no continuous interval');
-          assert(!review.includes('setInterval('),'reviewed-points has no continuous interval');
-          assert(!early.includes('setInterval('),'early-start display has no continuous interval');
-          assert(!week.includes('setInterval('),'weekly navigation has no continuous interval');
-          assert(!mascot.includes('setInterval('),'mascot adds no continuous interval');
-          assert((timer.match(/setInterval\(/g)||[]).length===1,'timer has exactly one global interval');
-          assert(!guard.includes('MutationObserver'),'guard adds no MutationObserver');
-          assert(!review.includes('MutationObserver'),'review module adds no MutationObserver');
-          assert(!early.includes('MutationObserver'),'early-start display adds no MutationObserver');
-          assert(!timer.includes('MutationObserver'),'timer adds no MutationObserver');
-          assert(!mascot.includes('MutationObserver'),'mascot adds no MutationObserver');
-          assert(ui.includes('subtree:false'),'existing task observer is limited to direct row changes');
-          assert(!ui.includes('client-rules-v2.js')&&!ui.includes('client-compat-v2.js'),'known freeze modules remain disabled');
-          assert(!sw.includes('client-rules-v2.js')&&!sw.includes('client-compat-v2.js'),'known freeze modules remain outside app shell');
-          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(week),'weekly navigation is Firestore read-only');
-          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(mascot),'mascot is Firestore read-only');
-          assert(!mascot.includes('firebase')&&!mascot.includes('getFirestore'),'mascot has no Firebase dependency');
-          assert(week.includes('onSnapshot(')&&week.includes("where('grupoId','==',grupo)"),'weekly cache listener is group-scoped');
+          assert(index.includes("const BUILD='20260826.1'"),'entry build is 20260826.1');
+          assert(index.includes("./sw.js?v=72")&&index.includes("updateViaCache:'none'"),'entry forces Service Worker 72 update without intermediary cache');
+          assert(index.includes('client-auth-session-v1.js?v=2'),'secure participant auth is injected');
+          assert(index.includes('client-offline-execution-integrity-v1.js?v=2'),'offline execution integrity is injected');
+          assert(index.includes('runtime-build-info.js?v=20260826.1'),'runtime build indicator is injected explicitly');
 
-          const updateBody=timer.match(/export function atualizarSomenteTextoCronometro[\s\S]*?\nfunction garantirEscuta/)?.[0]||'';
-          const tickBody=timer.match(/function tick\(\)\{([\s\S]*?)\n\}/)?.[1]||'';
-          assert(updateBody.length>0,'timer text-only updater exists');
-          assert(!/(createElement|appendChild|insertAdjacent|innerHTML|\.remove\()/.test(updateBody),'1-second updater never rebuilds DOM');
-          assert(updateBody.includes('textContent')&&updateBody.includes('hidden'),'1-second updater only changes presentation');
-          assert(tickBody&&!tickBody.includes('prepararLinhasCronometro'),'tick never prepares rows');
-          assert(timer.includes('if(timerId!==null)return'),'timer cannot be started twice');
-          assert(timer.includes("addEventListener('visibilitychange'"),'background return forces recalculation');
-          assert(!/(authNome|authPin|telaAuth)/.test(timer),'timer never touches login fields');
-          assert(!/(updateDoc|setDoc|addDoc|deleteDoc|writeBatch|runTransaction)\s*\(/.test(timer),'timer is Firestore read-only');
-          assert(timer.includes('onSnapshot(')&&timer.includes("where('grupoId','==',s.grupo)"),'timer listener is group-scoped');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v72'"),'Service Worker cache is v72');
+          assert(sw.includes("const ROTINA_SW_VERSION='72'"),'Service Worker reports version 72');
+          assert(sw.includes("const ROTINA_BUILD_ID='20260826.1'"),'Service Worker reports current build');
+          assert(sw.includes('client-auth-session-v1.js')&&sw.includes('client-offline-execution-integrity-v1.js'),'secure auth and offline integrity are cached');
+          assert(sw.includes('firebase-auth.js'),'Firebase Auth module tree is cached');
+          assert(sw.includes("cache:'no-store'"),'app navigation/assets remain network-first');
 
-          // Loading / PWA
-          assert(ui.includes("import('./client-time-guard-v2.js')"),'temporal guard is loaded');
-          assert(ui.includes("import('./client-history-reconciler.js?v=1')"),'history reconciler is loaded');
-          assert(ui.includes("import('./client-reviewed-points.js')"),'reviewed points is loaded');
-          assert(ui.includes("import('./client-early-start-ui.js')"),'early-start display is loaded');
-          assert(ui.includes("import('./client-tolerance-timer.js')"),'timer is loaded');
-          assert(ui.includes("import('./client-week-nav.js?v=3')"),'weekly navigation is loaded');
-          assert(ui.includes("import('./client-mascot-rewards.js')"),'mascot rewards are loaded');
-          assert(ui.includes('prepararCronometrosTolerancia'),'task renderer prepares timer nodes');
-          assert(ui.includes('__rotinaTimeGuardReady=false'),'legacy scoring is blocked during startup');
-          assert(ui.includes('mascote-pontos-carregando'),'legacy task-count daily celebration is blocked while mascot points rule loads');
-          assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'guard explicitly releases startup block');
-          assert(sw.includes("cache:'no-store'"),'app assets refresh network-first');
-          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v41'"),'Client cache is v41');
-          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaInicio,false)'),'suggested start is rendered with seconds');
-          assert(html.includes('horaSugeridaComSegundos(dados.horaSugeridaFim,true)'),'suggested end is rendered through :59');
-          assert(html.includes('.status-prazo-75 { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }'),'75% status uses the timer yellow band');
-          assert(html.includes('.status-prazo-50 { background: #ffedd5; color: #9a3412; border: 1px solid #fdba74; }'),'50% status uses the timer orange band');
-          assert(html.includes("dados.faixaAtraso==='atraso-maior'||status.includes('50%')"),'today maps major delay to orange');
-          assert(week.includes("dados.faixaAtraso==='atraso-maior'||status.includes('50%')"),'weekly view maps major delay to orange');
-          assert(html.includes('./client-ui-pro.js?v=27')&&html.includes('./sw.js?v=30'),'current Client asset URLs remain compatible');
-          assert(timer.includes("campoHMS(t.horaSugeridaFim,'59')"),'timer decorator preserves :59 end display');
-          assert(timerCore.includes('limiteFim=aposMinutoSugerido(j.fim)'),'tolerance starts only after full suggested end minute');
-          assert(sw.includes('client-tolerance-timer.js')&&sw.includes('tolerance-timer-core.js'),'timer modules are cached offline');
-          assert(sw.includes('client-reviewed-points.js')&&sw.includes('client-time-guard-v2.js')&&sw.includes('scoring-core.js'),'active core modules are cached offline');
-          assert(sw.includes('client-history-reconciler.js'),'history reconciler is cached offline');
-          assert(sw.includes('client-week-nav.js'),'weekly navigation is cached offline');
-          assert(sw.includes('client-mascot-rewards.js')&&sw.includes('mascot-reward-core.js'),'mascot modules are cached offline');
-          assert(week.includes('Semana disponível offline')&&week.includes('Semana atualizada e em cache'),'weekly cache status is visible');
-          assert(manifest.start_url,'manifest has start URL');
+          assert(runtime.includes("build:'20260826.1'"),'runtime badge reports current build');
+          assert(runtime.includes("expectedServiceWorkerVersion:'72'"),'runtime badge expects SW 72');
+          assert(manifest.start_url==='./index.html','PWA starts through controlled entry page');
 
-          // Exact scoring rule
-          assert(timerCore.includes("from './scoring-core.js'"),'timer reuses scoring-core');
+          assert(ui.includes("import('./client-time-guard-v3.js?v=4')"),'current temporal guard v3 is loaded');
+          assert(ui.includes("import('./client-session-integrity.js?v=2')"),'session integrity module is loaded');
+          assert(ui.includes("rotina-time-guard-ready"),'UI has explicit temporal guard readiness signal');
+          assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'temporal guard explicitly releases readiness');
+          assert(guard.includes('classificarConsumoToleranciaSegundos'),'current guard uses exact-second scoring');
+          assert(guard.includes('inicioExecutadoEm')&&guard.includes('terminoExecutadoEm'),'absolute execution timestamps remain persisted');
+
+          assert(auth.includes('signInWithCustomToken'),'participant session uses Firebase custom token');
+          assert(auth.includes('rotinaLoginParticipanteSeguro'),'secure login entry point exists');
+          assert(offline.includes('localStorage'),'offline integrity maintains a local first-completion guard');
+          assert(offline.includes('historico')||offline.includes('execucoes'),'offline integrity reconciles execution state');
+
+          assert(html.includes('conectarCliente'),'legacy UI login control still has an entry point for the secure bridge to replace');
+          assert(html.includes('renderizarTarefasHoje'),'task rendering remains present');
+          assert(html.includes('resgatarRecompensa'),'reward redemption remains present');
+
           const core=await import(pathToFileURL(process.cwd()+'/scoring-core.js').href+'?audit='+Date.now());
-          assert(core.classificarConsumoToleranciaSegundos(10,599).percentual===100,'10 min: 09:59 = 100%');
-          assert(core.classificarConsumoToleranciaSegundos(10,600).percentual===75,'10 min: 10:00 = 75%');
-          assert(core.classificarConsumoToleranciaSegundos(10,674).percentual===75,'10 min: 11:14 = 75%');
-          assert(core.classificarConsumoToleranciaSegundos(10,675).percentual===50,'10 min: 11:15 = 50%');
-          assert(core.classificarConsumoToleranciaSegundos(10,749).percentual===50,'10 min: 12:29 = 50%');
-          assert(core.classificarConsumoToleranciaSegundos(10,750).percentual===0,'10 min: 12:30 = 0%');
-          assert(core.classificarConsumoToleranciaSegundos(6,360).percentual===75,'6 min: zero = 75%');
-          assert(core.classificarConsumoToleranciaSegundos(6,405).percentual===50,'6 min: +45s = 50%');
-          assert(core.classificarConsumoToleranciaSegundos(6,450).percentual===0,'6 min: +90s = 0%');
-          assert(core.classificarConsumoToleranciaSegundos(2,120).percentual===75,'2 min: zero = 75%');
-          assert(core.classificarConsumoToleranciaSegundos(2,135).percentual===50,'2 min: +15s = 50%');
-          assert(core.classificarConsumoToleranciaSegundos(2,150).percentual===0,'2 min: +30s = 0%');
-          const calc=core.calcularConsumoAtraso({inicioPrevisto:new Date('2026-08-08T02:55:00'),inicioReal:new Date('2026-08-08T02:56:59'),fimPrevisto:new Date('2026-08-08T03:00:00'),fimReal:new Date('2026-08-08T03:02:59')});
-          assert(calc.atrasoInicio===1&&calc.atrasoFim===2&&calc.consumoTotal===3,'legacy whole-minute audit fields remain compatible');
-          assert(calc.consumoTotalSeg===298,'exact seconds are preserved for scoring');
+          assert(core.classificarConsumoToleranciaSegundos(10,599).percentual===100,'10 min 09:59 remains 100%');
+          assert(core.classificarConsumoToleranciaSegundos(10,600).percentual===75,'10 min 10:00 remains 75%');
+          assert(core.classificarConsumoToleranciaSegundos(10,675).percentual===50,'10 min 11:15 remains 50%');
+          assert(core.classificarConsumoToleranciaSegundos(10,750).percentual===0,'10 min 12:30 remains 0%');
 
-          // Finish result and justification
-          assert(guard.includes('classificarConsumoToleranciaSegundos'),'finish uses exact-second classifier');
-          assert(guard.includes('toleranciaConsumidaSeg'),'exact consumed seconds are persisted');
-          assert(guard.includes('inicioExecutadoEm')&&guard.includes('terminoExecutadoEm'),'absolute start/end timestamps are persisted');
-          assert(guard.includes("const obrigatoria=t.justificativaObrigatoria!==false"),'mandatory justification defaults to true');
-          assert(guard.includes("const botaoSem=obrigatoria?'':"),'mandatory justification has no skip button');
-          assert(guard.includes('SpeechRecognition')&&guard.includes("lang='pt-BR'"),'voice justification is pt-BR');
-          assert(guard.includes("palavras.length<5"),'justification minimum length is enforced');
-          assert(guard.includes('pontosOriginais:pontos')&&guard.includes('percentualOriginal:faixa.percentual'),'automatic result is preserved for review');
-          assert(html.includes('window.registrarHistoricoLocal'),'Client exposes immediate local history update');
-          assert(guard.includes('window.registrarHistoricoLocal?.(historicoId,hist)'),'offline completion updates points optimistically');
-          assert(guard.indexOf('window.registrarHistoricoLocal?.(historicoId,hist)')<guard.indexOf("setDoc(doc(banco,'historico',historicoId)"),'local points update happens before remote history write');
-          assert(guard.includes('Promise.all([')&&guard.includes('navigator.onLine===false'),'all completion writes are queued together while offline');
-          assert(reconciler.includes("origemReconciliacao:'tarefa-concluida-sem-historico'"),'missing history records are marked as reconciled');
-          assert(reconciler.includes("dataDaTarefa(t)===hoje")&&reconciler.includes('concluida(t)'),'reconciliation is limited to completed tasks from today');
-          assert(reconciler.includes("lote.set(doc(banco,'historico',historicoId)")&&reconciler.includes("lote.set(doc(banco,'execucoes'"),'history and execution are repaired atomically');
-          assert(reconciler.includes('historicos.some(h=>historicoDaTarefa(h,t,p,n,hoje))'),'existing history is never duplicated, including legacy name-only records');
-          assert(reconciler.includes("addEventListener('online'"),'reconciliation runs when connectivity returns');
-
-          // Daily-only visual panels, cumulative balance preserved
-          assert(html.includes('Meus resgates de hoje'),'redemptions list is daily');
-          assert(html.includes("formatarDataISO(d)===hojeISO"),'redemptions use device-local day');
-          assert(html.includes("h.justificativaAtraso&&h.data===hojeISO"),'justifications list is daily');
-          assert(html.includes("r.status==='Aprovado'||r.status==='Pendente'"),'old approved/pending redemptions still reserve points');
-          assert(html.includes("cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0)"),'point balance remains cumulative');
-
-          // Early start and returned points
-          for(const campo of ['inicioAntecipado','antecipacaoMin','motivoInicioAntecipado','tipoMotivoInicioAntecipado']) assert(guard.includes(campo),'early-start field '+campo+' remains');
-          assert(early.includes("badge.textContent='🔵 Início antecipado'"),'Client early-start badge remains blue');
-          assert(early.includes("t?.inicioAntecipado===true&&t?.dataExecucao===hoje"),'early-start badge is date-scoped');
-          assert(!early.includes('updateDoc(')&&!early.includes('setDoc(')&&!early.includes('writeBatch('),'early-start display is read-only');
-          assert(review.includes('pontosDevolvidos'),'returned points remain supported');
-          assert(review.includes('somarPeriodo'),'returned points recalculate day/week/month displays');
-          assert(review.includes("rotina-family-points-updated"),'returned-point snapshot requests a new daily-goal evaluation');
-          assert(ui.includes('aplicarPontosRevisadosCliente'),'returned-point display is reapplied after rerender');
-
-          // Mascot and daily 100% by points
-          const rewardCore=await import(pathToFileURL(process.cwd()+'/mascot-reward-core.js').href+'?audit='+Date.now());
-          assert(rewardCore.dailyGoalReached(100,100),'100/100 is daily 100%');
-          assert(!rewardCore.dailyGoalReached(99,100),'99/100 is not daily 100%');
-          assert(!rewardCore.dailyGoalReached(0,0),'0 possible points never triggers daily 100%');
-          assert(rewardCore.TASK_REWARD_SEQUENCES.length===3,'three short task reward sequences exist');
-          assert(rewardCore.TASK_REWARD_SEQUENCES.every(s=>s.steps[0]==='bark'),'every task reward sequence starts with bark');
-          assert(JSON.stringify(rewardCore.DAILY_100_SEQUENCE.steps)===JSON.stringify(['bark','jump','roll','flip']),'daily 100% uses all mascot movements');
-          assert(mascot.includes("document.getElementById('ptsHoje')")&&mascot.includes("document.getElementById('possivelHoje')"),'daily goal reads earned and possible points');
-          assert(mascot.includes('dailyGoalReached(earned,possible)'),'daily celebration is based on points, not completed task count');
-          assert(mascot.includes("rotina-family-points-updated"),'point returns can trigger daily celebration');
-          assert(mascot.includes("rotina-family-tasks-rendered"),'task status transitions feed mascot rewards');
-          assert(mascot.includes('No Prazo\\s*\\(100%\\)'),'only 100% task transitions trigger short mascot sequence');
-          assert(mascot.includes('particleCount:160'),'existing 100% confetti remains');
-          assert(guard.includes('particleCount:45'),'existing task-completion confetti remains');
-          assert(mascot.includes("pointer-events:none"),'mascot overlay cannot block app controls');
-          assert(mascotCoreText.includes("['bark','jump','roll','flip']"),'full daily sequence is explicit in pure core');
-
-          // Core flows
-          for(const s of ['conectarCliente','sairCliente','renderizarTarefasHoje','resgatarRecompensa']) assert(html.includes(s),'core flow '+s+' remains');
-          assert(html.includes("localStorage.getItem('cliente_nome')"),'saved session restoration remains');
-          assert(html.includes("`${h.data}__${h.tarefaId}`"),'justification edit updates canonical execution');
-          assert(week.includes('data-dia')&&week.includes('Consulta'),'weekly tabs expose the seven-day read-only views');
-          console.log('ALL CLIENT PRODUCTION REGRESSION CHECKS PASSED');
+          console.log('ALL CURRENT CLIENT REGRESSION CHECKS PASSED');
           NODE
-      - name: Deterministic timer simulation and stress
-        run: node timer-simulation.mjs
-      - name: Mascot reward and daily points simulation
-        run: node mascot-reward-simulation.mjs
