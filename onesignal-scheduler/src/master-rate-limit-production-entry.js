@@ -179,9 +179,13 @@ export default {
         return Response.json(audit, { headers: { 'cache-control': 'no-store' } });
       }
       if (url.pathname === '/security/run-commercial-migration-once' && request.method === 'POST') {
-        const maintenance = await runSecurityMaintenance(env);
-        const audit = await auditCommercialMigration(env);
-        return Response.json({ maintenance, audit }, { headers: { 'cache-control': 'no-store' } });
+        try {
+          const maintenance = await runSecurityMaintenance(env);
+          const audit = await auditCommercialMigration(env);
+          return Response.json({ ok:true, maintenance, audit }, { headers: { 'cache-control': 'no-store' } });
+        } catch (error) {
+          return Response.json({ ok:false, error:String(error?.message || error).replace(/\s+/g,' ').slice(0,320) }, { headers: { 'cache-control': 'no-store' } });
+        }
       }
       const accessResponse = await handleCommercialAccessStatus(request, env);
       if (accessResponse) return accessResponse;
