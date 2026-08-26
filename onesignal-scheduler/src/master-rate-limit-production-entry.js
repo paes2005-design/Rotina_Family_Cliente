@@ -6,6 +6,7 @@ import { handleMasterGroupsIndex } from './master-groups-index.js';
 import { handleFamilyAuthSession } from './family-auth-session.js';
 import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
 import { runSecurityMaintenance } from './security-maintenance-v1.js';
+import { handleEmergencyCompensation } from './emergency-compensation-20260826.js';
 
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
@@ -173,6 +174,8 @@ async function queuedMasterRead(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      const emergencyResponse = await handleEmergencyCompensation(request, env);
+      if (emergencyResponse) return emergencyResponse;
       const accessResponse = await handleCommercialAccessStatus(request, env);
       if (accessResponse) return accessResponse;
       const authResponse = await handleFamilyAuthSession(request, env);
