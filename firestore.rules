@@ -75,6 +75,53 @@ service cloud.firestore {
       ]);
     }
 
+    function finalState(data) {
+      return data.status is string
+        && (data.status.matches('.*Prazo.*') || data.status.matches('.*Atrasado.*'));
+    }
+
+    function finalOutcomeUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'status','horarioInicio','horarioTermino','inicioExecutadoEm','terminoExecutadoEm',
+        'pontosGanhos','pontosOriginais','percentualAplicado','percentualOriginal',
+        'faixaAtraso','toleranciaConsumidaMin','toleranciaConsumidaSeg','atrasoInicioMin',
+        'atrasoFimMin','minutosAlemTolerancia','faixaLeveMinutos','limite75Min','limite50Min',
+        'limite75Seg','limite50Seg','iniciouComAtraso','iniciouAposLimiteFinal','dataExecucao'
+      ]);
+    }
+
+    function participantTaskLifecycleAllowed() {
+      return participantOwn(resource.data)
+        && participantOwn(request.resource.data)
+        && taskIdentityUnchanged()
+        && (
+          (resource.data.status == 'Pendente' && request.resource.data.status == 'Em andamento')
+          || (resource.data.status == 'Em andamento' && request.resource.data.status == 'Em andamento')
+          || (resource.data.status == 'Em andamento' && finalState(request.resource.data))
+          || (finalState(resource.data) && finalState(request.resource.data) && finalOutcomeUnchanged())
+        );
+    }
+
+    function participantFinalRecordUpdateAllowed() {
+      return participantOwn(resource.data)
+        && participantOwn(request.resource.data)
+        && historyIdentityUnchanged()
+        && finalState(resource.data)
+        && finalState(request.resource.data)
+        && finalOutcomeUnchanged();
+    }
+
+    function participantExecutionUpdateAllowed() {
+      return participantOwn(resource.data)
+        && participantOwn(request.resource.data)
+        && historyIdentityUnchanged()
+        && (
+          (!finalState(resource.data) && !finalState(request.resource.data))
+          || (!finalState(resource.data) && finalState(request.resource.data))
+          || (finalState(resource.data) && finalState(request.resource.data) && finalOutcomeUnchanged())
+        );
+    }
+
     function alarmIdentityUnchanged() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'grupoId','perfilId','tarefaId'
@@ -86,8 +133,6 @@ service cloud.firestore {
     }
 
     match /administradores/{id} {
-      // ADM comum só precisa ler o próprio cadastro. A condição por uid também
-      // mantém compatibilidade com registros legados que ainda usam codigoCliente.
       allow read: if isMaster()
         || (activeRole() && (isFamilyAdmin() || isGuestAdmin()) && resource.data.uid == request.auth.uid);
       allow create, update, delete: if isMaster();
@@ -113,7 +158,7 @@ service cloud.firestore {
       allow update: if isMaster()
         || (isFamilyAdmin() && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
         || (guestPermission('tarefasGerenciar') && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
-        || (participantOwn(resource.data) && participantOwn(request.resource.data) && taskIdentityUnchanged());
+        || participantTaskLifecycleAllowed();
       allow delete: if isMaster()
         || (isFamilyAdmin() && resource.data.grupoId == myGroup())
         || (guestPermission('tarefasGerenciar') && resource.data.grupoId == myGroup());
@@ -123,10 +168,10 @@ service cloud.firestore {
       allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);
       allow create: if isMaster()
         || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())
-        || participantOwn(request.resource.data);
+        || (participantOwn(request.resource.data) && finalState(request.resource.data));
       allow update: if isMaster()
         || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
-        || (participantOwn(resource.data) && participantOwn(request.resource.data) && historyIdentityUnchanged());
+        || participantFinalRecordUpdateAllowed();
       allow delete: if isMaster() || (isFamilyAdmin() && resource.data.grupoId == myGroup());
     }
 
@@ -137,7 +182,7 @@ service cloud.firestore {
         || participantOwn(request.resource.data);
       allow update: if isMaster()
         || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
-        || (participantOwn(resource.data) && participantOwn(request.resource.data) && historyIdentityUnchanged());
+        || participantExecutionUpdateAllowed();
       allow delete: if isMaster() || (isFamilyAdmin() && resource.data.grupoId == myGroup());
     }
 
@@ -177,7 +222,7 @@ service cloud.firestore {
         || (participantOwn(resource.data) && participantOwn(request.resource.data) && alarmIdentityUnchanged());
       allow delete: if isMaster()
         || (isFamilyAdmin() && resource.data.grupoId == myGroup())
-        || (participantOwn(resource.data));
+        || participantOwn(resource.data);
     }
 
     match /configGrupos/{groupId} {
