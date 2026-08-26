@@ -1,0 +1,87 @@
+name: P0 single active server guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/p0-single-active-server-guard-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Make task start server-authoritative
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p=Path('client-time-guard-v3.js')
+          s=p.read_text(encoding='utf-8')
+
+          old="import {getFirestore,doc,getDoc,getDocFromCache,writeBatch,collection,query,where,getDocs} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';"
+          new="import {getFirestore,doc,getDoc,getDocFromCache,getDocFromServer,writeBatch,collection,query,where,getDocs,getDocsFromServer} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';"
+          if old not in s and new not in s: raise SystemExit('Firestore import marker not found')
+          s=s.replace(old,new,1)
+
+          old="async function buscarTarefa(id){const inicio=performance.now(),cached=taskCache.get(id);if(cached&&Date.now()-cached.at<TASK_CACHE_MS){log('perf.tarefa_busca',{tarefaId:id,origem:'memoria',tempoMs:Math.round(performance.now()-inicio)});return{...cached.value};}const banco=await db(),{snap,origem}=await docRapido(doc(banco,'tarefas',id));const value=snap.exists()?{id:snap.id,...snap.data()}:null;if(value)taskCache.set(id,{at:Date.now(),value});log('perf.tarefa_busca',{tarefaId:id,origem,tempoMs:Math.round(performance.now()-inicio)});return value;}"
+          new="async function buscarTarefa(id){const inicio=performance.now(),banco=await db(),ref=doc(banco,'tarefas',id);if(navigator.onLine!==false){try{const snap=await getDocFromServer(ref),value=snap.exists()?{id:snap.id,...snap.data()}:null;if(value)taskCache.set(id,{at:Date.now(),value});log('perf.tarefa_busca',{tarefaId:id,origem:'servidor-forcado',tempoMs:Math.round(performance.now()-inicio)});return value;}catch(e){const texto=String(e?.code||e?.message||e);log('perf.tarefa_busca_servidor_erro',{tarefaId:id,mensagem:texto},'warning');if(/permission-denied|unauthenticated/i.test(texto))throw e;}}const cached=taskCache.get(id);if(cached&&Date.now()-cached.at<TASK_CACHE_MS){log('perf.tarefa_busca',{tarefaId:id,origem:'memoria',tempoMs:Math.round(performance.now()-inicio)});return{...cached.value};}const {snap,origem}=await docRapido(ref),value=snap.exists()?{id:snap.id,...snap.data()}:null;if(value)taskCache.set(id,{at:Date.now(),value});log('perf.tarefa_busca',{tarefaId:id,origem,tempoMs:Math.round(performance.now()-inicio)});return value;}"
+          if old not in s: raise SystemExit('buscarTarefa marker not found')
+          s=s.replace(old,new,1)
+
+          old="async function verificarOrdem(t){const local=verificarOrdemRenderizada(t);if(local)return local;const inicio=performance.now(),banco=await db(),g=grupo(),p=perfil();if(!g||!p)return{permitida:true};const s=await getDocs(query(collection(banco,'tarefas'),where('grupoId','==',g),where('perfilId','==',p)));const lista=s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.diaSemana===t.diaSemana).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));log('perf.ordem_busca_servidor',{tempoMs:Math.round(performance.now()-inicio),quantidade:lista.length});return avaliarOrdemLista(lista,t);}"
+          new="async function verificarOrdem(t){const inicio=performance.now(),banco=await db(),g=grupo(),p=perfil();if(!g||!p)return{permitida:true};const q=query(collection(banco,'tarefas'),where('grupoId','==',g),where('perfilId','==',p));if(navigator.onLine!==false){try{const snap=await getDocsFromServer(q),lista=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.diaSemana===t.diaSemana).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));log('perf.ordem_busca_servidor',{tempoMs:Math.round(performance.now()-inicio),quantidade:lista.length,forcada:true});return avaliarOrdemLista(lista,t);}catch(e){const texto=String(e?.code||e?.message||e);log('perf.ordem_busca_servidor_erro',{mensagem:texto},'warning');if(/permission-denied|unauthenticated/i.test(texto))throw e;}}const local=verificarOrdemRenderizada(t);if(local)return local;const snap=await getDocs(q),lista=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.diaSemana===t.diaSemana).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));log('perf.ordem_busca_fallback',{tempoMs:Math.round(performance.now()-inicio),quantidade:lista.length});return avaliarOrdemLista(lista,t);}"
+          if old not in s: raise SystemExit('verificarOrdem marker not found')
+          s=s.replace(old,new,1)
+
+          old="atualizarCacheTarefa(t,dados);await aguardarCommitAteLimite(batch.commit(),{acao:'inicio',tarefaId:t.id});log('perf.inicio_total'"
+          new="const commit=batch.commit();if(navigator.onLine===false){atualizarCacheTarefa(t,dados);await aguardarCommitAteLimite(commit,{acao:'inicio',tarefaId:t.id});}else{await commit;atualizarCacheTarefa(t,dados);log('perf.firebase_commit_ok',{acao:'inicio',tarefaId:t.id,confirmacao:'obrigatoria'});}log('perf.inicio_total'"
+          if old not in s: raise SystemExit('registrarInicio commit marker not found')
+          s=s.replace(old,new,1)
+
+          old="async function executarUmaVez(chave,fn){if(busyActions.has(chave)){log('perf.clique_duplicado_ignorado',{acao:chave});return;}busyActions.add(chave);try{return await fn();}finally{busyActions.delete(chave);}}"
+          new="async function executarUmaVez(chave,fn){const inicioGlobal=chave.startsWith('iniciar:');if(busyActions.has(chave)||(inicioGlobal&&[...busyActions].some(x=>x.startsWith('iniciar:')))){log('perf.clique_duplicado_ignorado',{acao:chave,escopo:inicioGlobal?'inicio-global':'mesma-acao'});return;}busyActions.add(chave);try{return await fn();}finally{busyActions.delete(chave);}}"
+          if old not in s: raise SystemExit('executarUmaVez marker not found')
+          s=s.replace(old,new,1)
+
+          s=s.replace("log('perf.modulo_pronto',{versao:5,commitWaitMs:UX_COMMIT_WAIT_MS", "log('perf.modulo_pronto',{versao:6,commitWaitMs:UX_COMMIT_WAIT_MS",1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('client-ui-pro.js')
+          s=p.read_text(encoding='utf-8')
+          if "client-time-guard-v3.js?v=4" not in s: raise SystemExit('client-ui time guard version marker not found')
+          s=s.replace("client-time-guard-v3.js?v=4","client-time-guard-v3.js?v=6",1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("const BUILD='20260826.2';","const BUILD='20260826.3';",1)
+          s=s.replace(".replace('./client-ui-pro.js?v=44','./client-ui-pro.js?v=45')",".replace('./client-ui-pro.js?v=44','./client-ui-pro.js?v=46')",1)
+          s=s.replace("runtime-build-info.js?v=20260826.2","runtime-build-info.js?v=20260826.3",1)
+          s=s.replace("release:'cliente-clean-v77'","release:'cliente-recovery-v78'",1)
+          s=s.replace("uiPro:45","uiPro:46",1)
+          p.write_text(s,encoding='utf-8')
+
+      - name: Validate patched client
+        run: |
+          node --check client-time-guard-v3.js
+          node --check client-ui-pro.js
+          node --check client-auth-session-v1.js
+          grep -F "getDocsFromServer" client-time-guard-v3.js
+          grep -F "confirmacao:'obrigatoria'" client-time-guard-v3.js
+          grep -F "cliente-recovery-v78" index.html
+
+      - name: Commit recovery guard
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-time-guard-v3.js client-ui-pro.js index.html
+          git diff --cached --quiet || git commit -m "Make participant task start server authoritative"
+          git push origin main
