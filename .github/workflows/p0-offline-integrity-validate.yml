@@ -39,7 +39,7 @@ jobs:
 
       - name: Install Firestore rules test dependencies
         working-directory: security-tests
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Run Firestore role and idempotency tests
         run: |
