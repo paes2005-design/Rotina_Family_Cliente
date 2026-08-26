@@ -1,0 +1,145 @@
+name: Deploy validated Firestore security rules v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-deploy-firestore-rules-v1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Generate fixed rules deployment module and route
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+
+          rules=Path('firestore.rules').read_text(encoding='utf-8')
+          rules_literal=json.dumps(rules,ensure_ascii=False)
+          module=f'''const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+          const RULES_API = 'https://firebaserules.googleapis.com/v1';
+          const FIRESTORE_RULES_SOURCE = {rules_literal};
+          let tokenCache = {{ value:'', expiresAt:0, email:'' }};
+
+          const required=(value,name)=>{{if(!value)throw new Error(`Configuração obrigatória ausente: ${{name}}`);return value;}};
+          function base64Url(bytes){{let text='';for(const byte of bytes)text+=String.fromCharCode(byte);return btoa(text).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');}}
+          function encodeJson(value){{return base64Url(new TextEncoder().encode(JSON.stringify(value)));}}
+          function pemBytes(pem){{const normalized=String(pem||'').replaceAll('\\\\n','\\n').replace(/-----BEGIN PRIVATE KEY-----/g,'').replace(/-----END PRIVATE KEY-----/g,'').replace(/\\s/g,'');const binary=atob(normalized);return Uint8Array.from(binary,c=>c.charCodeAt(0));}}
+          function credentials(env){{const value=JSON.parse(required(env.GOOGLE_SERVICE_ACCOUNT_JSON,'GOOGLE_SERVICE_ACCOUNT_JSON'));required(value.client_email,'client_email');required(value.private_key,'private_key');return value;}}
+          async function googleToken(env,now=new Date()){{
+            const c=credentials(env);if(tokenCache.value&&tokenCache.email===c.client_email&&tokenCache.expiresAt>now.getTime()+60000)return tokenCache.value;
+            const iat=Math.floor(now.getTime()/1000);
+            const unsigned=`${{encodeJson({{alg:'RS256',typ:'JWT'}})}}.${{encodeJson({{iss:c.client_email,sub:c.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:GOOGLE_TOKEN_URL,iat,exp:iat+3600}})}}`;
+            const key=await crypto.subtle.importKey('pkcs8',pemBytes(c.private_key),{{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'}},false,['sign']);
+            const signature=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(unsigned));
+            const assertion=`${{unsigned}}.${{base64Url(new Uint8Array(signature))}}`;
+            const response=await fetch(GOOGLE_TOKEN_URL,{{method:'POST',headers:{{'content-type':'application/x-www-form-urlencoded'}},body:new URLSearchParams({{grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}})}});
+            const body=await response.json().catch(()=>({{}}));if(!response.ok||!body.access_token)throw new Error(`OAuth Google recusado (${{response.status}}): ${{String(body?.error_description||body?.error||'sem detalhe').slice(0,180)}}`);
+            tokenCache={{value:body.access_token,email:c.client_email,expiresAt:now.getTime()+Number(body.expires_in||3600)*1000}};return tokenCache.value;
+          }}
+          async function api(env,url,options={{}},now=new Date()){{
+            const response=await fetch(url,{{...options,headers:{{authorization:`Bearer ${{await googleToken(env,now)}}`,...(options.headers||{{}})}}}});
+            const body=await response.json().catch(()=>({{}}));return {{response,body}};
+          }}
+          function apiError(label,result){{const message=String(result.body?.error?.message||result.body?.error||'sem detalhe').replace(/\\s+/g,' ').slice(0,300);return new Error(`${{label}} recusado (${{result.response.status}}): ${{message}}`);}}
+
+          export async function deployFirestoreRulesV1(env,now=new Date()){{
+            const projectId=required(env.FIREBASE_PROJECT_ID,'FIREBASE_PROJECT_ID');
+            const project=`projects/${{projectId}}`;
+            const created=await api(env,`${{RULES_API}}/${{project}}/rulesets`,{{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify({{source:{{files:[{{name:'firestore.rules',content:FIRESTORE_RULES_SOURCE}}]}}}})}},now);
+            if(!created.response.ok||!created.body?.name)throw apiError('Criação do ruleset',created);
+            const rulesetName=String(created.body.name);
+            const releaseName=`${{project}}/releases/cloud.firestore`;
+            const current=await api(env,`${{RULES_API}}/${{releaseName}}`,{{}},now);
+            let released;
+            if(current.response.status===404){{
+              released=await api(env,`${{RULES_API}}/${{project}}/releases`,{{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify({{name:releaseName,rulesetName}})}},now);
+            }}else{{
+              if(!current.response.ok)throw apiError('Leitura da release atual',current);
+              released=await api(env,`${{RULES_API}}/${{releaseName}}`,{{method:'PATCH',headers:{{'content-type':'application/json'}},body:JSON.stringify({{release:{{name:releaseName,rulesetName}},updateMask:'rulesetName'}})}},now);
+            }}
+            if(!released.response.ok)throw apiError('Publicação da release',released);
+            const verified=await api(env,`${{RULES_API}}/${{releaseName}}`,{{}},now);
+            if(!verified.response.ok)throw apiError('Verificação da release',verified);
+            const activeRuleset=String(verified.body?.rulesetName||'');
+            return {{ok:true,rulesetName,releaseName,activeRuleset,releaseMatches:activeRuleset===rulesetName,updateTime:String(verified.body?.updateTime||'')}};
+          }}
+          '''
+          module='\n'.join(line.strip() for line in module.splitlines())+'\n'
+          Path('onesignal-scheduler/src/firestore-rules-deploy-v1.js').write_text(module,encoding='utf-8')
+
+          p=Path('onesignal-scheduler/src/master-rate-limit-production-entry.js')
+          s=p.read_text(encoding='utf-8')
+          imp="import { deployFirestoreRulesV1 } from './firestore-rules-deploy-v1.js';\n"
+          if imp not in s:
+              first="import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';\n"
+              if first not in s: raise SystemExit('Import marker not found')
+              s=s.replace(first,first+imp,1)
+          marker="""      if (url.pathname === '/security/commercial-migration-ready' && request.method === 'GET') {\n        const audit = await auditCommercialMigration(env);\n        return Response.json(audit, { headers: { 'cache-control': 'no-store' } });\n      }"""
+          route=marker+"""\n      if (url.pathname === '/security/deploy-firestore-rules-v1' && request.method === 'POST') {\n        try {\n          const result = await deployFirestoreRulesV1(env);\n          return Response.json(result, { headers: { 'cache-control': 'no-store' } });\n        } catch (error) {\n          return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,500) }, { headers: { 'cache-control': 'no-store' } });\n        }\n      }"""
+          if "'/security/deploy-firestore-rules-v1'" not in s:
+              if marker not in s: raise SystemExit('Security route marker not found')
+              s=s.replace(marker,route,1)
+          p.write_text(s,encoding='utf-8')
+
+      - name: Validate Worker before publishing
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          node --check src/firestore-rules-deploy-v1.js
+          node --check src/master-rate-limit-production-entry.js
+          npm test
+          npx wrangler deploy --dry-run
+
+      - name: Reconfirm commercial migration gate
+        shell: bash
+        run: |
+          BODY="$(curl --fail --silent --show-error 'https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/security/commercial-migration-ready')"
+          echo "$BODY"
+          python3 - "$BODY" <<'PY'
+          import json,sys
+          a=json.loads(sys.argv[1])
+          assert a.get('ready') is True and a.get('markerComplete') is True and int(a.get('remainingLegacy',-1))==0, a
+          PY
+
+      - name: Commit fixed deployment source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/firestore-rules-deploy-v1.js onesignal-scheduler/src/master-rate-limit-production-entry.js
+          git diff --cached --quiet || git commit -m "Prepare validated Firestore rules deployment"
+          git push origin main
+
+      - name: Deploy Worker with fixed rules route
+        working-directory: onesignal-scheduler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Publish ruleset and verify active release
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/security/deploy-firestore-rules-v1'
+          BODY="$(curl --silent --show-error --retry 3 --retry-delay 2 -X POST "$URL")"
+          echo "Rules deployment: $BODY"
+          python3 - "$BODY" <<'PY'
+          import json,sys
+          d=json.loads(sys.argv[1])
+          assert d.get('ok') is True, d
+          assert d.get('releaseMatches') is True, d
+          assert d.get('rulesetName') and d.get('activeRuleset')==d.get('rulesetName'), d
+          print('FIRESTORE RULESET RELEASE VERIFIED')
+          PY
