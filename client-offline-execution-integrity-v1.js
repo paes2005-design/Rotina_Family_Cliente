@@ -286,9 +286,6 @@ function install() {
     window.addEventListener('rotina-family-tasks-rendered', () => setTimeout(applyLocksToDom, 0));
     window.addEventListener('online', () => setTimeout(reconcileLocks, 250));
     document.addEventListener('visibilitychange', () => { if (!document.hidden) applyLocksToDom(); });
-    const bodyObserver = new MutationObserver(() => applyLocksToDom());
-    const body = document.body;
-    if (body) bodyObserver.observe(body, { childList: true, subtree: true });
     log('integridade_offline.modulo_pronto', { versao: VERSION });
   }
   if (group() && profile()) watchHistory({ grupo: group(), perfilId: profile() });
