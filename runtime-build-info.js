@@ -38,6 +38,12 @@
       setTimeout(()=>{navigator.serviceWorker.removeEventListener('message',listener);if(!window.ROTINA_SW_VERSION)emit('build.sw_sem_resposta');},1800);
     }catch(e){emit('build.sw_erro',{mensagem:String(e?.message||e)});}
   }
-  const boot=()=>{badge();emit('build.html_carregado',{href:location.href,userAgent:navigator.userAgent});setTimeout(checkSw,150);setTimeout(()=>emit('build.regra_modulo_esperado',{rulesModuleVersion:INFO.rulesModuleVersion}),400);};
+  const boot=()=>{
+    badge();
+    emit('build.html_carregado',{href:location.href,userAgent:navigator.userAgent});
+    setTimeout(checkSw,150);
+    if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('controllerchange',()=>setTimeout(checkSw,120));
+    setTimeout(()=>emit('build.regra_modulo_esperado',{rulesModuleVersion:INFO.rulesModuleVersion}),400);
+  };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
