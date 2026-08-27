@@ -1,5 +1,6 @@
 name: Aplicar otimizacao de gravacoes do scheduler
 
+# Executa uma única migração de código; depois permanece como trilha de auditoria.
 on:
   push:
     branches:
