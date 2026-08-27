@@ -1,0 +1,93 @@
+name: Aplicar cache-first 5 minutos no Cliente
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-client-cache-sync-v1.yml'
+      - 'scripts/apply-client-cache-sync-v1.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Aplicar arquitetura cache-first
+        run: python scripts/apply-client-cache-sync-v1.py
+
+      - name: Validar sintaxe JavaScript
+        run: |
+          node --check client-time-guard-v3.js
+          node --check client-ui-pro.js
+          node --check client-session-integrity.js
+          node --check client-reviewed-points.js
+          node --check client-execution-source-unifier-v1.js
+          node --check client-offline-execution-integrity-v1.js
+          node --check client-history-reconciler.js
+          node --check family-alarm-client.js
+          node --check sw.js
+
+      - name: Auditar orçamento de leituras e gravações
+        shell: python
+        run: |
+          from pathlib import Path
+          base=Path('index-CLIENTE-v6.html').read_text(encoding='utf-8')
+          guard=Path('client-time-guard-v3.js').read_text(encoding='utf-8')
+          offline=Path('client-offline-execution-integrity-v1.js').read_text(encoding='utf-8')
+          reviewed=Path('client-reviewed-points.js').read_text(encoding='utf-8')
+          unifier=Path('client-execution-source-unifier-v1.js').read_text(encoding='utf-8')
+          reconciler=Path('client-history-reconciler.js').read_text(encoding='utf-8')
+          session=Path('client-session-integrity.js').read_text(encoding='utf-8')
+          entry=Path('index.html').read_text(encoding='utf-8')
+          sw=Path('sw.js').read_text(encoding='utf-8')
+
+          assert 'const SINCRONIZACAO_CLIENTE_MS = 5 * 60 * 1000' in base
+          assert "sincronizarDadosCliente('cache-inicial',false)" in base
+          assert "sincronizarDadosCliente('intervalo-5min',true)" in base
+          assert "getDocsFromCache" in base and "getDocsFromServer" in base
+          assert "window.rotinaClientCacheSnapshot" in base
+          assert "window.rotinaAtualizarTarefaLocal" in base
+          assert 'onSnapshot(query(collection(db,\'tarefas\')' not in base
+          assert 'onSnapshot(query(collection(db,\'historico\')' not in base
+          assert 'onSnapshot' not in reviewed
+          assert 'onSnapshot' not in unifier
+          assert 'function watchHistory' in offline and 'onSnapshot(' not in offline
+          assert "origem:'cache-compartilhado'" in guard
+          assert "origem:'dom-cache'" in guard
+          assert "servidor-fallback" in guard
+          assert "window.rotinaAtualizarTarefaLocal?.(t.id,dados)" in guard
+          assert "window.rotinaAtualizarTarefaLocal?.(t.id,base)" in guard
+          assert "function corrigirTarefaDepoisDoResultado(historico){return;}" in reconciler
+          assert "Date.now()-ultimaExecucao<300000" in reconciler
+          assert 'limparCamposFinaisDaTarefa(id);' not in session
+          assert "BUILD='20260827.1'" in entry
+          assert "serviceWorkerExpected:73" in entry
+          assert "rotina-family-cliente-v73" in sw
+          print('AUDITORIA_CACHE_FIRST=OK')
+
+      - name: Executar regressões puras existentes
+        run: |
+          if [ -f tests/scoring-core.test.mjs ]; then node tests/scoring-core.test.mjs; fi
+          if [ -f tests/client-time-guard.test.mjs ]; then node tests/client-time-guard.test.mjs; fi
+          if [ -f tests/offline-execution-integrity.test.mjs ]; then node tests/offline-execution-integrity.test.mjs; fi
+          if [ -f tests/alarm-schedule-core.test.mjs ]; then node tests/alarm-schedule-core.test.mjs; fi
+
+      - name: Persistir migração validada
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index-CLIENTE-v6.html index.html sw.js client-time-guard-v3.js client-ui-pro.js client-session-integrity.js client-reviewed-points.js client-execution-source-unifier-v1.js client-offline-execution-integrity-v1.js client-history-reconciler.js family-alarm-client.js
+          if git diff --cached --quiet; then
+            echo 'Migração já aplicada.'
+          else
+            git commit -m "Migrar Cliente para cache-first com sincronização de 5 minutos"
+            git push origin main
+          fi
