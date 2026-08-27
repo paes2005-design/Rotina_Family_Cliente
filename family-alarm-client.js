@@ -1,5 +1,5 @@
 import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import {arrayUnion,getFirestore,collection,doc,onSnapshot,query,serverTimestamp,setDoc,where} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import {arrayUnion,getFirestore,collection,doc,getDocsFromCache,getDocsFromServer,query,serverTimestamp,setDoc,where} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import {agendaDaTarefa,alarmeVigente,chaveOcorrencia,dataLocal,deveDispararAgora,descreverProximaOcorrencia,momentoDaOcorrenciaAtual,semanaInicioISO} from './alarm-schedule-core.js?v=5';
 
 const KEY_PREF='rotina_family_alarm_pref_v2';
@@ -17,7 +17,8 @@ const TONES={
   suave:{label:'Suave',seq:[[523,.28],[659,.28],[784,.45]]},
   musica:{label:'Música',seq:[[523,.16],[659,.16],[784,.16],[1046,.24],[784,.16],[659,.32]]}
 };
-let ctx=null,somTimer=null,relogioTimer=null,autoStopTimer=null,unsub=null,sessaoEscutada='',alarmeDisparado='',ocorrenciaDisparada='',notificacaoSolicitada=0,documentosRemotos=[];
+let ctx=null,somTimer=null,relogioTimer=null,autoStopTimer=null,unsub=null,sessaoEscutada='',alarmeDisparado='',ocorrenciaDisparada='',notificacaoSolicitada=0,documentosRemotos=[],alarmSyncTimer=null,alarmSyncBusy=false,lastAlarmServerSync=0;
+const ALARM_SYNC_MS=5*60*1000;
 const fontesAtivas=new Set();
 let pref=ler(KEY_PREF,{tone:'classico',volume:.75});
 let alarmes=ler(KEY_STATE,{});
@@ -102,7 +103,9 @@ async function sincronizarSilenciosPendentes(){if(!navigator.onLine||!getApps().
 function sincronizarSilencioCompartilhado(a,ocorrencia){enfileirarSilencio(a,ocorrencia);sincronizarSilenciosPendentes()}
 async function sincronizarTudo(){await sincronizarPendente();await sincronizarSilenciosPendentes()}
 async function expirarAlarmesRemotos(){if(!navigator.onLine||!getApps().length)return;const agora=new Date().toISOString();for(const item of documentosRemotos){if(!item.dados.ativo||naSemanaAtual(item.dados))continue;try{await setDoc(item.ref,{ativo:false,bloqueado:false,expirado:true,expiradoEm:agora,expiradoPor:'VIRADA_SEMANA',schedulerPendente:true,schedulerVersao:1,schedulerSolicitadoEm:agora,servidorEm:serverTimestamp()},{merge:true})}catch{}}}
-function escutar(tentativa=0){const g=grupo(),p=perfil(),sessao=`${g}__${p}`;if(!g||!p||!getApps().length){if(tentativa<120)setTimeout(()=>escutar(tentativa+1),100);return}if(unsub&&sessaoEscutada===sessao)return;unsub?.();unsub=null;sessaoEscutada=sessao;const q=query(collection(getFirestore(getApp()),'despertadores'),where('grupoId','==',g),where('perfilId','==',p));unsub=onSnapshot(q,s=>{const proximos={};documentosRemotos=s.docs.map(d=>({ref:d.ref,dados:{id:d.id,...d.data()}})).filter(item=>item.dados.perfilId===p);documentosRemotos.forEach(item=>{const a=item.dados;if(a.tarefaId&&naSemanaAtual(a))proximos[a.tarefaId]=a});ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{proximos[a.tarefaId]=a});alarmes=proximos;salvar(KEY_STATE,alarmes);expirarAlarmesRemotos();atualizarBotoes();window.dispatchEvent(new CustomEvent('rotina-family-alarm-sync',{detail:{origem:s.metadata.fromCache?'cache':'servidor',pendente:s.metadata.hasPendingWrites}}))},()=>{atualizarBotoes()});sincronizarTudo()}
+function aplicarAlarmesSnapshot(s,origem){const g=grupo(),p=perfil(),proximos={};documentosRemotos=s.docs.map(d=>({ref:d.ref,dados:{id:d.id,...d.data()}})).filter(item=>item.dados.perfilId===p);documentosRemotos.forEach(item=>{const a=item.dados;if(a.tarefaId&&naSemanaAtual(a))proximos[a.tarefaId]=a});ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{proximos[a.tarefaId]=a});alarmes=proximos;salvar(KEY_STATE,alarmes);expirarAlarmesRemotos();atualizarBotoes();window.dispatchEvent(new CustomEvent('rotina-family-alarm-sync',{detail:{origem}}));}
+async function sincronizarAlarmes(servidor=true,origem='intervalo-5min'){const g=grupo(),p=perfil();if(!g||!p||!getApps().length||alarmSyncBusy)return false;alarmSyncBusy=true;try{const q=query(collection(getFirestore(getApp()),'despertadores'),where('grupoId','==',g),where('perfilId','==',p));const snap=await (servidor?getDocsFromServer(q):getDocsFromCache(q));aplicarAlarmesSnapshot(snap,origem);if(servidor)lastAlarmServerSync=Date.now();return true}catch(e){try{window.rotinaLog?.('alarme.sync_erro',{origem,mensagem:String(e?.message||e)},'warning')}catch{}return false}finally{alarmSyncBusy=false;}}
+function escutar(tentativa=0){const g=grupo(),p=perfil(),sessao=`${g}__${p}`;if(!g||!p||!getApps().length){if(tentativa<120)setTimeout(()=>escutar(tentativa+1),100);return}if(sessaoEscutada===sessao&&alarmSyncTimer)return;if(alarmSyncTimer)clearInterval(alarmSyncTimer);sessaoEscutada=sessao;unsub=()=>{if(alarmSyncTimer){clearInterval(alarmSyncTimer);alarmSyncTimer=null;}};sincronizarAlarmes(false,'cache-persistente').finally(()=>sincronizarAlarmes(true,'servidor-inicial'));alarmSyncTimer=setInterval(()=>{if(!document.hidden)sincronizarAlarmes(true,'intervalo-5min');},ALARM_SYNC_MS);sincronizarTudo()}
 
 function tarefaConcluida(a){const row=[...document.querySelectorAll(`tr[data-family-task-id="${CSS.escape(a?.tarefaId||'')}"]`)].find(r=>!r.dataset.familyTaskDate||r.dataset.familyTaskDate===a?.dataAgendada);return row?/Prazo|Atrasado/i.test(row.dataset.familyTaskStatus||''):false}
 function estaNaHora(a,agora){return !tarefaConcluida(a)&&deveDispararAgora(a,agora,JANELA_DISPARO_MS,ocorrenciasSilenciadas(a))}

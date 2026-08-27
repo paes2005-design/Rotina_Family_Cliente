@@ -21,7 +21,7 @@
   import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
   import('./client-tolerance-timer.js?v=4').catch(e=>console.error('Cronômetro de tolerância:',e));
   import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
-  import('./family-alarm-client.js?v=10').catch(e=>console.error('Despertador programado por tarefa:',e));
+  import('./family-alarm-client.js?v=11').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=3').catch(e=>console.error('Reconciliação de pontuação:',e));
 
   // Único controlador ativo para cachorro/gato, escolha, preview, áudio e reações reais.
