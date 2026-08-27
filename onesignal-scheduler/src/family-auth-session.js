@@ -1,6 +1,7 @@
 import { firestoreFieldsToJs, jsToFirestoreFields, sha256Hex } from './core.js';
 import { verifyFirebaseIdToken, isMasterEmail } from './index.js';
 import { readCommercialState } from './security-maintenance-v1.js';
+import { resolveClientCommercialAccess, isCommercialExemptGroup } from './commercial-policy.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const CUSTOM_TOKEN_AUD = 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
@@ -183,31 +184,41 @@ async function createDocument(env, collectionId, id, data, now = new Date()) {
   return body.name || '';
 }
 
-function commercialState(config = {}, now = Date.now()) {
-  if (config.grupoBloqueado === true) return 'bloqueado';
-  if (config.grupoConfirmado === true) return 'confirmado';
-  if (Number(config.trialVersao || 0) === 2 && config.trialAtivo === true) {
-    const expires = Date.parse(String(config.trialFimEm || ''));
-    if (Number.isFinite(expires) && now >= expires) return 'teste-expirado';
-    return 'teste';
-  }
-  return 'liberado-legado';
-}
-
-function blockedCommercialState(state) {
-  return state === 'bloqueado' || state === 'teste-expirado';
-}
-
 async function assertCommercialAccess(env, groupId, now = new Date()) {
-  if (groupId === 'CLI-4071') return 'isento';
-  const config = await readCommercialState(env, groupId, now);
-  const state = commercialState(config || {}, now.getTime());
-  if (blockedCommercialState(state)) {
-    const error = new Error(state === 'teste-expirado' ? 'O período de teste deste grupo terminou.' : 'Este grupo está temporariamente bloqueado.');
+  if (isCommercialExemptGroup(groupId)) return 'isento';
+  let config = null;
+  let configAvailable = true;
+  try {
+    config = await readCommercialState(env, groupId, now);
+  } catch (error) {
+    configAvailable = false;
+    console.error(JSON.stringify({
+      event: 'auth.commercial_state_unavailable',
+      grupoId: groupId,
+      message: String(error?.message || error).replace(/\s+/g, ' ').slice(0, 220)
+    }));
+  }
+  const access = resolveClientCommercialAccess({
+    groupId,
+    config: config || {},
+    configAvailable,
+    now: now.getTime()
+  });
+  console.log(JSON.stringify({
+    event: 'auth.commercial_access_resolved',
+    grupoId: groupId,
+    state: access.state,
+    reason: access.reason,
+    configAvailable
+  }));
+  if (!access.allowed) {
+    const error = new Error(access.state === 'teste-expirado'
+      ? 'O período de teste deste grupo terminou.'
+      : 'Este grupo está temporariamente bloqueado.');
     error.status = 403;
     throw error;
   }
-  return state;
+  return access.state;
 }
 
 function roleDefaults(papel) {
