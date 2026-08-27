@@ -502,7 +502,7 @@
             document.getElementById('telaAuth').style.display='none'; document.getElementById('telaApp').style.display='block';
             document.getElementById('tituloSaudacao').innerText=`${clienteNome}, hoje é ${diaAtualExibicao}!`;
             document.getElementById('txtDiaSemana').innerText='Acompanhe suas janelas de prazos diários!';
-            inicializarEscutasFirebase();
+            await iniciarEscutasFirebase();
             window.dispatchEvent(new CustomEvent('rotina-client-session-ready',{detail:{grupo:codigoGrupo,perfilId:clientePerfilId}}));
             verificarEExecutarResetSemanal(codigoGrupo).catch(e=>console.error('Falha ao conferir a virada semanal',e));
         }
@@ -593,7 +593,9 @@
             [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u());
             encerrarSincronizacaoCliente();
             unsubscribeTarefas=encerrarSincronizacaoCliente;unsubscribeTarefasTodas=null;unsubscribeHistorico=null;unsubscribeRecompensas=null;unsubscribeResgates=null;unsubscribeConfigGrupo=null;
-            sincronizarDadosCliente('cache-inicial',false).finally(()=>sincronizarDadosCliente('servidor-inicial',true));
+            const cargaInicial=sincronizarDadosCliente('cache-inicial',false)
+                .then(()=>sincronizarDadosCliente('servidor-inicial',true))
+                .catch(e=>{window.rotinaLog?.('sync.cliente_inicial_erro',{mensagem:String(e?.message||e)},'warning');return false;});
             sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);
             if(!eventosSincronizacaoInstalados){
                 eventosSincronizacaoInstalados=true;
@@ -601,6 +603,7 @@
                 window.addEventListener('online',()=>{if(Date.now()-ultimaSincronizacaoClienteServidor>=SINCRONIZACAO_CLIENTE_MS)sincronizarDadosCliente('reconectado-stale',true);});
                 window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
             }
+            return cargaInicial;
         }
 
         function horaSugeridaComSegundos(valor,fim=false){
