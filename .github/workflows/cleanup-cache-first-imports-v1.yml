@@ -1,0 +1,34 @@
+name: Limpar imports residuais cache-first
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-cache-first-imports-v1.yml'
+      - 'scripts/cleanup-cache-first-imports-v1.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Limpar import morto
+        run: python scripts/cleanup-cache-first-imports-v1.py
+      - name: Validar
+        run: |
+          node --check client-offline-execution-integrity-v1.js
+          ! grep -q 'onSnapshot' client-offline-execution-integrity-v1.js
+          ! grep -q 'getDoc,' client-offline-execution-integrity-v1.js
+      - name: Persistir
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-offline-execution-integrity-v1.js
+          if git diff --cached --quiet; then echo 'Já limpo.'; else git commit -m "Remover import residual de listener no cache-first" && git push origin main; fi
