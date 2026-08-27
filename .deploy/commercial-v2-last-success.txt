@@ -1,4 +1,4 @@
 status=success
-package=commercial-v2
-source_sha=7b920a3671337402f35f0e5c8895197160399f47
-completed_at=2026-08-23T18:33:50Z
+package=commercial-v3-cloudflare-telemetry
+source_sha=796ef8cb9bcaa0a172f17a1bb9667eebf8da8a4a
+completed_at=2026-08-27T08:33:40Z
