@@ -8,6 +8,7 @@ import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
 import { runSecurityMaintenance } from './security-maintenance-v1.js';
 import { handleEmergencyCompensation } from './emergency-compensation-20260826.js';
 import { handleTechnicalDiagnostics, handleNormalizedHealth, handleReliableAppLog } from './technical-diagnostics.js';
+import { handleWorkerAuditDiagnostics } from './worker-audit-diagnostics.js';
 
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
@@ -31,6 +32,7 @@ async function queuedMasterRead(request,env,ctx){const hit=cachedResponse(reques
 export default{
   async fetch(request,env,ctx){try{
     const diagnosticsResponse=await handleTechnicalDiagnostics(request,env);if(diagnosticsResponse)return diagnosticsResponse;
+    const workerAuditResponse=await handleWorkerAuditDiagnostics(request,env);if(workerAuditResponse)return workerAuditResponse;
     const normalizedHealthResponse=await handleNormalizedHealth(request,env,ctx,app);if(normalizedHealthResponse)return normalizedHealthResponse;
     const reliableLogResponse=await handleReliableAppLog(request,env,ctx,app);if(reliableLogResponse)return reliableLogResponse;
     const emergencyResponse=await handleEmergencyCompensation(request,env);if(emergencyResponse)return emergencyResponse;
