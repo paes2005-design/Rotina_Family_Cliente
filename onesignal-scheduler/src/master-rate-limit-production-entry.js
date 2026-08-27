@@ -7,7 +7,8 @@ import { handleFamilyAuthSession } from './family-auth-session.js';
 import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
 import { runSecurityMaintenance } from './security-maintenance-v1.js';
 import { handleEmergencyCompensation } from './emergency-compensation-20260826.js';
-import { handleTechnicalDiagnostics, handleNormalizedHealth, handleReliableAppLog } from './technical-diagnostics.js';
+import { handleTechnicalDiagnostics, handleNormalizedHealth } from './technical-diagnostics.js';
+import { handleReliableAppLogV2 } from './reliable-app-log-v2.js';
 import { handleWorkerAuditDiagnostics } from './worker-audit-diagnostics.js';
 
 let masterReadQueue = Promise.resolve();
@@ -34,7 +35,7 @@ export default{
     const diagnosticsResponse=await handleTechnicalDiagnostics(request,env);if(diagnosticsResponse)return diagnosticsResponse;
     const workerAuditResponse=await handleWorkerAuditDiagnostics(request,env);if(workerAuditResponse)return workerAuditResponse;
     const normalizedHealthResponse=await handleNormalizedHealth(request,env,ctx,app);if(normalizedHealthResponse)return normalizedHealthResponse;
-    const reliableLogResponse=await handleReliableAppLog(request,env,ctx,app);if(reliableLogResponse)return reliableLogResponse;
+    const reliableLogResponse=await handleReliableAppLogV2(request,env,ctx,app);if(reliableLogResponse)return reliableLogResponse;
     const emergencyResponse=await handleEmergencyCompensation(request,env);if(emergencyResponse)return emergencyResponse;
     const accessResponse=await handleCommercialAccessStatus(request,env);if(accessResponse)return accessResponse;
     const authResponse=await handleFamilyAuthSession(request,env);if(authResponse)return authResponse;
