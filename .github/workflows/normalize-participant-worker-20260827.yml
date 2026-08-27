@@ -1,0 +1,115 @@
+name: Normalizar Participante no Worker 2026-08-27
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/normalize-participant-worker-20260827.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Normalizar Worker e diagnostico
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_exact(path, old, new, expected=None):
+              p=Path(path)
+              text=p.read_text(encoding='utf-8')
+              count=text.count(old)
+              if expected is not None and count != expected:
+                  raise SystemExit(f'{path}: esperado {expected} ocorrencias de {old!r}, encontrado {count}')
+              if count == 0:
+                  raise SystemExit(f'{path}: trecho nao encontrado: {old!r}')
+              p.write_text(text.replace(old,new),encoding='utf-8')
+
+          core='onesignal-scheduler/src/index.js'
+          replace_exact(core,
+              "aplicativo: ['cliente', 'adm', 'master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido',",
+              "aplicativo: value.aplicativo === 'cliente' ? 'participante' : (['participante', 'adm', 'master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido'),",
+              1)
+          replace_exact(core,
+              "{ field: 'tag', key: 'aplicativo', relation: '=', value: 'cliente' }",
+              "{ field: 'tag', key: 'aplicativo', relation: '=', value: 'participante' }",
+              1)
+          replace_exact(core,"aplicativo: 'cliente',","aplicativo: 'participante',",1)
+          replace_exact(core,
+              "aplicativo: audience === 'admin' ? 'adm' : 'cliente',",
+              "aplicativo: audience === 'admin' ? 'adm' : 'participante',",
+              1)
+
+          store='onesignal-scheduler/src/technical-store-do.js'
+          replace_exact(store,
+              "aplicativo: ['cliente','adm','master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido',",
+              "aplicativo: value.aplicativo === 'cliente' ? 'participante' : (['participante','adm','master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido'),",
+              1)
+
+          diag='onesignal-scheduler/src/technical-diagnostics.js'
+          replace_exact(diag,
+              "aplicativo: ['cliente','adm','master'].includes(log.aplicativo) ? log.aplicativo : 'desconhecido',",
+              "aplicativo: log.aplicativo === 'cliente' ? 'participante' : (['participante','adm','master'].includes(log.aplicativo) ? log.aplicativo : 'desconhecido'),",
+              1)
+
+          test='onesignal-scheduler/test/technical-diagnostics.test.mjs'
+          replace_exact(test,"aplicativo:'cliente'","aplicativo:'participante'",1)
+          replace_exact(test,"assert.equal(redacted.detalhes.status,400);","assert.equal(redacted.aplicativo,'participante');\nassert.equal(redacted.detalhes.status,400);",1)
+
+          reliable='onesignal-scheduler/test/reliable-app-log-v2.test.mjs'
+          replace_exact(reliable,"const event={aplicativo:'cliente'","const event={aplicativo:'participante'",1)
+
+          deploy='.github/workflows/deploy-worker-master-fix.yml'
+          replace_exact(deploy,"assert 'MONITOR_VERSION = 5' in monitor","assert 'MONITOR_VERSION = 6' in monitor",1)
+          replace_exact(deploy,"const event={aplicativo:'cliente',versaoMonitor:5","const event={aplicativo:'participante',versaoMonitor:6",1)
+          p=Path(deploy)
+          text=p.read_text(encoding='utf-8')
+          anchor="assert 'appendTechnicalLogs' in core\n"
+          addition=("assert \"value: 'participante'\" in core\n"
+                    "          assert \"['participante','adm','master']\" in store\n"
+                    "          assert \"['participante','adm','master']\" in diag\n")
+          if addition not in text:
+              if anchor not in text: raise SystemExit('Ancora de invariantes nao encontrada')
+              text=text.replace(anchor,anchor+'          '+addition,1)
+          p.write_text(text,encoding='utf-8')
+
+          core_text=Path(core).read_text(encoding='utf-8')
+          store_text=Path(store).read_text(encoding='utf-8')
+          diag_text=Path(diag).read_text(encoding='utf-8')
+          assert "value: 'participante'" in core_text
+          assert "aplicativo: 'participante'" in core_text
+          assert "['participante','adm','master']" in store_text
+          assert "['participante','adm','master']" in diag_text
+          print('NORMALIZACAO_WORKER_PARTICIPANTE=OK')
+      - name: Validar testes
+        run: |
+          set -euo pipefail
+          cd onesignal-scheduler
+          node --check src/index.js
+          node --check src/technical-store-do.js
+          node --check src/technical-diagnostics.js
+          npm ci
+          npm run check
+          npm test
+          node test/technical-diagnostics.test.mjs
+          node test/reliable-app-log-v2.test.mjs
+      - name: Persistir alteracoes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/index.js onesignal-scheduler/src/technical-store-do.js onesignal-scheduler/src/technical-diagnostics.js onesignal-scheduler/test/technical-diagnostics.test.mjs onesignal-scheduler/test/reliable-app-log-v2.test.mjs .github/workflows/deploy-worker-master-fix.yml
+          if git diff --cached --quiet; then
+            echo 'Normalizacao do Worker ja aplicada.'
+          else
+            git commit -m "Normalizar Participante no Worker e push"
+            git push origin HEAD:main
+          fi
