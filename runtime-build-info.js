@@ -1,12 +1,12 @@
 (()=>{
   'use strict';
   const INFO=Object.freeze({
-    app:'CLIENTE',
+    app:'PARTICIPANTE',
     appVersion:'1.0.0',
-    build:'20260827.4',
+    build:'20260827.5',
     htmlVersion:'index-CLIENTE-v6',
     rulesModuleVersion:'4',
-    expectedServiceWorkerVersion:'75',
+    expectedServiceWorkerVersion:'77',
     initialSyncCompatVersion:'1'
   });
   window.ROTINA_BUILD_INFO=INFO;
@@ -34,10 +34,10 @@
     if(document.getElementById('rotinaBuildBadge'))return;
     const el=document.createElement('button');
     el.id='rotinaBuildBadge';el.type='button';
-    el.textContent=`Cliente v${INFO.appVersion} • ${INFO.build}`;
+    el.textContent=`Participante v${INFO.appVersion} • ${INFO.build}`;
     el.title='Toque para ver a versão em execução';
     el.style.cssText='position:fixed;right:8px;bottom:82px;z-index:9998;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.94);color:#64748b;border-radius:999px;padding:4px 8px;font:600 10px/1.2 system-ui;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:.86';
-    el.onclick=()=>alert(`Rotina Family Cliente\nVersão: ${INFO.appVersion}\nBuild: ${INFO.build}\nHTML: ${INFO.htmlVersion}\nRegras: v${INFO.rulesModuleVersion}\nService Worker esperado: v${INFO.expectedServiceWorkerVersion}\nService Worker ativo: ${window.ROTINA_SW_VERSION||'sem resposta'}`);
+    el.onclick=()=>alert(`Rotina Family Participante\nVersão: ${INFO.appVersion}\nBuild: ${INFO.build}\nHTML: ${INFO.htmlVersion}\nRegras: v${INFO.rulesModuleVersion}\nService Worker esperado: v${INFO.expectedServiceWorkerVersion}\nService Worker ativo: ${window.ROTINA_SW_VERSION||'sem resposta'}`);
     document.body.appendChild(el);
   }
   async function checkSw(){

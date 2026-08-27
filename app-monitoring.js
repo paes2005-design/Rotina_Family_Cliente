@@ -1,11 +1,13 @@
-if (!window.__rotinaClientMonitoringRuntimeV5) {
-window.__rotinaClientMonitoringRuntimeV5 = true;
+if (!window.__rotinaParticipanteMonitoringRuntimeV6) {
+window.__rotinaParticipanteMonitoringRuntimeV6 = true;
 import('./client-action-guard-v1.js?v=1').catch(error => console.warn('Proteção de ações indisponível:', error));
 
-const APP_KIND = 'cliente';
-const MONITOR_VERSION = 5;
+const APP_KIND = 'participante';
+const LEGACY_APP_KIND = 'cliente';
+const MONITOR_VERSION = 6;
 const LOG_ENDPOINT = 'https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/app-log';
 const QUEUE_KEY = `rotinaFamily.monitorQueue.${APP_KIND}`;
+const LEGACY_QUEUE_KEY = `rotinaFamily.monitorQueue.${LEGACY_APP_KIND}`;
 const SESSION_KEY = `rotinaFamily.monitorSession.${APP_KIND}`;
 const SENSITIVE = /senha|password|pin|email|justificativa|token|secret|chave|api|cpf|documento/i;
 const sessionId = sessionStorage.getItem(SESSION_KEY) || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
@@ -21,8 +23,13 @@ const recentSignatures = new Map();
 
 function readQueue() {
   try {
-    const value = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
-    return Array.isArray(value) ? value.slice(-300) : [];
+    const atual = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+    const legado = JSON.parse(localStorage.getItem(LEGACY_QUEUE_KEY) || '[]');
+    const a = Array.isArray(atual) ? atual : [];
+    const l = Array.isArray(legado) ? legado : [];
+    const merged = [...l, ...a].slice(-300).map(item => ({ ...item, aplicativo: APP_KIND }));
+    if (l.length) localStorage.removeItem(LEGACY_QUEUE_KEY);
+    return merged;
   } catch (_) { return []; }
 }
 let queue = readQueue();
@@ -38,7 +45,7 @@ function rectInfo(el,prefix) { if(!el) return {}; const r=el.getBoundingClientRe
 function screenDetails(origem='periodico') { const catLayer=document.getElementById('rotinaCat3dLayerV2'); const catImg=document.getElementById('rotinaCat3dImgV2'); const dogLayer=document.getElementById('rotinaDogPreviewV2')||document.getElementById('rotinaDogCelebrationLayer'); const catShow=!!catLayer?.classList.contains('show'); const dogShow=!!dogLayer&&(dogLayer.classList.contains('show')||getComputedStyle(dogLayer).display!=='none'); const active=document.querySelector('.tab-content.active,[data-tab].active,.aba.active'); const modal=[...document.querySelectorAll('[role="dialog"],.modal,.popup,.overlay')].find(el=>{const s=getComputedStyle(el);return s.display!=='none'&&s.visibility!=='hidden'&&el.getBoundingClientRect().width>0;}); return { origem, largura:innerWidth,altura:innerHeight,dpr:Number(devicePixelRatio||1).toFixed(2), scrollY:Math.round(scrollY),orientacao:screen?.orientation?.type||'', aba:active?.id||active?.dataset?.tab||'', modal:modal?.id||modal?.className?.toString().slice(0,70)||'', mascote:document.body?.getAttribute('data-rotina-mascote')||'', gatoVisivel:catShow,cachorroVisivel:dogShow, gatoNaturalW:catImg?.naturalWidth||0,gatoNaturalH:catImg?.naturalHeight||0, ...rectInfo(catImg,'gato'),...rectInfo(dogLayer,'cachorro') }; }
 function logScreen(origem='periodico',force=false){ try{ const d=screenDetails(origem); const sig=JSON.stringify(d); const now=Date.now(); if(!force&&sig===lastScreenSignature&&now-lastScreenAt<30000)return; lastScreenSignature=sig;lastScreenAt=now; window.rotinaLog?.('tela.estado',d,(d.gatoCortado||d.cachorroCortado)?'warning':'info'); }catch{} }
 function isDuplicate(signature, event, now) { const windowMs = event.startsWith('ui.') ? 350 : 1500; const previous = recentSignatures.get(signature) || 0; recentSignatures.set(signature, now); if (recentSignatures.size > 180) { for (const [key, at] of recentSignatures) if (now - at > 12_000) recentSignatures.delete(key); } return previous && now - previous < windowMs; }
-async function flush() { if (flushing || !navigator.onLine || !queue.length || sentInSession >= 1200) return; const ctx = context(); if (!ctx.grupoId) return; flushing = true; const amount = Math.min(25, queue.length, 1200 - sentInSession); const batch = queue.slice(0, amount).map(item => ({ ...item, grupoId: item.grupoId || ctx.grupoId, perfilId: item.perfilId || ctx.perfilId })); try { const response = await fetch(LOG_ENDPOINT, { method: 'POST',headers: { 'content-type': 'application/json' }, body: JSON.stringify({ events: batch }),keepalive: true }); if (!response.ok) throw new Error(`Log HTTP ${response.status}`); const result = await response.json().catch(() => ({})); if (Number(result.accepted) !== batch.length) throw new Error('Worker ainda não confirmou o lote de logs.'); queue.splice(0, batch.length);sentInSession += batch.length;flushFailures=0;persistQueueNow(); } catch (error) { flushFailures += 1; persistQueueNow(); console.warn('Telemetria temporariamente indisponível:', String(error?.message || error)); } finally { flushing = false; if (queue.length && navigator.onLine && sentInSession < 1200) { const backoff = flushFailures ? Math.min(60_000, 1800 * (2 ** Math.min(flushFailures, 5))) : 1800; scheduleFlush(backoff); } } }
+async function flush() { if (flushing || !navigator.onLine || !queue.length || sentInSession >= 1200) return; const ctx = context(); if (!ctx.grupoId) return; flushing = true; const amount = Math.min(25, queue.length, 1200 - sentInSession); const batch = queue.slice(0, amount).map(item => ({ ...item, aplicativo: APP_KIND, grupoId: item.grupoId || ctx.grupoId, perfilId: item.perfilId || ctx.perfilId })); try { const response = await fetch(LOG_ENDPOINT, { method: 'POST',headers: { 'content-type': 'application/json' }, body: JSON.stringify({ events: batch }),keepalive: true }); if (!response.ok) throw new Error(`Log HTTP ${response.status}`); const result = await response.json().catch(() => ({})); if (Number(result.accepted) !== batch.length) throw new Error('Worker ainda não confirmou o lote de logs.'); queue.splice(0, batch.length);sentInSession += batch.length;flushFailures=0;persistQueueNow(); } catch (error) { flushFailures += 1; persistQueueNow(); console.warn('Telemetria temporariamente indisponível:', String(error?.message || error)); } finally { flushing = false; if (queue.length && navigator.onLine && sentInSession < 1200) { const backoff = flushFailures ? Math.min(60_000, 1800 * (2 ** Math.min(flushFailures, 5))) : 1800; scheduleFlush(backoff); } } }
 window.rotinaLog = function (eventName, details = {}, level = 'info') { const event = String(eventName || 'evento').replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 80); const safeDetails = cleanDetails(details); const normalizedLevel = ['info', 'warning', 'error'].includes(level) ? level : 'info'; const signature = JSON.stringify([event, safeDetails, normalizedLevel]); const now = Date.now(); if (isDuplicate(signature,event,now)) return; const ctx = context(); queue.push({ aplicativo: APP_KIND,versaoMonitor: MONITOR_VERSION,evento: event,nivel: normalizedLevel, detalhes: safeDetails,grupoId: ctx.grupoId,perfilId: ctx.perfilId,sessaoId: sessionId, clienteEm: new Date().toISOString(),pagina: location.pathname.split('/').filter(Boolean).at(-1) || 'inicio', navegador: browserFamily(),online: navigator.onLine,visibilidade: document.visibilityState, instalado: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true }); if (queue.length > 300) queue = queue.slice(-300); schedulePersist();scheduleFlush(normalizedLevel === 'error' ? 0 : 1800); };
 function actionName(element) { const inline = element.getAttribute('onclick') || ''; const match = inline.match(/^\s*(?:window\.)?([a-zA-Z_$][\w$]*)/); if (match) return match[1]; return element.id || element.dataset.nav || element.dataset.action || element.getAttribute('aria-label') || element.tagName.toLowerCase(); }
 function safeControl(el){ const name=el?.name||el?.id||el?.getAttribute?.('aria-label')||el?.type||el?.tagName?.toLowerCase()||''; return SENSITIVE.test(name)?'campo_sensivel':String(name).slice(0,80); }

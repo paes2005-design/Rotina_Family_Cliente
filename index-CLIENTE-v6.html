@@ -20,14 +20,32 @@
         window.OneSignalDeferred = window.OneSignalDeferred || [];
         const oneSignalBasePath = new URL('./', window.location.href).pathname;
         const oneSignalWorkerPath = `${oneSignalBasePath.replace(/^\/+/, '')}push/onesignal/OneSignalSDKWorker.js`;
-        window.identificarClienteNoPush = function(grupo,perfilId) {
+        let oneSignalParticipanteAtual='';
+        let oneSignalParticipantePendente='';
+        async function aplicarIdentidadeParticipanteNoPush(OneSignal,grupo,perfilId) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return false;
+            const externalId=`rotina_family__${g}__${p}`;
+            if(oneSignalParticipanteAtual===externalId||oneSignalParticipantePendente===externalId)return true;
+            oneSignalParticipantePendente=externalId;
+            try{
+                await OneSignal.login(externalId);
+                await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'participante'});
+                oneSignalParticipanteAtual=externalId;
+                return true;
+            }finally{
+                if(oneSignalParticipantePendente===externalId)oneSignalParticipantePendente='';
+            }
+        }
+        window.identificarParticipanteNoPush = function(grupo,perfilId) {
             const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
             if(!g||!p)return;
             window.OneSignalDeferred.push(async function(OneSignal) {
-                await OneSignal.login(`rotina_family__${g}__${p}`);
-                await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'cliente'});
+                await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
             });
         };
+        // Compatibilidade interna temporária para módulos antigos.
+        window.identificarClienteNoPush = window.identificarParticipanteNoPush;
         window.ativarPushRotina = function() {
             return new Promise(resolve=>{
                 let concluido=false;
@@ -42,10 +60,12 @@
         window.obterStatusPushRotina = function(callback) {
             window.OneSignalDeferred.push(function(OneSignal) { callback?.({optedIn:OneSignal.User.PushSubscription.optedIn,id:OneSignal.User.PushSubscription.id||''}); });
         };
-        window.desvincularClienteDoPush = function() {
+        window.desvincularParticipanteDoPush = function() {
+            oneSignalParticipanteAtual='';oneSignalParticipantePendente='';
             window.OneSignalDeferred.push(async function(OneSignal) { await OneSignal.logout(); });
         };
-        window.addEventListener('rotina-client-session-ready',e=>window.identificarClienteNoPush(e.detail?.grupo,e.detail?.perfilId));
+        window.desvincularClienteDoPush = window.desvincularParticipanteDoPush;
+        window.addEventListener('rotina-client-session-ready',e=>window.identificarParticipanteNoPush(e.detail?.grupo,e.detail?.perfilId));
         window.OneSignalDeferred.push(async function(OneSignal) {
             await OneSignal.init({
                 appId: "356292b3-a763-4a89-b0e5-21bf54bf0424",
@@ -96,7 +116,7 @@
                 window.rotinaLog?.('push.onesignal_dispensado', pushDetails(event));
             });
             const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
-            if(g&&p){await OneSignal.login(`rotina_family__${g}__${p}`);await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'cliente'});}
+            if(g&&p)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
         });
     </script>
 
