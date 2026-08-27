@@ -13,6 +13,7 @@ on:
       - 'onesignal-scheduler/src/commercial-safe-v2-entry.js'
       - 'onesignal-scheduler/src/master-rate-limit-production-entry.js'
       - 'onesignal-scheduler/src/technical-diagnostics.js'
+      - 'onesignal-scheduler/src/worker-audit-diagnostics.js'
       - 'onesignal-scheduler/src/master-groups-index.js'
       - 'onesignal-scheduler/src/master-group-summary.js'
       - 'onesignal-scheduler/src/master-users-fallback.js'
@@ -67,6 +68,7 @@ jobs:
       - name: Validate latency guard and diagnostics
         run: |
           node --check src/technical-diagnostics.js
+          node --check src/worker-audit-diagnostics.js
           node --check ../client-action-guard-v1.js
           node --check ../app-monitoring.js
           node test/client-action-guard.test.mjs
@@ -77,6 +79,7 @@ jobs:
           node --check src/commercial-safe-v2-entry.js
           node --check src/master-rate-limit-production-entry.js
           node --check src/technical-diagnostics.js
+          node --check src/worker-audit-diagnostics.js
           node --check src/master-groups-index.js
           node --check src/master-group-summary.js
           node --check src/master-users-fallback.js
@@ -90,11 +93,13 @@ jobs:
           policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
           users=Path('src/master-users-fallback.js').read_text(encoding='utf-8')
           diag=Path('src/technical-diagnostics.js').read_text(encoding='utf-8')
+          worker_diag=Path('src/worker-audit-diagnostics.js').read_text(encoding='utf-8')
           guard=Path('../client-action-guard-v1.js').read_text(encoding='utf-8')
           monitor=Path('../app-monitoring.js').read_text(encoding='utf-8')
           wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
           assert "import app from './commercial-safe-v2-entry.js'" in prod
           assert "from './technical-diagnostics.js'" in prod
+          assert "from './worker-audit-diagnostics.js'" in prod
           assert 'commercial-preview-entry' not in prod
           assert 'master-user-actions-preview' not in prod
           assert "body.action==='set-group-blocked'" in safe or "body.action === 'set-group-blocked'" in safe
@@ -108,6 +113,7 @@ jobs:
           assert '"main": "src/master-rate-limit-production-entry.js"' in wrangler
           assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
           assert "'/diagnostico-tecnico'" in diag
+          assert "'/diagnostico-worker'" in worker_diag
           assert 'handleReliableAppLog' in diag
           assert 'createSingleFlightAction' in guard
           assert 'MONITOR_VERSION = 5' in monitor
@@ -124,23 +130,33 @@ jobs:
         run: |
           set -euo pipefail
           BASE='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev'
-          for i in {1..15}; do
-            if curl -fsS "$BASE/monitoramento" -o /tmp/monitor.json; then break; fi
-            sleep 4
+          READY=0
+          for i in {1..20}; do
+            curl -fsS "$BASE/monitoramento?deploy=${GITHUB_SHA}-${i}" -o /tmp/monitor.json || true
+            if node -e "const fs=require('fs');let j={};try{j=JSON.parse(fs.readFileSync('/tmp/monitor.json','utf8'))}catch{}; if(!['SAUDAVEL','ATENCAO','DEGRADADO'].includes(j.status)||j.diagnosticsVersion!==1)process.exit(1)"; then READY=1; break; fi
+            sleep 3
           done
+          test "$READY" = 1
           cat /tmp/monitor.json
-          node -e "const j=require('/tmp/monitor.json'); if(!['SAUDAVEL','ATENCAO','DEGRADADO'].includes(j.status)) process.exit(1); if(j.diagnosticsVersion!==1) process.exit(2)"
           printf '%s' '{"events":[{"aplicativo":"cliente","versaoMonitor":5,"evento":"selftest.pipeline","nivel":"warning","detalhes":{"status":299,"tempoMs":12,"recurso":"selftest"},"grupoId":"SYSTEM-SELFTEST","perfilId":"SELFTEST-PROFILE","sessaoId":"SELFTEST-SESSION","clienteEm":"2026-08-27T02:00:00Z","pagina":"selftest","navegador":"CI","online":true,"visibilidade":"servidor","instalado":false},{"aplicativo":"cliente","versaoMonitor":5,"evento":"selftest.pipeline","nivel":"warning","detalhes":{"status":299,"tempoMs":12,"recurso":"selftest"},"grupoId":"SYSTEM-SELFTEST","perfilId":"SELFTEST-PROFILE","sessaoId":"SELFTEST-SESSION","clienteEm":"2026-08-27T02:00:00Z","pagina":"selftest","navegador":"CI","online":true,"visibilidade":"servidor","instalado":false}]}' >/tmp/payload.json
           curl -fsS -H 'Origin: https://paes2005-design.github.io' -H 'Content-Type: application/json' --data-binary @/tmp/payload.json "$BASE/app-log" -o /tmp/app-log.json
           cat /tmp/app-log.json
           node -e "const j=require('/tmp/app-log.json'); if(j.accepted!==2||j.duplicates<1||j.dropped!==0) process.exit(1)"
-          curl -fsS "$BASE/diagnostico-tecnico?limit=40" -o /tmp/diagnostics.json
+          curl -fsS "$BASE/diagnostico-tecnico?limit=40&deploy=${GITHUB_SHA}" -o /tmp/diagnostics.json
           node - <<'NODE'
           const fs=require('fs');const j=JSON.parse(fs.readFileSync('/tmp/diagnostics.json','utf8'));
           if(j.diagnosticsVersion!==1||!Array.isArray(j.logs))process.exit(1);
           const raw=JSON.stringify(j);
           for(const forbidden of ['SYSTEM-SELFTEST','SELFTEST-PROFILE','SELFTEST-SESSION'])if(raw.includes(forbidden))process.exit(2);
-          console.log(JSON.stringify({status:j.status,summary:j.summary,logs:j.logs.slice(0,5)},null,2));
+          console.log('DIAGNOSTICO_TECNICO='+JSON.stringify({status:j.status,summary:j.summary,logs:j.logs.slice(0,8)}));
+          NODE
+          curl -fsS "$BASE/diagnostico-worker?deploy=${GITHUB_SHA}" -o /tmp/worker-diagnostics.json
+          node - <<'NODE'
+          const fs=require('fs');const j=JSON.parse(fs.readFileSync('/tmp/worker-diagnostics.json','utf8'));
+          if(j.diagnosticsVersion!==1||!j.alarms||!j.rewardAdmin||!j.rewardClient)process.exit(1);
+          const raw=JSON.stringify(j);
+          if(/CLI-\d{4}|perfilId|grupoId|sessaoId|email/i.test(raw))process.exit(2);
+          console.log('DIAGNOSTICO_WORKER='+raw);
           NODE
 
       - name: Mark successful commercial production deploy
