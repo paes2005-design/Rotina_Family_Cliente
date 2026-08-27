@@ -12,6 +12,8 @@ import {
   zonedParts
 } from './core.js';
 
+import { appendTechnicalLogs, readTechnicalHealth, writeTechnicalHealth } from './technical-store-do.js';
+
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/datastore',
   'https://www.googleapis.com/auth/identitytoolkit'
@@ -440,8 +442,19 @@ export async function decryptLogEvent(env, envelope) {
 }
 
 async function storeSecureLog(env, value, fetchImpl = fetch, now = new Date(), documentId = '') {
-  const envelope = await encryptLogEvent(env, value);
   const id = documentId || crypto.randomUUID();
+  if (env?.TECHNICAL_STORE) {
+    try {
+      const result = await appendTechnicalLogs(env, [{ ...sanitizeLogEvent(value), clienteEm: value?.clienteEm || now.toISOString() }]);
+      const accounted = Number(result?.stored || 0) + Number(result?.duplicates || 0);
+      if (accounted < 1) console.warn(JSON.stringify({ event: 'technical_store_log_unaccounted' }));
+    } catch (error) {
+      // Telemetria nunca pode derrubar a função de negócio (push, recompensa ou administração).
+      console.error(JSON.stringify({ event: 'technical_store_log_failure', message: cleanError(error) }));
+    }
+    return id;
+  }
+  const envelope = await encryptLogEvent(env, value);
   await createDocument(env, 'appLogsSecure', id, {
     ...envelope,
     criadoEm: now,
@@ -498,9 +511,6 @@ function stateHasFailure(state = '') {
 }
 
 async function recordMonitoringCycle(env, cycle, fetchImpl = fetch, now = new Date()) {
-  const documentName = monitoringDocumentName(env);
-  const current = await getDocument(env, documentName, fetchImpl, now);
-  const history = Array.isArray(current?.data?.ultimosCiclos) ? current.data.ultimosCiclos : [];
   const degraded = Object.keys(cycle.states || {}).some(stateHasFailure);
   const entry = {
     em: now.toISOString(),
@@ -514,8 +524,31 @@ async function recordMonitoringCycle(env, cycle, fetchImpl = fetch, now = new Da
     rewardAudits: Number(cycle.rewardAudits) || 0,
     logsDeleted: Number(cycle.logsDeleted) || 0,
     logsMigrated: Number(cycle.logsMigrated) || 0,
-    states: cycle.states || {}
+    states: cycle.states || {},
+    versions: {
+      scheduler: SCHEDULER_VERSION,
+      rewardPush: 1,
+      deliveryAudit: 1,
+      appLogs: 3,
+      masterAdmin: 2,
+      technicalStore: 1
+    }
   };
+
+  if (env?.TECHNICAL_STORE) {
+    try {
+      await writeTechnicalHealth(env, entry);
+    } catch (error) {
+      // O app continua operando mesmo se apenas a telemetria estiver indisponível.
+      console.error(JSON.stringify({ event: 'technical_store_health_failure', message: cleanError(error) }));
+    }
+    return entry;
+  }
+
+  // Compatibilidade de desenvolvimento/rollback sem binding do Cloudflare.
+  const documentName = monitoringDocumentName(env);
+  const current = await getDocument(env, documentName, fetchImpl, now);
+  const history = Array.isArray(current?.data?.ultimosCiclos) ? current.data.ultimosCiclos : [];
   await patchDocument(env, documentName, {
     servico: 'rotina-family-onesignal-scheduler',
     status: entry.status,
@@ -532,6 +565,42 @@ async function recordMonitoringCycle(env, cycle, fetchImpl = fetch, now = new Da
 }
 
 async function publicMonitoringStatus(env, fetchImpl = fetch, now = new Date()) {
+  if (env?.TECHNICAL_STORE) {
+    try {
+      const stored = await readTechnicalHealth(env);
+      const health = stored?.health || null;
+      return {
+        service: 'rotina-family-onesignal-scheduler',
+        status: health?.status || 'INICIALIZANDO',
+        lastRunAt: health?.em || health?.storedAt || '',
+        lastRun: health || {},
+        recentCycles: Array.isArray(stored?.recentCycles) ? stored.recentCycles : [],
+        versions: health?.versions || {
+          scheduler: SCHEDULER_VERSION,
+          rewardPush: 1,
+          deliveryAudit: 1,
+          appLogs: 3,
+          masterAdmin: 2,
+          technicalStore: 1
+        },
+        storage: 'cloudflare-do',
+        technicalStoreVersion: Number(stored?.storeVersion) || 1
+      };
+    } catch (error) {
+      return {
+        service: 'rotina-family-onesignal-scheduler',
+        status: 'ERRO_MONITORAMENTO_TECNICO',
+        lastRunAt: '',
+        lastRun: {},
+        recentCycles: [],
+        versions: { scheduler: SCHEDULER_VERSION, technicalStore: 1 },
+        storage: 'cloudflare-do',
+        technicalStoreVersion: 1,
+        error: cleanError(error)
+      };
+    }
+  }
+
   const document = await getDocument(env, monitoringDocumentName(env), fetchImpl, now);
   const data = document?.data || {};
   return {
@@ -546,7 +615,8 @@ async function publicMonitoringStatus(env, fetchImpl = fetch, now = new Date()) 
       deliveryAudit: data.deliveryAuditVersion || 1,
       appLogs: data.appLogVersion || 2,
       masterAdmin: data.masterAdminVersion || 2
-    }
+    },
+    storage: 'firestore-legacy'
   };
 }
 
@@ -1361,8 +1431,9 @@ export default {
           runRewardNotifications(env, { now }),
           runAlarmDeliveryAudits(env, { now }),
           runRewardDeliveryAudits(env, { now }),
-          minute === 0 ? cleanupExpiredAppLogs(env, { now }) : Promise.resolve(null),
-          dailyMaintenance ? migrateLegacyAppLogs(env, { now }) : Promise.resolve(null),
+          // Logs e saúde saíram do Firestore. Não gastar cota diária limpando/migrando telemetria legada.
+          Promise.resolve(null),
+          Promise.resolve(null),
           dailyMaintenance ? cleanupKnownOrphanTestAdmin(env, fetch, now) : Promise.resolve(null)
         ]);
         const results = [
