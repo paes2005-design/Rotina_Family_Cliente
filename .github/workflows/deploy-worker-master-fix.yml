@@ -23,6 +23,7 @@ on:
       - 'onesignal-scheduler/test/client-action-guard.test.mjs'
       - 'onesignal-scheduler/test/technical-diagnostics.test.mjs'
       - 'onesignal-scheduler/test/reliable-app-log-v2.test.mjs'
+      - 'onesignal-scheduler/test/integration.test.mjs'
       - 'onesignal-scheduler/wrangler.jsonc'
   workflow_dispatch:
 
@@ -137,13 +138,16 @@ jobs:
           assert 'appendTechnicalLogs' in core
           assert 'writeTechnicalHealth' in core
           assert "storage: 'cloudflare-do'" in core
+          assert "value: 'participante'" in core
+          assert "['participante','adm','master']" in store
+          assert "['participante','adm','master']" in diag
           assert 'minute === 0 ? cleanupExpiredAppLogs' not in core
           assert 'dailyMaintenance ? migrateLegacyAppLogs' not in core
           assert 'export class RotinaTechnicalStore' in store
           assert 'createSingleFlightAction' in guard
-          assert 'MONITOR_VERSION = 5' in monitor
+          assert 'MONITOR_VERSION = 6' in monitor
           assert "includes('/app-log')" in monitor
-          print('Produção segura: árvore/comercial preservados + telemetria fora do Firestore + pipeline v6 + Durable Object OK')
+          print('Produção segura: Participante + árvore/comercial preservados + telemetria Durable Object OK')
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
@@ -177,7 +181,7 @@ jobs:
 
           node - <<'NODE' >/tmp/payload.json
           const stamp=new Date().toISOString();
-          const event={aplicativo:'cliente',versaoMonitor:5,evento:'selftest.pipeline',nivel:'warning',detalhes:{status:299,tempoMs:12,recurso:'selftest-'+process.env.GITHUB_SHA},grupoId:'SYSTEM-SELFTEST',perfilId:'SELFTEST-PROFILE',sessaoId:'SELFTEST-SESSION',clienteEm:stamp,pagina:'selftest',navegador:'CI',online:true,visibilidade:'servidor',instalado:false};
+          const event={aplicativo:'participante',versaoMonitor:6,evento:'selftest.pipeline',nivel:'warning',detalhes:{status:299,tempoMs:12,recurso:'selftest-'+process.env.GITHUB_SHA},grupoId:'SYSTEM-SELFTEST',perfilId:'SELFTEST-PROFILE',sessaoId:'SELFTEST-SESSION',clienteEm:stamp,pagina:'selftest',navegador:'CI',online:true,visibilidade:'servidor',instalado:false};
           process.stdout.write(JSON.stringify({events:[event,event]}));
           NODE
           curl -fsS -H 'Origin: https://paes2005-design.github.io' -H 'Content-Type: application/json' --data-binary @/tmp/payload.json "$BASE/app-log" -o /tmp/app-log.json
@@ -191,9 +195,11 @@ jobs:
           if(j.diagnosticsVersion!==2||j.storage!=='cloudflare-do'||j.technicalStoreVersion!==1||!Array.isArray(j.logs))process.exit(1);
           const raw=JSON.stringify(j);
           for(const forbidden of ['SYSTEM-SELFTEST','SELFTEST-PROFILE','SELFTEST-SESSION'])if(raw.includes(forbidden))process.exit(2);
-          if(!j.logs.some(x=>x.evento==='selftest.pipeline'))process.exit(3);
+          const selftest=j.logs.find(x=>x.evento==='selftest.pipeline');
+          if(!selftest)process.exit(3);
+          if(selftest.aplicativo!=='participante')process.exit(5);
           if(Number(j.summary?.http400||0)>0||Number(j.summary?.http429||0)>0)process.exit(4);
-          console.log('DIAGNOSTICO_TECNICO_POS_MIGRACAO='+JSON.stringify({status:j.status,storage:j.storage,lastRunAt:j.lastRunAt,summary:j.summary,logs:j.logs.slice(0,8)}));
+          console.log('DIAGNOSTICO_TECNICO_POS_MIGRACAO='+JSON.stringify({status:j.status,storage:j.storage,lastRunAt:j.lastRunAt,summary:j.summary,selftest,logs:j.logs.slice(0,8)}));
           NODE
 
           curl -fsS "$BASE/diagnostico-worker?deploy=${GITHUB_SHA}" -o /tmp/worker-diagnostics.json
