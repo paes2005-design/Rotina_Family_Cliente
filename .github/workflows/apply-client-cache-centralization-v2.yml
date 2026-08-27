@@ -1,0 +1,53 @@
+name: Centralizar leitores ativos do Cliente no cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-client-cache-centralization-v2.yml'
+      - 'scripts/apply-client-cache-centralization-v2.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Aplicar segunda centralização
+        run: python scripts/apply-client-cache-centralization-v2.py
+      - name: Validar leitores ativos
+        run: |
+          node --check client-early-start-ui.js
+          node --check client-tolerance-timer.js
+          node --check client-week-nav.js
+          node --check client-ui-pro.js
+          node --check sw.js
+          python - <<'PY'
+          from pathlib import Path
+          active=['index-CLIENTE-v6.html','client-offline-execution-integrity-v1.js','client-reviewed-points.js','client-execution-source-unifier-v1.js','client-early-start-ui.js','client-tolerance-timer.js','client-week-nav.js','family-alarm-client.js']
+          for f in active:
+              s=Path(f).read_text(encoding='utf-8')
+              assert 'onSnapshot(' not in s, f'Listener ativo restante: {f}'
+          early=Path('client-early-start-ui.js').read_text(encoding='utf-8')
+          timer=Path('client-tolerance-timer.js').read_text(encoding='utf-8')
+          week=Path('client-week-nav.js').read_text(encoding='utf-8')
+          entry=Path('index.html').read_text(encoding='utf-8')
+          assert 'rotinaClientCacheSnapshot' in early
+          assert 'rotinaClientCacheSnapshot' in timer
+          assert 'rotinaClientCacheSnapshot' in week
+          assert "setInterval(tick,1000)" in timer
+          assert "BUILD='20260827.3'" in entry
+          print('CLIENTE_LEITORES_ATIVOS_CENTRALIZADOS=OK')
+          PY
+      - name: Persistir
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-early-start-ui.js client-tolerance-timer.js client-week-nav.js client-ui-pro.js index.html sw.js
+          if git diff --cached --quiet; then echo 'Já aplicado.'; else git commit -m "Centralizar leitores ativos do Cliente no cache" && git push origin main; fi
