@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { handleReliableAppLogV2 } from '../src/reliable-app-log-v2.js';
+let calls=0;
+const baseApp={fetch:async request=>{calls+=1;assert.equal(request.headers.get('origin'),'https://paes2005-design.github.io');assert.equal(request.headers.get('x-transport-test'),null);const body=await request.json();assert.equal(body.events.length,1);return Response.json({accepted:1});}};
+const event={aplicativo:'cliente',evento:'teste',grupoId:'CLI-TESTE'};
+const request=new Request('https://worker.example/app-log',{method:'POST',headers:{origin:'https://paes2005-design.github.io','content-type':'application/json','x-transport-test':'nao-copiar'},body:JSON.stringify({events:[event,event]})});
+const response=await handleReliableAppLogV2(request,{},null,baseApp);
+const result=await response.json();
+assert.equal(calls,1);
+assert.equal(result.accepted,2);
+assert.equal(result.stored,1);
+assert.equal(result.duplicates,1);
+assert.equal(result.dropped,0);
+assert.equal(result.pipelineVersion,4);
+console.log('reliable-app-log-v2: OK');
