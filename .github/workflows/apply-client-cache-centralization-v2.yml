@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/apply-client-cache-centralization-v2.yml'
-      - 'scripts/apply-client-cache-centralization-v2.py'
   workflow_dispatch:
 
 permissions:
@@ -19,10 +18,69 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Aplicar segunda centralização
-        run: python scripts/apply-client-cache-centralization-v2.py
-      - name: Validar leitores ativos
+
+      - name: Corrigir carga inicial imediata
+        shell: bash
         run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text(encoding='utf-8')
+          if 'inicializarEscutasFirebase();' not in s:
+              raise SystemExit('Chamada quebrada não encontrada')
+          s=s.replace('            inicializarEscutasFirebase();','            await iniciarEscutasFirebase();',1)
+
+          old="""            sincronizarDadosCliente('cache-inicial',false).finally(()=>sincronizarDadosCliente('servidor-inicial',true));
+            sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);"""
+          new="""            const cargaInicial=sincronizarDadosCliente('cache-inicial',false)
+                .then(()=>sincronizarDadosCliente('servidor-inicial',true))
+                .catch(e=>{window.rotinaLog?.('sync.cliente_inicial_erro',{mensagem:String(e?.message||e)},'warning');return false;});
+            sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);"""
+          if old not in s:
+              raise SystemExit('Bloco de sincronização inicial não encontrado')
+          s=s.replace(old,new,1)
+
+          old_end="""                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
+            }
+        }
+
+        function horaSugeridaComSegundos"""
+          new_end="""                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
+            }
+            return cargaInicial;
+        }
+
+        function horaSugeridaComSegundos"""
+          if old_end not in s:
+              raise SystemExit('Fechamento da inicialização não encontrado')
+          s=s.replace(old_end,new_end,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("const BUILD='20260827.3';","const BUILD='20260827.4';")
+          s=s.replace("./client-ui-pro.js?v=48","./client-ui-pro.js?v=49")
+          s=s.replace("navigator.serviceWorker.register('./sw.js?v=75',{updateViaCache:'none'})","navigator.serviceWorker.register('./sw.js?v=76',{updateViaCache:'none'})")
+          s=s.replace("runtime-build-info.js?v=20260827.3","runtime-build-info.js?v=20260827.4")
+          s=s.replace("release:'cliente-cache-first-v2'","release:'cliente-cache-first-v2-hotfix-sync'")
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('sw.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("rotina-family-cliente-v75","rotina-family-cliente-v76")
+          s=s.replace("ROTINA_SW_VERSION='75'","ROTINA_SW_VERSION='76'")
+          s=s.replace("ROTINA_BUILD_ID='20260827.3'","ROTINA_BUILD_ID='20260827.4'")
+          s=s.replace("runtime-build-info.js?v=20260827.3","runtime-build-info.js?v=20260827.4")
+          p.write_text(s,encoding='utf-8')
+          print('HOTFIX_SYNC_ENTRADA=OK')
+          PY
+
+      - name: Validar cache-first e carga imediata
+        shell: bash
+        run: |
+          set -euo pipefail
           node --check client-early-start-ui.js
           node --check client-tolerance-timer.js
           node --check client-week-nav.js
@@ -30,24 +88,35 @@ jobs:
           node --check sw.js
           python - <<'PY'
           from pathlib import Path
+          s=Path('index-CLIENTE-v6.html').read_text(encoding='utf-8')
+          assert 'inicializarEscutasFirebase();' not in s
+          assert 'await iniciarEscutasFirebase();' in s
+          assert "sincronizarDadosCliente('cache-inicial',false)" in s
+          assert ".then(()=>sincronizarDadosCliente('servidor-inicial',true))" in s
+          assert 'return cargaInicial;' in s
+          assert 'SINCRONIZACAO_CLIENTE_MS = 5 * 60 * 1000' in s
           active=['index-CLIENTE-v6.html','client-offline-execution-integrity-v1.js','client-reviewed-points.js','client-execution-source-unifier-v1.js','client-early-start-ui.js','client-tolerance-timer.js','client-week-nav.js','family-alarm-client.js']
           for f in active:
-              s=Path(f).read_text(encoding='utf-8')
-              assert 'onSnapshot(' not in s, f'Listener ativo restante: {f}'
-          early=Path('client-early-start-ui.js').read_text(encoding='utf-8')
-          timer=Path('client-tolerance-timer.js').read_text(encoding='utf-8')
-          week=Path('client-week-nav.js').read_text(encoding='utf-8')
+              text=Path(f).read_text(encoding='utf-8')
+              assert 'onSnapshot(' not in text, f'Listener ativo restante: {f}'
           entry=Path('index.html').read_text(encoding='utf-8')
-          assert 'rotinaClientCacheSnapshot' in early
-          assert 'rotinaClientCacheSnapshot' in timer
-          assert 'rotinaClientCacheSnapshot' in week
-          assert "setInterval(tick,1000)" in timer
-          assert "BUILD='20260827.3'" in entry
-          print('CLIENTE_LEITORES_ATIVOS_CENTRALIZADOS=OK')
+          sw=Path('sw.js').read_text(encoding='utf-8')
+          assert "BUILD='20260827.4'" in entry
+          assert "sw.js?v=76" in entry
+          assert "ROTINA_SW_VERSION='76'" in sw
+          print('VALIDACAO_SYNC_ENTRADA=OK')
           PY
+
       - name: Persistir
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add client-early-start-ui.js client-tolerance-timer.js client-week-nav.js client-ui-pro.js index.html sw.js
-          if git diff --cached --quiet; then echo 'Já aplicado.'; else git commit -m "Centralizar leitores ativos do Cliente no cache" && git push origin main; fi
+          git add index-CLIENTE-v6.html index.html sw.js
+          if git diff --cached --quiet; then
+            echo 'Hotfix já aplicado.'
+          else
+            git commit -m "Corrigir sincronização imediata ao entrar no Cliente"
+            git push origin HEAD:main
+          fi
