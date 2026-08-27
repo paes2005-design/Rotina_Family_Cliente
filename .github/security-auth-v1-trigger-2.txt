@@ -1,1 +1,1 @@
-security-auth-v1 2026-08-26 emergency-compensation-v3
+security-auth-v1 2026-08-26 commercial-auth-central-policy-v1
