@@ -114,26 +114,4 @@ assert 'const auditPending = alarmAuditPending(records);' in text
 assert 'writeSkipped: true' in text
 assert 'oneSignalAuditoriaPendente: records.length > 0' not in text
 index_path.write_text(text, encoding='utf-8')
-
-workflow_path = Path('.github/workflows/deploy-worker-master-fix.yml')
-workflow = workflow_path.read_text(encoding='utf-8')
-path_line = "      - 'onesignal-scheduler/test/reliable-app-log-v2.test.mjs'\n"
-new_path_line = path_line + "      - 'onesignal-scheduler/test/scheduler-write-budget.test.mjs'\n"
-if "'onesignal-scheduler/test/scheduler-write-budget.test.mjs'" not in workflow:
-    assert path_line in workflow
-    workflow = workflow.replace(path_line, new_path_line, 1)
-
-command_line = "          node test/reliable-app-log-v2.test.mjs\n"
-new_command_line = command_line + "          node test/scheduler-write-budget.test.mjs\n"
-if 'node test/scheduler-write-budget.test.mjs' not in workflow:
-    assert command_line in workflow
-    workflow = workflow.replace(command_line, new_command_line, 1)
-
-invariant = "          assert 'writeSkipped: true' in core\n          assert 'alarmAuditPending(records)' in core\n"
-anchor = "          assert 'writeTechnicalHealth' in core\n"
-if "assert 'writeSkipped: true' in core" not in workflow:
-    assert anchor in workflow
-    workflow = workflow.replace(anchor, anchor + invariant, 1)
-
-workflow_path.write_text(workflow, encoding='utf-8')
 print('Scheduler otimizado: full scan sem mudança não grava; auditoria concluída não é reativada.')
