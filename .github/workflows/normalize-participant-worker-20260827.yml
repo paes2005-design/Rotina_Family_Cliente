@@ -77,20 +77,6 @@ jobs:
               "assert.equal(creates.at(-1).filters.at(-1).value, 'participante');",
               1)
 
-          deploy='.github/workflows/deploy-worker-master-fix.yml'
-          replace_exact(deploy,"assert 'MONITOR_VERSION = 5' in monitor","assert 'MONITOR_VERSION = 6' in monitor",1)
-          replace_exact(deploy,"const event={aplicativo:'cliente',versaoMonitor:5","const event={aplicativo:'participante',versaoMonitor:6",1)
-          p=Path(deploy)
-          text=p.read_text(encoding='utf-8')
-          anchor="          assert 'appendTechnicalLogs' in core\n"
-          addition=("          assert \"value: 'participante'\" in core\n"
-                    "          assert \"['participante','adm','master']\" in store\n"
-                    "          assert \"['participante','adm','master']\" in diag\n")
-          if addition not in text:
-              if anchor not in text: raise SystemExit('Ancora de invariantes nao encontrada')
-              text=text.replace(anchor,anchor+addition,1)
-          p.write_text(text,encoding='utf-8')
-
           core_text=Path(core).read_text(encoding='utf-8')
           store_text=Path(store).read_text(encoding='utf-8')
           diag_text=Path(diag).read_text(encoding='utf-8')
@@ -119,7 +105,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add onesignal-scheduler/src/index.js onesignal-scheduler/src/technical-store-do.js onesignal-scheduler/src/technical-diagnostics.js onesignal-scheduler/test/technical-diagnostics.test.mjs onesignal-scheduler/test/reliable-app-log-v2.test.mjs onesignal-scheduler/test/integration.test.mjs .github/workflows/deploy-worker-master-fix.yml
+          git add onesignal-scheduler/src/index.js onesignal-scheduler/src/technical-store-do.js onesignal-scheduler/src/technical-diagnostics.js onesignal-scheduler/test/technical-diagnostics.test.mjs onesignal-scheduler/test/reliable-app-log-v2.test.mjs onesignal-scheduler/test/integration.test.mjs
           if git diff --cached --quiet; then
             echo 'Normalizacao do Worker ja aplicada.'
           else
