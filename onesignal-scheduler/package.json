@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test/scheduler.test.mjs && node test/integration.test.mjs",
-    "check": "node --check src/core.js && node --check src/index.js && node --check test/scheduler.test.mjs && node --check test/integration.test.mjs",
+    "test": "node test/scheduler.test.mjs && node test/integration.test.mjs && node test/commercial-safety.test.mjs && node test/family-auth-policy-bridge.test.mjs",
+    "check": "node --check src/core.js && node --check src/index.js && node --check src/commercial-policy.js && node --check src/family-auth-session.js && node --check test/scheduler.test.mjs && node --check test/integration.test.mjs && node --check test/commercial-safety.test.mjs && node --check test/family-auth-policy-bridge.test.mjs",
     "validate": "npm run check && npm test && wrangler deploy --dry-run"
   },
   "devDependencies": {
