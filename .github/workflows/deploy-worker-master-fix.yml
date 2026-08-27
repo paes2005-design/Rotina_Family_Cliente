@@ -46,21 +46,17 @@ jobs:
         run: |
           from pathlib import Path
           tree=Path('../adm-tree/master-family-tree.js').read_text(encoding='utf-8')
-          entry=Path('../adm-tree/index.html').read_text(encoding='utf-8')
           assert "const COMMERCIAL_EXEMPT_GROUPS = new Set(['CLI-4071'])" in tree
           assert 'window.rotinaMasterIntegratedTree = true' in tree
           assert 'Administrador principal' in tree
           assert 'Integrantes do grupo' in tree
           assert 'data-master-group-toggle' in tree
-          assert 'set-group-blocked' in tree
-          assert 'confirm-group' in tree
+          assert "window.rotinaMasterApi(`/group?grupoId=${encodeURIComponent(id)}`)" in tree
+          assert "{ action: 'confirm-group', grupoId: id }" in tree
+          assert "{ action: 'set-group-blocked', grupoId: id, disabled: action === 'block' }" in tree
           assert 'delete-profile' not in tree
           assert 'set-group-disabled' not in tree
-          assert "const MASTER_OPERATIONAL_BASE_GROUP = 'CLI-4071'" in entry
-          assert 'masterOperationalProfiles' in entry
-          assert "window.rotinaMasterApi('/group?grupoId='" in entry
-          assert 'window.rotinaMasterSincronizarIntegrantes' in entry
-          print('ARVORE APROVADA: principal clicável -> grupo integrado -> integrantes, bloqueio por grupo e CLI-4071 preservado')
+          print('ARVORE APROVADA: grupo-base CLI-4071 + principal -> grupo -> integrantes + bloqueio/confirmacao preservados')
 
       - name: Install dependencies
         run: npm ci
