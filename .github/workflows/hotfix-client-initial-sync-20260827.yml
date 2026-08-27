@@ -1,3 +1,4 @@
+# trigger-v2
 name: Hotfix carga inicial Cliente
 
 on:
@@ -45,11 +46,6 @@ jobs:
               raise SystemExit('Bloco de carga inicial não encontrado')
           s=s.replace(old2,new2,1)
 
-          marker="""            if(!eventosSincronizacaoInstalados){
-                eventosSincronizacaoInstalados=true;"""
-          if marker not in s:
-              raise SystemExit('Marcador de eventos de sincronização ausente')
-          # adicionar retorno após o bloco de instalação de eventos, antes de fechar a função
           target="""                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
             }
         }
