@@ -1,0 +1,100 @@
+name: Auditoria pós-deploy cache-first
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cache-first-post-deploy-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/checkout@v4
+        with:
+          repository: paes2005-design/Rotina_Family_ADM
+          ref: main
+          path: adm
+
+      - name: Inventariar listeners restantes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== CLIENTE: onSnapshot restantes ==='
+          grep -RIn --include='*.js' --include='*.html' 'onSnapshot(' . \
+            --exclude-dir=.git --exclude-dir=.github --exclude-dir=teste-regra-25 --exclude='scripts/*' || true
+          echo '=== ADM: onSnapshot restantes ==='
+          grep -RIn --include='*.js' --include='*.html' 'onSnapshot(' adm \
+            --exclude-dir=.git --exclude-dir=.github --exclude-dir=teste-regra-25 --exclude='scripts/*' || true
+
+          python - <<'PY'
+          from pathlib import Path
+          critical_client=['index-CLIENTE-v6.html','client-reviewed-points.js','client-execution-source-unifier-v1.js','client-offline-execution-integrity-v1.js','family-alarm-client.js']
+          for f in critical_client:
+              s=Path(f).read_text(encoding='utf-8')
+              assert 'onSnapshot(' not in s, f'Listener crítico restante no Cliente: {f}'
+          critical_adm=['adm/index-ADMIN-v8.html','adm/family-alarm-admin.js']
+          for f in critical_adm:
+              s=Path(f).read_text(encoding='utf-8')
+              assert 'onSnapshot(' not in s, f'Listener crítico restante no ADM: {f}'
+          print('LISTENERS_CRITICOS=0')
+          PY
+
+      - name: Confirmar versão publicada no GitHub Pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          C='https://paes2005-design.github.io/Rotina_Family_Cliente/'
+          A='https://paes2005-design.github.io/Rotina_Family_ADM/'
+          okc=0; oka=0
+          for i in {1..30}; do
+            curl -fsS "${C}index.html?audit=${GITHUB_RUN_ID}-${i}" -o /tmp/client.html || true
+            curl -fsS "${A}index.html?audit=${GITHUB_RUN_ID}-${i}" -o /tmp/adm.html || true
+            grep -q "20260827.2" /tmp/client.html && okc=1 || true
+            grep -q "20260827.1" /tmp/adm.html && oka=1 || true
+            if [ "$okc" = 1 ] && [ "$oka" = 1 ]; then break; fi
+            sleep 3
+          done
+          test "$okc" = 1
+          test "$oka" = 1
+          curl -fsS "${C}family-alarm-client.js?audit=${GITHUB_RUN_ID}" -o /tmp/client-alarm.js
+          curl -fsS "${A}family-alarm-admin.js?audit=${GITHUB_RUN_ID}" -o /tmp/adm-alarm.js
+          grep -q 'ALARM_SYNC_MS=5\*60\*1000' /tmp/client-alarm.js
+          grep -q 'ALARM_SYNC_MS=5\*60\*1000' /tmp/adm-alarm.js
+          ! grep -q 'onSnapshot(' /tmp/client-alarm.js
+          ! grep -q 'onSnapshot(' /tmp/adm-alarm.js
+          echo 'PAGES_CACHE_FIRST=OK'
+
+      - name: Auditar Worker e logs técnicos
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev'
+          TOKEN="cache-first-audit-${GITHUB_RUN_ID}"
+          curl -fsS "$BASE/monitoramento?audit=$TOKEN" -o /tmp/monitor.json
+          curl -fsS "$BASE/diagnostico-tecnico?limit=180&audit=$TOKEN" -o /tmp/diag.json
+          curl -fsS "$BASE/diagnostico-worker?audit=$TOKEN" -o /tmp/worker.json
+          echo '=== MONITORAMENTO ==='; cat /tmp/monitor.json
+          echo; echo '=== DIAGNOSTICO TECNICO RESUMO ==='
+          node - <<'NODE'
+          const j=require('/tmp/diag.json');
+          console.log(JSON.stringify({status:j.status,storage:j.storage,lastRunAt:j.lastRunAt,summary:j.summary,latest:(j.logs||[]).slice(0,15)},null,2));
+          if(j.storage!=='cloudflare-do')process.exit(1);
+          NODE
+          echo '=== DIAGNOSTICO WORKER ==='
+          cat /tmp/worker.json
+          node - <<'NODE'
+          const m=require('/tmp/monitor.json'),d=require('/tmp/diag.json'),w=require('/tmp/worker.json');
+          if(m.storage!=='cloudflare-do'||m.technicalStoreVersion!==1)process.exit(1);
+          if(m.status==='DEGRADADO'||m.status==='ERRO_MONITORAMENTO_TECNICO')process.exit(2);
+          if(Number(d.summary?.http429||0)>0)process.exit(3);
+          if(Number(w.alarms?.withError||0)>0||Number(w.rewardAdmin?.withError||0)>0||Number(w.rewardClient?.withError||0)>0)process.exit(4);
+          NODE
+          echo 'AUDITORIA_CACHE_FIRST_PRODUCAO=OK'
