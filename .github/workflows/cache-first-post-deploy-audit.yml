@@ -1,4 +1,5 @@
 name: Auditoria pós-deploy cache-first
+# v2: reexecuta após remoção do import residual de onSnapshot
 
 on:
   push:
@@ -29,10 +30,10 @@ jobs:
           set -euo pipefail
           echo '=== CLIENTE: onSnapshot restantes ==='
           grep -RIn --include='*.js' --include='*.html' 'onSnapshot(' . \
-            --exclude-dir=.git --exclude-dir=.github --exclude-dir=teste-regra-25 --exclude='scripts/*' || true
+            --exclude-dir=.git --exclude-dir=.github --exclude-dir=teste-regra-25 || true
           echo '=== ADM: onSnapshot restantes ==='
           grep -RIn --include='*.js' --include='*.html' 'onSnapshot(' adm \
-            --exclude-dir=.git --exclude-dir=.github --exclude-dir=teste-regra-25 --exclude='scripts/*' || true
+            --exclude-dir=.git --exclude-dir=.github --exclude-dir=teste-regra-25 || true
 
           python - <<'PY'
           from pathlib import Path
