@@ -2,6 +2,7 @@ import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/fireb
 import { getFirestore, collection, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
 const TIME_ZONE='America/Bahia';
+const VERSION=2;
 let unsubscribe=null;
 let installed=false;
 let historyByTask=new Map();
@@ -29,12 +30,18 @@ function finalState(status=''){
   return s.includes('Prazo')||s.includes('Atrasado');
 }
 
+function isLiveInProgress(row){
+  const dataStatus=clean(row?.dataset?.familyTaskStatus).toLowerCase();
+  const badgeStatus=clean(row?.querySelector?.('.status-badge')?.textContent).toLowerCase();
+  return dataStatus.includes('andamento')||badgeStatus.includes('andamento');
+}
+
 function badgeClass(status='',faixa=''){
   if(String(status).includes('Atrasado'))return 'status-badge status-atrasado';
   if(faixa==='atraso-maior'||String(status).includes('50%'))return 'status-badge status-prazo-50';
   if(faixa==='atraso-leve'||String(status).includes('75%'))return 'status-badge status-prazo-75';
   if(String(status).includes('Prazo'))return 'status-badge status-prazo';
-  if(String(status).includes('andamento'))return 'status-badge status-andamento';
+  if(String(status).toLowerCase().includes('andamento'))return 'status-badge status-andamento';
   return 'status-badge status-pendente';
 }
 
@@ -43,6 +50,15 @@ function apply(){
   document.querySelectorAll('tr[data-family-task-id]').forEach(row=>{
     const taskId=clean(row.dataset.familyTaskId);
     if(!taskId)return;
+
+    // Regra de precedência: enquanto a tarefa de hoje está Em andamento,
+    // o documento vivo de tarefas é a fonte oficial. Um histórico final antigo
+    // do mesmo dia nunca pode sobrescrever uma execução que está acontecendo agora.
+    if(isLiveInProgress(row)){
+      row.dataset.executionSource='tarefas-andamento';
+      return;
+    }
+
     const h=historyByTask.get(taskId);
     if(!h||!finalState(h.status))return;
     const hDate=clean(h.data||h.dataExecucao);
@@ -60,7 +76,7 @@ function apply(){
     const badge=row.querySelector('.status-badge');
     if(badge){badge.className=badgeClass(h.status,h.faixaAtraso);badge.textContent=String(h.status||'Pendente');}
     row.dataset.familyTaskStatus=String(h.status||'');
-    row.dataset.executionSource='historico';
+    row.dataset.executionSource='historico-final';
   });
 }
 
@@ -78,7 +94,7 @@ function start(){
       if(h.tarefaId)historyByTask.set(clean(h.tarefaId),h);
     }
     apply();
-  },err=>{try{window.rotinaLog?.('execucao.fonte_historico_erro',{mensagem:String(err?.message||err)},'warning');}catch{}});
+  },err=>{try{window.rotinaLog?.('execucao.fonte_historico_erro',{mensagem:String(err?.message||err),version:VERSION},'warning');}catch{}});
   return true;
 }
 
@@ -88,7 +104,7 @@ function install(){
   window.addEventListener('rotina-client-session-ready',()=>setTimeout(start,50));
   window.addEventListener('storage',e=>{if(['cliente_grupo','cliente_perfil_id'].includes(e.key))setTimeout(start,50);});
   setTimeout(()=>{if(!start())setTimeout(start,800);},250);
-  window.__rotinaExecutionSource='historico-final/tarefas-andamento';
+  window.__rotinaExecutionSource='historico-final/tarefas-andamento-v2';
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
