@@ -5,6 +5,7 @@ path = Path('onesignal-scheduler/src/index.js')
 text = path.read_text(encoding='utf-8')
 original = text
 
+# 1) Migração já aprovada: logs e saúde para o Durable Object técnico.
 core_marker = "} from './core.js';\n"
 technical_import = "import { appendTechnicalLogs, readTechnicalHealth, writeTechnicalHealth } from './technical-store-do.js';\n"
 if technical_import not in text:
@@ -53,6 +54,7 @@ monitor_replacement = """async function recordMonitoringCycle(env, cycle, fetchI
     fullScan: cycle.fullScan === true,
     processed: Number(cycle.processed) || 0,
     alarms: Number(cycle.alarms) || 0,
+    alarmWritesSkipped: Number(cycle.alarmWritesSkipped) || 0,
     rewards: Number(cycle.rewards) || 0,
     audits: Number(cycle.audits) || 0,
     alarmAudits: Number(cycle.alarmAudits) || 0,
@@ -169,12 +171,135 @@ if old_cleanup in text:
 elif 'Não gastar cota diária limpando/migrando telemetria legada.' not in text:
     raise AssertionError('Chamadas de manutenção de logs legados não encontradas.')
 
+# 2) Orçamento de gravações do scheduler: não gravar em full scan quando nada mudou
+# e não reativar auditoria de mensagens que já foram concluídas.
+helper_marker = "export async function reconcileAlarm(env, document, {\n"
+helper = """function alarmRecordAuditComplete(record = {}) {
+  return Boolean(record?.auditoria?.completedAt) && Number(record?.auditoria?.remaining || 0) === 0;
+}
+
+function alarmAuditPending(records = []) {
+  return records.some(record => !alarmRecordAuditComplete(record));
+}
+
+"""
+if 'function alarmRecordAuditComplete' not in text:
+    assert helper_marker in text, 'reconcileAlarm não encontrado para inserir helper.'
+    text = text.replace(helper_marker, helper + helper_marker, 1)
+
+old_reconcile = """  const fingerprint = await alarmFingerprint(alarm);
+  let records = previousRecords;
+  if (alarm.oneSignalFingerprint && alarm.oneSignalFingerprint !== fingerprint) {
+    await cancelRecords(env, records, fetchImpl);
+    records = [];
+  }
+  const occurrences = plannedOccurrences(alarm, { now, timeZone });
+  const existingKeys = new Set(records.map(record => record.chave));
+  let created = 0;
+  for (const occurrence of occurrences) {
+    if (existingKeys.has(occurrence.key)) continue;
+    const record = await createOneSignalMessage(
+      env,
+      document.name,
+      alarm,
+      fingerprint,
+      occurrence,
+      fetchImpl
+    );
+    records.push(record);
+    existingKeys.add(record.chave);
+    created += 1;
+  }
+  const state = records.length ? 'AGENDADO' : 'SEM_OCORRENCIA_FUTURA';
+  await patchDocument(env, document.name, {
+    schedulerPendente: false,
+    schedulerVersao: SCHEDULER_VERSION,
+    oneSignalEstado: state,
+    oneSignalAgendamentos: records,
+    oneSignalAuditoriaPendente: records.length > 0,
+    oneSignalFingerprint: fingerprint,
+    oneSignalErro: '',
+    oneSignalAtualizadoEm: now
+  }, fetchImpl, now);
+  return { state, created };
+}"""
+new_reconcile = """  const fingerprint = await alarmFingerprint(alarm);
+  let records = previousRecords;
+  let recordsChanged = false;
+  if (alarm.oneSignalFingerprint && alarm.oneSignalFingerprint !== fingerprint) {
+    await cancelRecords(env, records, fetchImpl);
+    records = [];
+    recordsChanged = true;
+  }
+  const occurrences = plannedOccurrences(alarm, { now, timeZone });
+  const existingKeys = new Set(records.map(record => record.chave));
+  let created = 0;
+  for (const occurrence of occurrences) {
+    if (existingKeys.has(occurrence.key)) continue;
+    const record = await createOneSignalMessage(
+      env,
+      document.name,
+      alarm,
+      fingerprint,
+      occurrence,
+      fetchImpl
+    );
+    records.push(record);
+    existingKeys.add(record.chave);
+    created += 1;
+    recordsChanged = true;
+  }
+  const state = records.length ? 'AGENDADO' : 'SEM_OCORRENCIA_FUTURA';
+  const auditPending = alarmAuditPending(records);
+  const needsPatch = recordsChanged
+    || alarm.schedulerPendente === true
+    || Number(alarm.schedulerVersao || 0) !== SCHEDULER_VERSION
+    || String(alarm.oneSignalEstado || '') !== state
+    || String(alarm.oneSignalFingerprint || '') !== fingerprint
+    || String(alarm.oneSignalErro || '') !== ''
+    || alarm.oneSignalAuditoriaPendente !== auditPending;
+
+  // Full scans são de reconciliação. Se nada mudou, não consumir uma gravação do Firestore.
+  if (!needsPatch) return { state, created, writeSkipped: true };
+
+  await patchDocument(env, document.name, {
+    schedulerPendente: false,
+    schedulerVersao: SCHEDULER_VERSION,
+    oneSignalEstado: state,
+    oneSignalAgendamentos: records,
+    oneSignalAuditoriaPendente: auditPending,
+    oneSignalFingerprint: fingerprint,
+    oneSignalErro: '',
+    oneSignalAtualizadoEm: now
+  }, fetchImpl, now);
+  return { state, created };
+}"""
+if old_reconcile in text:
+    text = text.replace(old_reconcile, new_reconcile, 1)
+elif 'writeSkipped: true' not in text:
+    raise AssertionError('Bloco de reconcileAlarm não encontrado.')
+
+cycle_anchor = """          alarms: alarmResults.length,
+          rewards: rewardResults.length,"""
+cycle_replacement = """          alarms: alarmResults.length,
+          alarmWritesSkipped: alarmResults.filter(result => result.writeSkipped === true).length,
+          rewards: rewardResults.length,"""
+if cycle_anchor in text:
+    text = text.replace(cycle_anchor, cycle_replacement, 1)
+elif 'alarmWritesSkipped:' not in text:
+    raise AssertionError('Métrica de ciclo do scheduler não encontrada.')
+
 assert technical_import in text
 assert "await writeTechnicalHealth(env, entry);" in text
 assert "appendTechnicalLogs(env" in text
 assert "storage: 'cloudflare-do'" in text
 assert 'minute === 0 ? cleanupExpiredAppLogs' not in text
 assert 'dailyMaintenance ? migrateLegacyAppLogs' not in text
+assert 'function alarmRecordAuditComplete' in text
+assert 'const auditPending = alarmAuditPending(records);' in text
+assert 'writeSkipped: true' in text
+assert 'oneSignalAuditoriaPendente: records.length > 0' not in text
+assert 'alarmWritesSkipped:' in text
 
 path.write_text(text, encoding='utf-8')
-print('Migração aplicada: logs e saúde -> Cloudflare Durable Object; Firestore mantido para dados funcionais.')
+print('Migração aplicada: telemetria no Cloudflare + scheduler sem gravações redundantes.')
