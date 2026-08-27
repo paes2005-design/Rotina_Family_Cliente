@@ -246,7 +246,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, onSnapshot, updateDoc, doc, getDocs, addDoc, writeBatch, getDoc, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, updateDoc, doc, getDocs, getDocsFromCache, getDocsFromServer, addDoc, writeBatch, getDoc, getDocFromCache, getDocFromServer, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCP9odEV8TJGOM4lflHk64BbPyXXVjGcYg",
@@ -284,6 +284,11 @@
         let unsubscribeRecompensas = null;
         let unsubscribeResgates = null;
         let unsubscribeConfigGrupo = null;
+        const SINCRONIZACAO_CLIENTE_MS = 5 * 60 * 1000;
+        let sincronizacaoClienteTimer = null;
+        let sincronizacaoClienteEmCurso = false;
+        let ultimaSincronizacaoClienteServidor = 0;
+        let eventosSincronizacaoInstalados = false;
         const REGRA_ATRASO_PADRAO = { dentroLimites:100, atrasoLeve:75, atrasoMaior:50, estourado:0 };
         let regraAtrasoAtual = { ...REGRA_ATRASO_PADRAO };
 
@@ -504,27 +509,98 @@
 
         window.rotinaIniciarSessaoCliente=(...args)=>iniciarSessaoCliente(...args);
 
-        window.sairCliente=()=>{ [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u()); window.desvincularClienteDoPush?.(); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
+        window.sairCliente=()=>{ encerrarSincronizacaoCliente(); [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u()); window.desvincularClienteDoPush?.(); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
 
         window.addEventListener('DOMContentLoaded',async()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g){ if(typeof window.rotinaRestaurarSessaoParticipante==='function') await window.rotinaRestaurarSessaoParticipante(n,g,s,p||''); else iniciarSessaoCliente(n,g,s,p||''); } });
 
-        function inicializarEscutasFirebase() {
-            // Busca por grupo e filtra por perfilId; assim registros antigos por nome continuam compatíveis.
+        function snapshotClienteCompartilhado() {
+            return {
+                grupoId: codigoGrupo,
+                perfilId: clientePerfilId,
+                tarefasTodas: cacheTarefasTodas.map(x=>({...x})),
+                tarefasHoje: cacheTarefasHoje.map(x=>({...x})),
+                historico: cacheHistorico.map(x=>({...x})),
+                recompensas: recompensasCache.map(x=>({...x})),
+                resgates: resgatesCache.map(x=>({...x})),
+                regraAtraso: {...regraAtrasoAtual},
+                ultimaSincronizacaoServidor: ultimaSincronizacaoClienteServidor
+            };
+        }
+        window.rotinaClientCacheSnapshot = snapshotClienteCompartilhado;
+        window.rotinaAtualizarTarefaLocal = (id, patch={}) => {
+            const tarefaId=String(id||'').trim(); if(!tarefaId)return;
+            cacheTarefasTodas=cacheTarefasTodas.map(t=>t.id===tarefaId?{...t,...patch}:t);
+            cacheTarefasHoje=cacheTarefasHoje.map(t=>t.id===tarefaId?{...t,...patch}:t);
+            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
+            window.dispatchEvent(new CustomEvent('rotina-client-cache-updated',{detail:{origem:'acao-local',servidor:false,colecoes:['tarefas']}}));
+        };
+
+        function aplicarTarefasSnapshot(snapshot, origem) {
+            if(!snapshot)return;
+            const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome));
+            cacheTarefasTodas=lista;
+            cacheTarefasHoje=lista.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
+            window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem}}));
+        }
+        function aplicarHistoricoSnapshot(snapshot){
+            if(!snapshot)return;
+            cacheHistorico=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(h=>(h.perfilId ? h.perfilId===clientePerfilId : h.perfilNome===clienteNome));
+            atualizarPainelPontos(); atualizarConquistas(); renderizarRecompensasCliente(); renderizarJustificativasCliente();
+        }
+        function aplicarRecompensasSnapshot(snapshot){if(snapshot){recompensasCache=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(r=>r.ativa!==false);renderizarRecompensasCliente();}}
+        function aplicarResgatesSnapshot(snapshot){if(snapshot){resgatesCache=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente();verificarRetornosResgates();}}
+        function aplicarConfigSnapshot(snapshot){if(snapshot){regraAtrasoAtual=normalizarRegraAtraso(snapshot.exists()?snapshot.data():{});const el=document.getElementById('textoRegraAtrasoCliente');if(el)el.innerHTML=textoRegraAtrasoCliente();}}
+
+        async function sincronizarDadosCliente(origem='intervalo-5min', servidor=true) {
+            if(sincronizacaoClienteEmCurso || !codigoGrupo || !clientePerfilId)return false;
+            sincronizacaoClienteEmCurso=true;
+            const inicio=performance.now();
+            try{
+                const qTarefas=query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const qHistorico=query(collection(db,'historico'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const qRecompensas=query(collection(db,'recompensas'),where('grupoId','==',codigoGrupo));
+                const qResgates=query(collection(db,'resgates'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const refConfig=doc(db,'configGrupos',codigoGrupo);
+                const lerColecao=servidor?getDocsFromServer:getDocsFromCache;
+                const lerDocumento=servidor?getDocFromServer:getDocFromCache;
+                const resultados=await Promise.allSettled([
+                    lerColecao(qTarefas),lerColecao(qHistorico),lerColecao(qRecompensas),lerColecao(qResgates),lerDocumento(refConfig)
+                ]);
+                const [tarefas,historico,recompensas,resgates,config]=resultados;
+                if(tarefas.status==='fulfilled')aplicarTarefasSnapshot(tarefas.value,servidor?'servidor-5min':'cache-persistente');
+                if(historico.status==='fulfilled')aplicarHistoricoSnapshot(historico.value);
+                if(recompensas.status==='fulfilled')aplicarRecompensasSnapshot(recompensas.value);
+                if(resgates.status==='fulfilled')aplicarResgatesSnapshot(resgates.value);
+                if(config.status==='fulfilled')aplicarConfigSnapshot(config.value);
+                const falhas=resultados.filter(x=>x.status==='rejected').length;
+                if(servidor && falhas<resultados.length)ultimaSincronizacaoClienteServidor=Date.now();
+                window.rotinaLog?.('sync.cliente_ciclo',{origem,servidor,tempoMs:Math.round(performance.now()-inicio),falhas,intervaloMin:5},falhas?'warning':'info');
+                window.dispatchEvent(new CustomEvent('rotina-client-cache-updated',{detail:{origem,servidor,falhas,intervaloMs:SINCRONIZACAO_CLIENTE_MS}}));
+                return falhas<resultados.length;
+            }catch(e){
+                window.rotinaLog?.('sync.cliente_erro',{origem,servidor,mensagem:String(e?.message||e)},'warning');
+                return false;
+            }finally{sincronizacaoClienteEmCurso=false;}
+        }
+        window.rotinaSincronizarClienteAgora=(motivo='manual')=>sincronizarDadosCliente(motivo,true);
+
+        function encerrarSincronizacaoCliente(){
+            if(sincronizacaoClienteTimer){clearInterval(sincronizacaoClienteTimer);sincronizacaoClienteTimer=null;}
+        }
+        function iniciarEscutasFirebase() {
+            // Arquitetura cache-first: nenhuma coleção funcional fica em onSnapshot permanente.
             [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u());
-            unsubscribeTarefas = onSnapshot(query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId)),{includeMetadataChanges:true}, snapshot=>{
-                const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome));
-                cacheTarefasTodas=lista; cacheTarefasHoje=lista.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
-                renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
-                window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem:snapshot.metadata.fromCache?'cache':'servidor'}}));
-            });
-            unsubscribeHistorico = onSnapshot(query(collection(db,'historico'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId)),{includeMetadataChanges:true}, snapshot=>{
-                cacheHistorico=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(h=>(h.perfilId ? h.perfilId===clientePerfilId : h.perfilNome===clienteNome));
-                atualizarPainelPontos(); atualizarConquistas(); renderizarRecompensasCliente(); renderizarJustificativasCliente();
-            });
-            unsubscribeRecompensas=onSnapshot(query(collection(db,'recompensas'),where('grupoId','==',codigoGrupo)),s=>{recompensasCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>r.ativa!==false);renderizarRecompensasCliente();});
-            unsubscribeResgates=onSnapshot(query(collection(db,'resgates'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId)),s=>{resgatesCache=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente(); verificarRetornosResgates();});
-            if(unsubscribeConfigGrupo) unsubscribeConfigGrupo();
-            unsubscribeConfigGrupo=onSnapshot(doc(db,'configGrupos',codigoGrupo),snap=>{ regraAtrasoAtual=normalizarRegraAtraso(snap.exists()?snap.data():{}); const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); });
+            encerrarSincronizacaoCliente();
+            unsubscribeTarefas=encerrarSincronizacaoCliente;unsubscribeTarefasTodas=null;unsubscribeHistorico=null;unsubscribeRecompensas=null;unsubscribeResgates=null;unsubscribeConfigGrupo=null;
+            sincronizarDadosCliente('cache-inicial',false).finally(()=>sincronizarDadosCliente('servidor-inicial',true));
+            sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);
+            if(!eventosSincronizacaoInstalados){
+                eventosSincronizacaoInstalados=true;
+                document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-ultimaSincronizacaoClienteServidor>=SINCRONIZACAO_CLIENTE_MS)sincronizarDadosCliente('retorno-visivel-stale',true);});
+                window.addEventListener('online',()=>{if(Date.now()-ultimaSincronizacaoClienteServidor>=SINCRONIZACAO_CLIENTE_MS)sincronizarDadosCliente('reconectado-stale',true);});
+                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
+            }
         }
 
         function horaSugeridaComSegundos(valor,fim=false){

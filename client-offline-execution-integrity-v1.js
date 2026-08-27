@@ -1,7 +1,7 @@
 import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import { getFirestore, collection, query, where, onSnapshot, doc, getDoc, getDocFromCache, updateDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const VERSION = 3;
+const VERSION = 4;
 const PREFIX = 'rotina_execucao_concluida_v1';
 let stopHistory = null;
 let installed = false;
@@ -137,34 +137,25 @@ function applyLocksToDom() {
   });
 }
 
-async function authoritativeHistory(taskId, date = isoDate(), allowServer = true) {
-  if (!getApps().length || !group() || !profile()) return null;
+async function authoritativeHistory(taskId, date = isoDate(), allowServer = false) {
+  const compartilhado=(window.rotinaClientCacheSnapshot?.().historico||[]).find(h=>clean(h.tarefaId)===clean(taskId)&&clean(h.data||h.dataExecucao)===date);
+  if(compartilhado)return { ...compartilhado, __source:'shared-cache' };
+  if (!allowServer || !getApps().length || !group() || !profile()) return null;
   const ref = doc(getFirestore(getApp()), 'historico', `${profile()}_${clean(taskId)}_${date}`);
-  if (allowServer && navigator.onLine !== false) {
-    try {
-      const snap = await getDoc(ref);
-      if (snap.exists()) return { id: snap.id, ...snap.data(), __source: 'server' };
-    } catch {}
-  }
-  try {
-    const snap = await getDocFromCache(ref);
-    return snap.exists() ? { id: snap.id, ...snap.data(), __source: 'cache' } : null;
-  } catch {
-    return null;
-  }
+  try { const snap=await getDocFromCache(ref); return snap.exists()?{id:snap.id,...snap.data(),__source:'cache'}:null; } catch { return null; }
 }
 
 async function captureCompletion(taskId, source, allowServer = true) {
   const history = await authoritativeHistory(taskId, isoDate(), allowServer);
   if (history && isFinal(history.status)) {
-    return lockFirstCompletion(taskId, history, `${source}-${history.__source}`, history.__source === 'server');
+    return lockFirstCompletion(taskId, history, `${source}-${history.__source}`, history.__source === 'shared-cache');
   }
   return readLock(taskId);
 }
 
 async function blockIfAlreadyDone(taskId) {
   let lock = null;
-  if (navigator.onLine !== false) lock = await captureCompletion(taskId, 'pre-start', true);
+  lock = await captureCompletion(taskId, 'pre-start-cache-central', false);
   if (!lock) lock = readLock(taskId);
   if (!lock) lock = await captureCompletion(taskId, 'pre-start-cache', false);
   if (!lock) return false;
@@ -189,7 +180,7 @@ function wrapActions() {
   const finish = window.finalizarTarefa;
   if (typeof finish === 'function' && !finish.__rfOfflineIntegrity) {
     const wrappedFinish = async id => {
-      const serverHistory = navigator.onLine !== false ? await authoritativeHistory(id, isoDate(), true) : null;
+      const serverHistory = await authoritativeHistory(id, isoDate(), false);
       if (serverHistory && isFinal(serverHistory.status)) {
         lockFirstCompletion(id, serverHistory, 'finalizacao-bloqueada-servidor', true);
         applyLocksToDom();
@@ -201,8 +192,8 @@ function wrapActions() {
         return;
       }
       const result = await finish(id);
-      await captureCompletion(id, 'finalizar-tarefa');
-      setTimeout(() => captureCompletion(id, 'finalizar-tarefa-800ms'), 800);
+      await captureCompletion(id, 'finalizar-tarefa', false);
+      setTimeout(() => captureCompletion(id, 'finalizar-tarefa-800ms', false), 800);
       return result;
     };
     wrappedFinish.__rfOfflineIntegrity = true;
@@ -229,27 +220,14 @@ function wrapActions() {
 function watchHistory(detail = {}) {
   const g = clean(detail.grupo || group()).toUpperCase();
   const p = clean(detail.perfilId || profile());
-  if (!g || !p || !getApps().length) return;
-  const signature = `${g}__${p}`;
-  if (signature === currentSignature && stopHistory) return;
-  stopHistory?.();
-  currentSignature = signature;
-  const db = getFirestore(getApp());
-  stopHistory = onSnapshot(
-    query(collection(db, 'historico'), where('grupoId', '==', g), where('perfilId', '==', p)),
-    { includeMetadataChanges: true },
-    snapshot => {
-      const today = isoDate();
-      const fromServer = snapshot.metadata.fromCache === false;
-      snapshot.docs.forEach(item => {
-        const data = item.data();
-        if (clean(data.data || data.dataExecucao) !== today || !isFinal(data.status)) return;
-        lockFirstCompletion(clean(data.tarefaId), data, fromServer ? 'historico-servidor' : 'historico-cache', fromServer);
-      });
-      applyLocksToDom();
-    },
-    error => log('integridade_offline.historico_listener_erro', { mensagem: clean(error?.message || error) }, 'warning')
-  );
+  if (!g || !p) return;
+  currentSignature = `${g}__${p}`;
+  const today=isoDate();
+  for(const data of (window.rotinaClientCacheSnapshot?.().historico||[])){
+    if(clean(data.data||data.dataExecucao)!==today||!isFinal(data.status))continue;
+    lockFirstCompletion(clean(data.tarefaId),data,'historico-cache-central',true);
+  }
+  applyLocksToDom();
 }
 
 function taskPatch(lock) {
@@ -271,31 +249,19 @@ function taskPatch(lock) {
 async function reconcileLocks() {
   if (navigator.onLine === false || !getApps().length) return;
   const db = getFirestore(getApp());
+  const historico=(window.rotinaClientCacheSnapshot?.().historico||[]);
   for (const lock of listLocksToday()) {
     try {
-      const historyRef = doc(db, 'historico', `${lock.perfilId}_${lock.taskId}_${lock.date}`);
-      const historySnap = await getDoc(historyRef);
-      if (historySnap.exists() && isFinal(historySnap.data()?.status)) {
-        const authoritative = { id: historySnap.id, ...historySnap.data() };
-        lockFirstCompletion(lock.taskId, authoritative, 'reconciliacao-servidor', true);
-        log('integridade_offline.reconciliacao_servidor_prioritario', { tarefaId: lock.taskId, data: lock.date, status: authoritative.status });
+      const existente=historico.find(h=>clean(h.tarefaId)===lock.taskId&&clean(h.data||h.dataExecucao)===lock.date&&isFinal(h.status));
+      if (existente) {
+        lockFirstCompletion(lock.taskId, existente, 'reconciliacao-cache-servidor', true);
         continue;
       }
-
-      await setDoc(historyRef, {
-        grupoId: lock.grupoId,
-        perfilId: lock.perfilId,
-        tarefaId: lock.taskId,
-        data: lock.date,
-        ...taskPatch(lock),
-        recuperadoDaTravaLocal: true,
-        recuperadoEm: new Date().toISOString()
-      }, { merge: true });
-      await updateDoc(doc(db, 'tarefas', lock.taskId), taskPatch(lock));
-      log('integridade_offline.trava_reconciliada', { tarefaId: lock.taskId, data: lock.date });
-    } catch (error) {
-      log('integridade_offline.reconciliacao_erro', { tarefaId: lock.taskId, mensagem: clean(error?.message || error) }, 'warning');
-    }
+      const historyRef = doc(db, 'historico', `${lock.perfilId}_${lock.taskId}_${lock.date}`);
+      await setDoc(historyRef,{grupoId:lock.grupoId,perfilId:lock.perfilId,tarefaId:lock.taskId,data:lock.date,...taskPatch(lock),recuperadoDaTravaLocal:true,recuperadoEm:new Date().toISOString()},{merge:true});
+      await updateDoc(doc(db,'tarefas',lock.taskId),taskPatch(lock));
+      log('integridade_offline.trava_reconciliada',{tarefaId:lock.taskId,data:lock.date});
+    } catch(error){log('integridade_offline.reconciliacao_erro',{tarefaId:lock.taskId,mensagem:clean(error?.message||error)},'warning');}
   }
   applyLocksToDom();
 }
@@ -309,14 +275,16 @@ function install() {
       watchHistory(event.detail || {});
       setTimeout(wrapActions, 50);
       setTimeout(applyLocksToDom, 80);
-      if (navigator.onLine !== false) setTimeout(reconcileLocks, 400);
+
     });
     window.addEventListener('rotina-family-tasks-rendered', () => setTimeout(applyLocksToDom, 0));
-    window.addEventListener('online', () => setTimeout(reconcileLocks, 250));
+    window.addEventListener('rotina-client-cache-updated', event => {
+      watchHistory({grupo:group(),perfilId:profile()});
+      if(event.detail?.servidor===true)setTimeout(reconcileLocks,50);
+    });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
-        if (navigator.onLine !== false) reconcileLocks();
-        else applyLocksToDom();
+        applyLocksToDom();
       }
     });
     log('integridade_offline.modulo_pronto', { versao: VERSION, prioridade: 'historico-servidor' });

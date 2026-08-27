@@ -1,6 +1,3 @@
-import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import { getFirestore, collection, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-
 const TIME_ZONE='America/Bahia';
 const VERSION=2;
 let unsubscribe=null;
@@ -81,20 +78,14 @@ function apply(){
 }
 
 function start(){
-  if(!getApps().length||!group()||!profile())return false;
-  try{unsubscribe?.();}catch{}
-  const db=getFirestore(getApp());
-  const q=query(collection(db,'historico'),where('grupoId','==',group()),where('perfilId','==',profile()));
-  unsubscribe=onSnapshot(q,{includeMetadataChanges:true},snap=>{
-    const date=todayISO();
-    historyByTask=new Map();
-    for(const d of snap.docs){
-      const h={id:d.id,...d.data()};
-      if(clean(h.data||h.dataExecucao)!==date)continue;
-      if(h.tarefaId)historyByTask.set(clean(h.tarefaId),h);
-    }
-    apply();
-  },err=>{try{window.rotinaLog?.('execucao.fonte_historico_erro',{mensagem:String(err?.message||err),version:VERSION},'warning');}catch{}});
+  if(!group()||!profile())return false;
+  const date=todayISO();
+  historyByTask=new Map();
+  for(const h of (window.rotinaClientCacheSnapshot?.().historico||[])){
+    if(clean(h.data||h.dataExecucao)!==date)continue;
+    if(h.tarefaId)historyByTask.set(clean(h.tarefaId),h);
+  }
+  apply();
   return true;
 }
 
@@ -102,9 +93,10 @@ function install(){
   if(installed)return;installed=true;
   window.addEventListener('rotina-family-tasks-rendered',apply);
   window.addEventListener('rotina-client-session-ready',()=>setTimeout(start,50));
+  window.addEventListener('rotina-client-cache-updated',start);
   window.addEventListener('storage',e=>{if(['cliente_grupo','cliente_perfil_id'].includes(e.key))setTimeout(start,50);});
   setTimeout(()=>{if(!start())setTimeout(start,800);},250);
-  window.__rotinaExecutionSource='historico-final/tarefas-andamento-v2';
+  window.__rotinaExecutionSource='cache-central-historico-final/tarefas-andamento-v3';
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();

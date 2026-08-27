@@ -1,6 +1,3 @@
-import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import { getFirestore, collection, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-
 let unsubscribeHistoricoRevisao=null;
 let chaveSessao='';
 let historicoPerfil=[];
@@ -34,21 +31,11 @@ function encerrarEscuta(){
 function garantirEscuta(){
   const s=sessaoAtual();
   const novaChave=`${s.grupo}|${s.perfilId}|${s.nome}`;
-  if(!s.grupo||!s.perfilId||!getApps().length){encerrarEscuta();return;}
-  if(novaChave===chaveSessao&&unsubscribeHistoricoRevisao)return;
-  encerrarEscuta();
+  if(!s.grupo||!s.perfilId){encerrarEscuta();return;}
   chaveSessao=novaChave;
-  const db=getFirestore(getApp());
-  unsubscribeHistoricoRevisao=onSnapshot(
-    query(collection(db,'historico'),where('grupoId','==',s.grupo),where('perfilId','==',s.perfilId)),
-    snap=>{
-      historicoPerfil=snap.docs.map(d=>({id:d.id,...d.data()}));
-      historicoCarregado=true;
-      aplicarTudo(false);
-      requestAnimationFrame(()=>aplicarTudo(false));
-    },
-    err=>console.error('Pontos revisados do Cliente:',err)
-  );
+  historicoPerfil=(window.rotinaClientCacheSnapshot?.().historico||[]).map(x=>({...x}));
+  historicoCarregado=true;
+  aplicarTudo(false);
 }
 
 function somarPeriodo(inicio,fim){
@@ -123,6 +110,7 @@ function aplicarTudo(garantir=true){
 window.aplicarPontosRevisadosCliente=()=>aplicarTudo(true);
 document.addEventListener('click',e=>{if(e.target.closest?.('[onclick*="sairCliente"],.btn-sair-top'))queueMicrotask(()=>garantirEscuta());});
 window.addEventListener('beforeunload',encerrarEscuta);
+window.addEventListener('rotina-client-cache-updated',()=>{garantirEscuta();requestAnimationFrame(()=>aplicarTudo(false));});
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>aplicarTudo(true),{once:true});
 else aplicarTudo(true);

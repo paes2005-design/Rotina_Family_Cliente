@@ -24,7 +24,7 @@ function esconderTerminoAntigo(){
       const tarefaId=String(row.dataset.familyTaskId||'').trim();
       real.textContent=depois;
       LOG('integridade.termino_antigo_ocultado',{tarefaId,status});
-      if(status==='Em andamento'&&tarefaId)limparCamposFinaisDaTarefa(tarefaId);
+      // limpeza persistente já faz parte do batch de início v7
     }
   });
 }
@@ -69,9 +69,8 @@ function instalarWrapperInicio(){
   if(typeof original!=='function'||original.__rotinaIntegridadeInicio)return false;
   const wrapped=async id=>{
     const resultado=await original(id);
-    // Não segura a interface. O SDK do Firestore mantém a ordem das gravações deste
-    // cliente, portanto esta limpeza entra logo depois do comando de início.
-    limparCamposFinaisDaTarefa(id);
+    // Os campos finais agora são limpos no mesmo batch do início pelo guard temporal.
+    // Aqui resta somente a correção visual local, sem uma segunda gravação no Firestore.
     esconderTerminoAntigo();
     return resultado;
   };
@@ -135,8 +134,7 @@ async function prepararRetornosResgate(detail={}){
   try{
     const banco=db();
     if(!banco)throw new Error('Firebase ainda não inicializado');
-    const snap=await getDocs(query(collection(banco,'resgates'),where('grupoId','==',g),where('perfilId','==',p)));
-    const lista=snap.docs.map(d=>({id:d.id,...d.data()})).filter(r=>{
+    const lista=(window.rotinaClientCacheSnapshot?.().resgates||[]).filter(r=>{
       if(r.perfilId)return String(r.perfilId)===p;
       return String(r.perfilNome||'')===n;
     });
@@ -185,7 +183,8 @@ async function prepararRetornosResgate(detail={}){
 
 function instalarIntegridadeResgates(){
   criarBloqueioTemporarioModal();
-  window.addEventListener('rotina-client-session-ready',e=>prepararRetornosResgate(e.detail||{}));
+  window.addEventListener('rotina-client-session-ready',e=>setTimeout(()=>prepararRetornosResgate(e.detail||{}),250));
+  window.addEventListener('rotina-client-cache-updated',()=>prepararRetornosResgate({grupo:grupo(),perfilId:perfil()}));
   const g=grupo(),p=perfil();
   if(g)setTimeout(()=>prepararRetornosResgate({grupo:g,perfilId:p}),0);
 }
