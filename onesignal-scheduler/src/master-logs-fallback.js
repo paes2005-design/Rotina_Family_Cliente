@@ -1,4 +1,5 @@
 import { verifyFirebaseIdToken, isMasterEmail, decryptLogEvent } from './index.js';
+import { readTechnicalLogs } from './technical-store-do.js';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ALLOWED_APP_ORIGIN = 'https://paes2005-design.github.io';
@@ -64,7 +65,7 @@ async function accessToken(env, fetchImpl = fetch, now = new Date()) {
   const response = await fetchImpl(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth-type:jwt-bearer'.replace('oauth-type','oauth-grant-type'), assertion })
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.access_token) throw new Error(`OAuth Google recusado (${response.status}).`);
@@ -155,16 +156,7 @@ function firestoreFieldsToEnvelope(fields = {}) {
   };
 }
 
-export async function handleMasterLogsFallback(request, env, fetchImpl = fetch, now = new Date()) {
-  const identity = await verifyFirebaseIdToken(env, bearerToken(request), fetchImpl, now);
-  if (!isMasterEmail(env, identity.email)) {
-    return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
-  }
-
-  const url = new URL(request.url);
-  const requestedGroup = String(url.searchParams.get('grupoId') || '').trim();
-  const requestedLimit = normalizeLimit(url.searchParams.get('limit'));
-  const globalMode = !requestedGroup || requestedGroup.toUpperCase() === 'SISTEMA' || requestedGroup === 'MASTER-SYSTEM';
+async function legacyFirestoreLogs(env, requestedGroup, requestedLimit, globalMode, fetchImpl, now) {
   const documents = await recentSecureDocuments(env, fetchImpl, now, requestedLimit);
   const logs = [];
   for (const document of documents) {
@@ -175,10 +167,46 @@ export async function handleMasterLogsFallback(request, env, fetchImpl = fetch, 
     } catch (_) {}
   }
   logs.sort((a, b) => String(b.clienteEm || '').localeCompare(String(a.clienteEm || '')));
+  return logs.slice(0, requestedLimit);
+}
+
+export async function handleMasterLogsFallback(request, env, fetchImpl = fetch, now = new Date()) {
+  const identity = await verifyFirebaseIdToken(env, bearerToken(request), fetchImpl, now);
+  if (!isMasterEmail(env, identity.email)) {
+    return Response.json({ error: 'Acesso exclusivo do ADM Master.' }, { status: 403, headers: cors(request) });
+  }
+
+  const url = new URL(request.url);
+  const requestedGroup = String(url.searchParams.get('grupoId') || '').trim();
+  const requestedLimit = normalizeLimit(url.searchParams.get('limit'));
+  const globalMode = !requestedGroup || requestedGroup.toUpperCase() === 'SISTEMA' || requestedGroup === 'MASTER-SYSTEM';
+
+  if (env?.TECHNICAL_STORE) {
+    const stored = await readTechnicalLogs(env, {
+      groupId: globalMode ? '' : requestedGroup,
+      limit: requestedLimit
+    });
+    const logs = (Array.isArray(stored?.logs) ? stored.logs : []).map((event, index) => ({
+      id: `technical-${index + 1}`,
+      ...event
+    }));
+    return Response.json({
+      logs,
+      escopo: globalMode ? 'todos-os-grupos' : requestedGroup,
+      limiteSolicitado: requestedLimit,
+      limiteMaximo: MAX_LOG_LIMIT,
+      armazenamento: 'cloudflare-do',
+      storeVersion: Number(stored?.storeVersion) || 1,
+      lastLogAt: stored?.lastLogAt || ''
+    }, { headers: cors(request) });
+  }
+
+  const logs = await legacyFirestoreLogs(env, requestedGroup, requestedLimit, globalMode, fetchImpl, now);
   return Response.json({
-    logs: logs.slice(0, requestedLimit),
+    logs,
     escopo: globalMode ? 'todos-os-grupos' : requestedGroup,
     limiteSolicitado: requestedLimit,
-    limiteMaximo: MAX_LOG_LIMIT
+    limiteMaximo: MAX_LOG_LIMIT,
+    armazenamento: 'firestore-legacy'
   }, { headers: cors(request) });
 }
