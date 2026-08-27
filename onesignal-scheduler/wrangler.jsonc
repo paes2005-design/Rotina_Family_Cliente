@@ -12,6 +12,20 @@
   "triggers": {
     "crons": ["* * * * *"]
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TECHNICAL_STORE",
+        "class_name": "RotinaTechnicalStore"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "technical-store-v1",
+      "new_sqlite_classes": ["RotinaTechnicalStore"]
+    }
+  ],
   "vars": {
     "FIREBASE_PROJECT_ID": "sistema-de-metas-diarias",
     "ONESIGNAL_APP_ID": "356292b3-a763-4a89-b0e5-21bf54bf0424",
