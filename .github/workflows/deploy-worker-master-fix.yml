@@ -13,6 +13,7 @@ on:
       - 'onesignal-scheduler/src/commercial-safe-v2-entry.js'
       - 'onesignal-scheduler/src/master-rate-limit-production-entry.js'
       - 'onesignal-scheduler/src/technical-diagnostics.js'
+      - 'onesignal-scheduler/src/technical-store-do.js'
       - 'onesignal-scheduler/src/worker-audit-diagnostics.js'
       - 'onesignal-scheduler/src/reliable-app-log-v2.js'
       - 'onesignal-scheduler/src/master-groups-index.js'
@@ -70,6 +71,7 @@ jobs:
       - name: Validate latency guard and diagnostics
         run: |
           node --check src/technical-diagnostics.js
+          node --check src/technical-store-do.js
           node --check src/worker-audit-diagnostics.js
           node --check src/reliable-app-log-v2.js
           node --check ../client-action-guard-v1.js
@@ -79,10 +81,12 @@ jobs:
           node test/reliable-app-log-v2.test.mjs
       - name: Syntax check production modules
         run: |
+          node --check src/index.js
           node --check src/commercial-policy.js
           node --check src/commercial-safe-v2-entry.js
           node --check src/master-rate-limit-production-entry.js
           node --check src/technical-diagnostics.js
+          node --check src/technical-store-do.js
           node --check src/worker-audit-diagnostics.js
           node --check src/reliable-app-log-v2.js
           node --check src/master-groups-index.js
@@ -94,10 +98,12 @@ jobs:
         run: |
           from pathlib import Path
           prod=Path('src/master-rate-limit-production-entry.js').read_text(encoding='utf-8')
+          core=Path('src/index.js').read_text(encoding='utf-8')
           safe=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
           policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
           users=Path('src/master-users-fallback.js').read_text(encoding='utf-8')
           diag=Path('src/technical-diagnostics.js').read_text(encoding='utf-8')
+          store=Path('src/technical-store-do.js').read_text(encoding='utf-8')
           worker_diag=Path('src/worker-audit-diagnostics.js').read_text(encoding='utf-8')
           reliable=Path('src/reliable-app-log-v2.js').read_text(encoding='utf-8')
           guard=Path('../client-action-guard-v1.js').read_text(encoding='utf-8')
@@ -107,6 +113,7 @@ jobs:
           assert "from './technical-diagnostics.js'" in prod
           assert "from './worker-audit-diagnostics.js'" in prod
           assert "from './reliable-app-log-v2.js'" in prod
+          assert "export { RotinaTechnicalStore } from './technical-store-do.js'" in prod
           assert 'commercial-preview-entry' not in prod
           assert 'master-user-actions-preview' not in prod
           assert "body.action==='set-group-blocked'" in safe or "body.action === 'set-group-blocked'" in safe
@@ -119,41 +126,74 @@ jobs:
           assert "links.byUid.get(uid) || links.byEmail.get(email)" in users
           assert '"main": "src/master-rate-limit-production-entry.js"' in wrangler
           assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
+          assert '"name": "TECHNICAL_STORE"' in wrangler
+          assert '"class_name": "RotinaTechnicalStore"' in wrangler
+          assert 'new_sqlite_classes' in wrangler
           assert "'/diagnostico-tecnico'" in diag
+          assert "DIAGNOSTICS_VERSION = 2" in diag
           assert "'/diagnostico-worker'" in worker_diag
-          assert 'pipelineVersion:5' in reliable.replace(' ', '')
-          assert 'FIRESTORE_STATUS_CODES' in reliable
+          assert 'pipelineVersion: 6' in reliable
+          assert "storage: 'cloudflare-do'" in reliable
+          assert 'appendTechnicalLogs' in core
+          assert 'writeTechnicalHealth' in core
+          assert "storage: 'cloudflare-do'" in core
+          assert 'minute === 0 ? cleanupExpiredAppLogs' not in core
+          assert 'dailyMaintenance ? migrateLegacyAppLogs' not in core
+          assert 'export class RotinaTechnicalStore' in store
           assert 'createSingleFlightAction' in guard
           assert 'MONITOR_VERSION = 5' in monitor
           assert "includes('/app-log')" in monitor
-          print('Produção segura: árvore/comercial preservados + single-flight + diagnóstico redigido + log pipeline v5 OK')
+          print('Produção segura: árvore/comercial preservados + telemetria fora do Firestore + pipeline v6 + Durable Object OK')
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Production smoke - Worker health, diagnostics and logs
+      - name: Production smoke - post migration audit
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev'
+
           READY=0
-          for i in {1..20}; do
+          for i in {1..35}; do
             curl -fsS "$BASE/monitoramento?deploy=${GITHUB_SHA}-${i}" -o /tmp/monitor.json || true
-            if node -e "const fs=require('fs');let j={};try{j=JSON.parse(fs.readFileSync('/tmp/monitor.json','utf8'))}catch{}; if(!['SAUDAVEL','ATENCAO','DEGRADADO'].includes(j.status)||j.diagnosticsVersion!==1)process.exit(1)"; then READY=1; break; fi
+            if node - <<'NODE'
+          const fs=require('fs');let j={};try{j=JSON.parse(fs.readFileSync('/tmp/monitor.json','utf8'))}catch{}
+          const ok=['SAUDAVEL','ATENCAO','DEGRADADO'].includes(j.status)&&j.diagnosticsVersion===2&&j.storage==='cloudflare-do'&&j.technicalStoreVersion===1&&Boolean(j.lastRunAt);
+          process.exit(ok?0:1);
+          NODE
+            then READY=1; break; fi
             sleep 3
           done
           test "$READY" = 1
+          echo 'MONITORAMENTO_POS_MIGRACAO:'
           cat /tmp/monitor.json
+          node - <<'NODE'
+          const j=require('/tmp/monitor.json');
+          if(j.status==='DEGRADADO') { console.error('Worker ainda degradado: '+JSON.stringify(j.healthReasons||j.lastRun?.states||{})); process.exit(4); }
+          NODE
 
-          curl -fsS "$BASE/diagnostico-tecnico?limit=40&deploy=${GITHUB_SHA}" -o /tmp/diagnostics.json
+          node - <<'NODE' >/tmp/payload.json
+          const stamp=new Date().toISOString();
+          const event={aplicativo:'cliente',versaoMonitor:5,evento:'selftest.pipeline',nivel:'warning',detalhes:{status:299,tempoMs:12,recurso:'selftest-'+process.env.GITHUB_SHA},grupoId:'SYSTEM-SELFTEST',perfilId:'SELFTEST-PROFILE',sessaoId:'SELFTEST-SESSION',clienteEm:stamp,pagina:'selftest',navegador:'CI',online:true,visibilidade:'servidor',instalado:false};
+          process.stdout.write(JSON.stringify({events:[event,event]}));
+          NODE
+          curl -fsS -H 'Origin: https://paes2005-design.github.io' -H 'Content-Type: application/json' --data-binary @/tmp/payload.json "$BASE/app-log" -o /tmp/app-log.json
+          echo 'APP_LOG_POS_MIGRACAO:'
+          cat /tmp/app-log.json
+          node -e "const j=require('/tmp/app-log.json'); if(j.pipelineVersion!==6||j.storage!=='cloudflare-do'||j.accepted!==2||j.duplicates<1||j.dropped!==0||j.stored!==1) process.exit(1)"
+
+          curl -fsS "$BASE/diagnostico-tecnico?limit=80&deploy=${GITHUB_SHA}" -o /tmp/diagnostics.json
           node - <<'NODE'
           const fs=require('fs');const j=JSON.parse(fs.readFileSync('/tmp/diagnostics.json','utf8'));
-          if(j.diagnosticsVersion!==1||!Array.isArray(j.logs))process.exit(1);
+          if(j.diagnosticsVersion!==2||j.storage!=='cloudflare-do'||j.technicalStoreVersion!==1||!Array.isArray(j.logs))process.exit(1);
           const raw=JSON.stringify(j);
           for(const forbidden of ['SYSTEM-SELFTEST','SELFTEST-PROFILE','SELFTEST-SESSION'])if(raw.includes(forbidden))process.exit(2);
-          console.log('DIAGNOSTICO_TECNICO='+JSON.stringify({status:j.status,summary:j.summary,logs:j.logs.slice(0,8)}));
+          if(!j.logs.some(x=>x.evento==='selftest.pipeline'))process.exit(3);
+          if(Number(j.summary?.http400||0)>0||Number(j.summary?.http429||0)>0)process.exit(4);
+          console.log('DIAGNOSTICO_TECNICO_POS_MIGRACAO='+JSON.stringify({status:j.status,storage:j.storage,lastRunAt:j.lastRunAt,summary:j.summary,logs:j.logs.slice(0,8)}));
           NODE
 
           curl -fsS "$BASE/diagnostico-worker?deploy=${GITHUB_SHA}" -o /tmp/worker-diagnostics.json
@@ -162,20 +202,16 @@ jobs:
           if(j.diagnosticsVersion!==1||!j.alarms||!j.rewardAdmin||!j.rewardClient)process.exit(1);
           const raw=JSON.stringify(j);
           if(/CLI-\d{4}|perfilId|grupoId|sessaoId|email/i.test(raw))process.exit(2);
-          console.log('DIAGNOSTICO_WORKER='+raw);
+          if(Number(j.alarms.withError||0)>0||Number(j.rewardAdmin.withError||0)>0||Number(j.rewardClient.withError||0)>0)process.exit(3);
+          console.log('DIAGNOSTICO_WORKER_POS_MIGRACAO='+raw);
           NODE
-
-          printf '%s' '{"events":[{"aplicativo":"cliente","versaoMonitor":5,"evento":"selftest.pipeline","nivel":"warning","detalhes":{"status":299,"tempoMs":12,"recurso":"selftest"},"grupoId":"SYSTEM-SELFTEST","perfilId":"SELFTEST-PROFILE","sessaoId":"SELFTEST-SESSION","clienteEm":"2026-08-27T02:00:00Z","pagina":"selftest","navegador":"CI","online":true,"visibilidade":"servidor","instalado":false},{"aplicativo":"cliente","versaoMonitor":5,"evento":"selftest.pipeline","nivel":"warning","detalhes":{"status":299,"tempoMs":12,"recurso":"selftest"},"grupoId":"SYSTEM-SELFTEST","perfilId":"SELFTEST-PROFILE","sessaoId":"SELFTEST-SESSION","clienteEm":"2026-08-27T02:00:00Z","pagina":"selftest","navegador":"CI","online":true,"visibilidade":"servidor","instalado":false}]}' >/tmp/payload.json
-          curl -fsS -H 'Origin: https://paes2005-design.github.io' -H 'Content-Type: application/json' --data-binary @/tmp/payload.json "$BASE/app-log" -o /tmp/app-log.json
-          cat /tmp/app-log.json
-          node -e "const j=require('/tmp/app-log.json'); if(j.pipelineVersion!==5||j.accepted!==2||j.duplicates<1||j.dropped!==0||j.stored!==1) process.exit(1)"
 
       - name: Mark successful commercial production deploy
         working-directory: .
         run: |
           mkdir -p .deploy
-          printf 'status=success\npackage=commercial-v3-latency-diagnostics\nsource_sha=%s\ncompleted_at=%s\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .deploy/commercial-v2-last-success.txt
+          printf 'status=success\npackage=commercial-v3-cloudflare-telemetry\nsource_sha=%s\ncompleted_at=%s\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .deploy/commercial-v2-last-success.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .deploy/commercial-v2-last-success.txt
-          if git diff --cached --quiet; then echo 'Marcador já está atualizado.'; else git commit -m "Deploy: confirmar pacote de latência e diagnóstico" && git push; fi
+          if git diff --cached --quiet; then echo 'Marcador já está atualizado.'; else git commit -m "Deploy: confirmar telemetria Cloudflare" && git push; fi
