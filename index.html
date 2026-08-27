@@ -10,15 +10,15 @@
   <div class="loading">Carregando Rotina Family...</div>
   <script>
     (async()=>{
-      const BUILD='20260827.2';
+      const BUILD='20260827.3';
       try{
         const r=await fetch(`./index-CLIENTE-v6.html?build=${BUILD}`,{cache:'no-store'});
         if(!r.ok)throw new Error(`Falha ao carregar aplicativo: HTTP ${r.status}`);
         let html=await r.text();
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=5')
-          .replace('./client-ui-pro.js?v=44','./client-ui-pro.js?v=47')
-          .replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=74',{updateViaCache:'none'})");
+          .replace('./client-ui-pro.js?v=44','./client-ui-pro.js?v=48')
+          .replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=75',{updateViaCache:'none'})");
 
         const authGate=`<script>(function(){
           let resolveReady;
@@ -61,9 +61,9 @@
         if(!html.includes('client-mascot-fix-v6.js'))html=html.replace('</body>',mascotFix+'\n</body>');
         const catContainer='<script src="./client-cat-container-v7.js?v=9"><\/script>';
         if(!html.includes('client-cat-container-v7.js'))html=html.replace('</body>',catContainer+'\n</body>');
-        const runtimeInfo='<script src="./runtime-build-info.js?v=20260827.2"><\/script>';
+        const runtimeInfo='<script src="./runtime-build-info.js?v=20260827.3"><\/script>';
         if(!html.includes('runtime-build-info.js'))html=html.replace('</body>',runtimeInfo+'\n</body>');
-        html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',release:'cliente-cache-first-v1',authGate:1,authVersion:6,emergencyCompensation:3,executionSource:2,offlineIntegrity:4,uiPro:47,serviceWorkerExpected:73,mascoteOverlay:4,catAssetFix:6,catLayoutSafe:5,mascoteFix:6,catContainer:8,catScale:1,catVisual:'2d',catSadVisual:'2d-aprovado-novo'});<\/script>\n</body>`);
+        html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',release:'cliente-cache-first-v2',authGate:1,authVersion:6,emergencyCompensation:3,executionSource:2,offlineIntegrity:4,uiPro:47,serviceWorkerExpected:73,mascoteOverlay:4,catAssetFix:6,catLayoutSafe:5,mascoteFix:6,catContainer:8,catScale:1,catVisual:'2d',catSadVisual:'2d-aprovado-novo'});<\/script>\n</body>`);
         document.open();document.write(html);document.close();
       }catch(e){
         document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><button onclick="location.reload()" style="margin-top:14px;padding:10px 16px;border:0;border-radius:10px">Tentar novamente</button></div>';

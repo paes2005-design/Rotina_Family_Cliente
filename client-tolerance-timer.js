@@ -1,5 +1,3 @@
-import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import {getFirestore,collection,query,where,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import {calcularEstadoCronometro,formatarDuracaoCronometro} from './tolerance-timer-core.js';
 
 const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
@@ -114,36 +112,31 @@ export function atualizarSomenteTextoCronometro(agora=new Date()){
 
 function garantirEscuta(){
   const s=sessao(),chave=`${s.grupo}|${s.perfil||s.nome}`;
-  if(!s.grupo||(!s.perfil&&!s.nome)){
-    if(unsubscribe){unsubscribe();unsubscribe=null;}
-    chaveSessao='';tarefas=[];return;
-  }
-  if(chave===chaveSessao&&unsubscribe)return;
-  if(!getApps().length)return;
-  unsubscribe?.();
-  const banco=getFirestore(getApp());
+  if(!s.grupo||(!s.perfil&&!s.nome)){chaveSessao='';tarefas=[];prepararLinhasCronometro();return;}
   chaveSessao=chave;
-  unsubscribe=onSnapshot(query(collection(banco,'tarefas'),where('grupoId','==',s.grupo)),snap=>{
-    tarefas=snap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.perfilId?s.perfil&&t.perfilId===s.perfil:t.perfilNome===s.nome);
-    prepararLinhasCronometro();
-  },e=>console.warn('Cronômetro de tolerância:',e));
+  const cache=window.rotinaClientCacheSnapshot?.();
+  tarefas=(cache?.tarefasTodas||[]).filter(t=>t.perfilId?s.perfil&&t.perfilId===s.perfil:t.perfilNome===s.nome);
+  prepararLinhasCronometro();
 }
 
 function tick(){
-  garantirEscuta();
   atualizarSomenteTextoCronometro(new Date());
 }
 
 function iniciarTimerUnico(){
   if(timerId!==null)return;
+  garantirEscuta();
   timerId=setInterval(tick,1000);
   tick();
 }
+
 
 window.prepararCronometrosTolerancia=prepararLinhasCronometro;
 window.atualizarCronometrosTolerancia=atualizarSomenteTextoCronometro;
 window.__rotinaToleranceTimerDebug={getTimerId:()=>timerId,getTaskCount:()=>tarefas.length};
 
 window.addEventListener('rotina-tolerance-rule-updated',()=>{prepararLinhasCronometro();atualizarSomenteTextoCronometro(new Date());});
+window.addEventListener('rotina-client-cache-updated',garantirEscuta);
+window.addEventListener('rotina-client-session-ready',garantirEscuta);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick();});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciarTimerUnico,{once:true});else iniciarTimerUnico();

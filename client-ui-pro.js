@@ -1,6 +1,6 @@
 (()=>{
   window.__rotinaTimeGuardReady=false;
-  window.__rotinaMascoteLoaderVersion=12;
+  window.__rotinaMascoteLoaderVersion=13;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // Impede a comemoração legada. As reações de cachorro/gato são controladas
@@ -18,9 +18,9 @@
     console.error('Integridade de sessão do Cliente:',e);
   });
   import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
-  import('./client-early-start-ui.js').catch(e=>console.error('Início antecipado Cliente:',e));
-  import('./client-tolerance-timer.js?v=4').catch(e=>console.error('Cronômetro de tolerância:',e));
-  import('./client-week-nav.js?v=3').catch(e=>console.error('Navegação semanal:',e));
+  import('./client-early-start-ui.js?v=2').catch(e=>console.error('Início antecipado Cliente:',e));
+  import('./client-tolerance-timer.js?v=5').catch(e=>console.error('Cronômetro de tolerância:',e));
+  import('./client-week-nav.js?v=4').catch(e=>console.error('Navegação semanal:',e));
   import('./family-alarm-client.js?v=11').catch(e=>console.error('Despertador programado por tarefa:',e));
   import('./client-history-reconciler.js?v=3').catch(e=>console.error('Reconciliação de pontuação:',e));
 

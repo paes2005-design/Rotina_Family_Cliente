@@ -1,6 +1,3 @@
-import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import {getFirestore,collection,query,where,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-
 const pad=n=>String(n).padStart(2,'0');
 const hojeISO=()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
 let tarefas=[];
@@ -26,7 +23,7 @@ function garantirEstilo(){
   document.head.appendChild(s);
 }
 function aplicar(){
-  garantirEscuta();garantirEstilo();
+  garantirEstilo();
   const hoje=hojeISO();
   document.querySelectorAll('#tabelaCorpo tr').forEach(row=>{
     const td=row.children?.[1];if(!td)return;
@@ -40,17 +37,17 @@ function aplicar(){
 function garantirEscuta(){
   if(iniciando)return;
   const s=sessao(),chave=`${s.grupo}|${s.perfil||s.nome}`;
-  if(!s.grupo||(!s.perfil&&!s.nome)||chave===chaveSessao)return;
+  if(!s.grupo||(!s.perfil&&!s.nome)){chaveSessao='';tarefas=[];return;}
   iniciando=true;
   try{
-    unsubscribe?.();chaveSessao=chave;
-    const banco=getApps().length?getFirestore(getApp()):null;if(!banco){chaveSessao='';return;}
-    unsubscribe=onSnapshot(query(collection(banco,'tarefas'),where('grupoId','==',s.grupo)),snap=>{
-      tarefas=snap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.perfilId?s.perfil&&t.perfilId===s.perfil:t.perfilNome===s.nome);
-      aplicar();
-    },e=>console.warn('Início antecipado Cliente:',e));
+    chaveSessao=chave;
+    const cache=window.rotinaClientCacheSnapshot?.();
+    tarefas=(cache?.tarefasTodas||[]).filter(t=>t.perfilId?s.perfil&&t.perfilId===s.perfil:t.perfilNome===s.nome);
   }finally{iniciando=false;}
 }
-window.aplicarInicioAntecipadoCliente=aplicar;
+window.aplicarInicioAntecipadoCliente=()=>{garantirEscuta();aplicar();};
 window.iniciarInicioAntecipadoCliente=garantirEscuta;
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',aplicar,{once:true});else aplicar();
+window.addEventListener('rotina-client-cache-updated',()=>{garantirEscuta();aplicar();});
+window.addEventListener('rotina-client-session-ready',()=>{garantirEscuta();aplicar();});
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{garantirEscuta();aplicar();},{once:true});else{garantirEscuta();aplicar();}
+

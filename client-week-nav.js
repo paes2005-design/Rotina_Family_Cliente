@@ -1,6 +1,3 @@
-import { getApps } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
 const DIAS = [
   { dia: 'Segunda', rotulo: 'Seg' },
   { dia: 'Terça', rotulo: 'Ter' },
@@ -69,14 +66,20 @@ function renderizarDiaConsulta(){
 function selecionarDia(dia){if(!DIAS.some(d=>d.dia===dia))return;const hoje=hojeTexto();if(diaSelecionado===hoje){const tbody=document.getElementById('tabelaCorpo');if(tbody&&!escrevendoTabela)htmlHoje=tbody.innerHTML;}diaSelecionado=dia;renderizarAbas();atualizarSubtitulo();atualizarPontuacaoDia();if(diaSelecionado===hoje){if(htmlHoje)escreverTabela(htmlHoje);}else renderizarDiaConsulta();}
 function observarTabelaHoje(){const tbody=document.getElementById('tabelaCorpo');if(!tbody||tbody.dataset.weekObserved==='1')return;tbody.dataset.weekObserved='1';if(diaSelecionado===hojeTexto())htmlHoje=tbody.innerHTML;new MutationObserver(()=>{if(escrevendoTabela)return;if(diaSelecionado===hojeTexto())htmlHoje=tbody.innerHTML;else queueMicrotask(renderizarDiaConsulta);}).observe(tbody,{childList:true,subtree:false});}
 function atualizarBadgeCache(snapshot){const badge=document.getElementById('semanaCacheStatus');if(!badge)return;badge.textContent=snapshot?.metadata?.fromCache?'☁️ Semana disponível offline':'☁️ Semana atualizada e em cache';}
-function encerrarEscutas(){if(unsubscribeSemana){unsubscribeSemana();unsubscribeSemana=null;}if(unsubscribeHistoricoSemana){unsubscribeHistoricoSemana();unsubscribeHistoricoSemana=null;}chaveSessao='';tarefasSemana=[];historicoSemana=[];historicoCarregado=false;}
+function encerrarEscutas(){chaveSessao='';tarefasSemana=[];historicoSemana=[];historicoCarregado=false;}
 function conectarCacheSemanal(){
   const grupo=(localStorage.getItem('cliente_grupo')||'').trim(),perfilId=(localStorage.getItem('cliente_perfil_id')||'').trim(),nome=(localStorage.getItem('cliente_nome')||'').trim(),novaChave=`${grupo}|${perfilId}|${nome}`;
   if(!grupo||!perfilId){encerrarEscutas();atualizarPontuacaoDia();return;}
-  if(novaChave===chaveSessao&&unsubscribeSemana&&unsubscribeHistoricoSemana)return;
-  const app=getApps()[0];if(!app)return;encerrarEscutas();chaveSessao=novaChave;const db=getFirestore(app);
-  unsubscribeSemana=onSnapshot(query(collection(db,'tarefas'),where('grupoId','==',grupo),where('perfilId','==',perfilId)),{includeMetadataChanges:true},snapshot=>{tarefasSemana=snapshot.docs.map(d=>({id:d.id,...d.data()}));atualizarBadgeCache(snapshot);if(diaSelecionado!==hojeTexto())renderizarDiaConsulta();},erro=>{console.warn('Cache semanal indisponível:',erro);const badge=document.getElementById('semanaCacheStatus');if(badge)badge.textContent='⚠️ Semana não pôde ser sincronizada';});
-  unsubscribeHistoricoSemana=onSnapshot(query(collection(db,'historico'),where('grupoId','==',grupo),where('perfilId','==',perfilId)),{includeMetadataChanges:true},snapshot=>{historicoSemana=snapshot.docs.map(d=>({id:d.id,...d.data()}));historicoCarregado=true;atualizarPontuacaoDia();},erro=>{console.warn('Histórico semanal indisponível:',erro);historicoCarregado=false;atualizarPontuacaoDia();});
+  chaveSessao=novaChave;
+  const cache=window.rotinaClientCacheSnapshot?.();
+  tarefasSemana=(cache?.tarefasTodas||[]).filter(t=>t.perfilId?t.perfilId===perfilId:t.perfilNome===nome);
+  historicoSemana=(cache?.historico||[]).filter(h=>h.perfilId?h.perfilId===perfilId:h.perfilNome===nome);
+  historicoCarregado=true;
+  const badge=document.getElementById('semanaCacheStatus');
+  if(badge)badge.textContent=cache?.ultimaSincronizacaoServidor?'☁️ Semana atualizada e em cache':'☁️ Semana disponível offline';
+  atualizarPontuacaoDia();
+  if(diaSelecionado!==hojeTexto())renderizarDiaConsulta();
 }
-function iniciar(){limparMarcaAntiga();garantirNavegacao();observarTabelaHoje();atualizarSubtitulo();conectarCacheSemanal();const app=document.getElementById('telaApp');if(app)new MutationObserver(()=>{limparMarcaAntiga();garantirNavegacao();observarTabelaHoje();conectarCacheSemanal();}).observe(app,{attributes:true,attributeFilter:['style']});window.addEventListener('rotina-client-session-ready',conectarCacheSemanal);window.addEventListener('storage',conectarCacheSemanal);window.addEventListener('beforeunload',encerrarEscutas);}
+
+function iniciar(){limparMarcaAntiga();garantirNavegacao();observarTabelaHoje();atualizarSubtitulo();conectarCacheSemanal();const app=document.getElementById('telaApp');if(app)new MutationObserver(()=>{limparMarcaAntiga();garantirNavegacao();observarTabelaHoje();conectarCacheSemanal();}).observe(app,{attributes:true,attributeFilter:['style']});window.addEventListener('rotina-client-session-ready',conectarCacheSemanal);window.addEventListener('rotina-client-cache-updated',conectarCacheSemanal);window.addEventListener('storage',conectarCacheSemanal);window.addEventListener('beforeunload',encerrarEscutas);}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciar,{once:true});else iniciar();
