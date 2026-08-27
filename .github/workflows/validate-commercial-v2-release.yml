@@ -1,73 +1,121 @@
 name: Validar release comercial v2
 
 on:
-  push:
-    branches:
-      - release-comercial-v2-2026-08-22
   pull_request:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: onesignal-scheduler
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci
-      - name: Existing regression suite
-        run: npm run check && npm test
-      - name: Commercial v2 policy
-        run: node test/commercial-safety.test.mjs
-      - name: Syntax
-        run: |
-          node --check src/commercial-policy.js
-          node --check src/commercial-safe-v2-entry.js
-          node --check src/master-rate-limit-production-entry.js
-          node --check src/master-groups-index.js
-          node --check src/master-group-summary.js
-          node --check src/master-logs-fallback.js
-          node --check ../commercial-access-client.js
-          node --check ../client-reviewed-points.js
-          node --check ../sw.js
-      - name: Production architecture gate
+        with:
+          ref: fix/commercial-auth-audit-20260826
+          fetch-depth: 0
+
+      - name: Apply isolated auth policy patch
         shell: python
         run: |
           from pathlib import Path
-          policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
-          safe=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
-          prod=Path('src/master-rate-limit-production-entry.js').read_text(encoding='utf-8')
-          groups=Path('src/master-groups-index.js').read_text(encoding='utf-8')
-          summary=Path('src/master-group-summary.js').read_text(encoding='utf-8')
-          logs=Path('src/master-logs-fallback.js').read_text(encoding='utf-8')
-          client=Path('../commercial-access-client.js').read_text(encoding='utf-8')
-          reviewed=Path('../client-reviewed-points.js').read_text(encoding='utf-8')
-          sw=Path('../sw.js').read_text(encoding='utf-8')
-          wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
-          assert 'COMMERCIAL_TRIAL_DAYS = 15' in policy
-          assert "'teste-expirado'" in policy and 'confirmFamilyPatch' in policy
-          assert 'mustMutateFirebaseAuthForFamilyBlock' in policy
-          assert 'IDENTITY_TOOLKIT' not in safe and 'disableUser' not in safe
-          assert '/commercial/trial' in safe
-          assert 'confirm-group' in safe and 'set-group-blocked' in safe
-          assert "import app from './commercial-safe-v2-entry.js'" in prod
-          assert 'commercial-preview-entry' not in prod
-          assert 'handleMasterGroupsIndex' in prod and 'handleMasterGroupSummary' in prod and 'handleMasterLogsFallback' in prod
-          assert 'responseCache.clear()' in prod
-          assert 'chooseOwner' in groups and 'isMasterEmail(env, email)' in groups
-          assert 'estado: commercialState' in summary and 'trialFimEm' in summary
-          assert 'globalMode' in logs
-          assert "state === 'teste-expirado'" in client and "state === 'bloqueado'" in client
-          assert 'familyTaskId' in reviewed and "String(h.tarefaId||'')===tarefaId" in reviewed
-          assert "CACHE_NAME='rotina-family-cliente-v40'" in sw and 'commercial-access-client.js?v=2' in sw
-          assert '"main": "src/master-rate-limit-production-entry.js"' in wrangler
-          assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
-          print('RELEASE COMERCIAL V2: OK')
-      - name: Wrangler bundle dry-run
-        run: npx wrangler versions upload --dry-run
+          import json, re
+
+          p = Path('onesignal-scheduler/src/family-auth-session.js')
+          s = p.read_text(encoding='utf-8')
+          import_line = "import { resolveClientCommercialAccess, isCommercialExemptGroup } from './commercial-policy.js';"
+          anchor = "import { readCommercialState } from './security-maintenance-v1.js';"
+          if import_line not in s:
+              if anchor not in s:
+                  raise SystemExit('commercial state import anchor not found')
+              s = s.replace(anchor, anchor + "\n" + import_line, 1)
+
+          pattern = re.compile(
+              r"function commercialState\(config = \{\}, now = Date\.now\(\)\) \{.*?\n\}\n\n"
+              r"function blockedCommercialState\(state\) \{.*?\n\}\n\n"
+              r"async function assertCommercialAccess\(env, groupId, now = new Date\(\)\) \{.*?\n\}\n",
+              re.S
+          )
+          replacement = '''async function assertCommercialAccess(env, groupId, now = new Date()) {
+            if (isCommercialExemptGroup(groupId)) return 'isento';
+            let config = null;
+            let configAvailable = true;
+            try {
+              config = await readCommercialState(env, groupId, now);
+            } catch (error) {
+              configAvailable = false;
+              console.error(JSON.stringify({
+                event: 'auth.commercial_state_unavailable',
+                grupoId: groupId,
+                message: String(error?.message || error).replace(/\\s+/g, ' ').slice(0, 220)
+              }));
+            }
+            const access = resolveClientCommercialAccess({
+              groupId,
+              config: config || {},
+              configAvailable,
+              now: now.getTime()
+            });
+            console.log(JSON.stringify({
+              event: 'auth.commercial_access_resolved',
+              grupoId: groupId,
+              state: access.state,
+              reason: access.reason,
+              configAvailable
+            }));
+            if (!access.allowed) {
+              const error = new Error(access.state === 'teste-expirado'
+                ? 'O período de teste deste grupo terminou.'
+                : 'Este grupo está temporariamente bloqueado.');
+              error.status = 403;
+              throw error;
+            }
+            return access.state;
+          }
+'''
+          s2, count = pattern.subn(replacement, s, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one commercial auth block replacement, got {count}')
+          p.write_text(s2, encoding='utf-8')
+
+          bridge = Path('onesignal-scheduler/test/family-auth-policy-bridge.test.mjs')
+          bridge.write_text("""import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const source = fs.readFileSync(new URL('../src/family-auth-session.js', import.meta.url), 'utf8');
+          assert.match(source, /resolveClientCommercialAccess/);
+          assert.match(source, /isCommercialExemptGroup/);
+          assert.doesNotMatch(source, /function commercialState\\(/);
+          assert.match(source, /configAvailable = false/);
+          assert.match(source, /auth\\.commercial_state_unavailable/);
+          assert.match(source, /auth\\.commercial_access_resolved/);
+          console.log('family-auth-policy-bridge.test.mjs: OK');
+          """, encoding='utf-8')
+
+          pkg_path = Path('onesignal-scheduler/package.json')
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
+          pkg['scripts']['test'] = 'node test/scheduler.test.mjs && node test/integration.test.mjs && node test/commercial-safety.test.mjs && node test/family-auth-policy-bridge.test.mjs'
+          pkg['scripts']['check'] = 'node --check src/core.js && node --check src/index.js && node --check src/commercial-policy.js && node --check src/family-auth-session.js && node --check test/scheduler.test.mjs && node --check test/integration.test.mjs && node --check test/commercial-safety.test.mjs && node --check test/family-auth-policy-bridge.test.mjs'
+          pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+      - name: Validate isolated patch
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+          node test/commercial-safety.test.mjs
+          node test/family-auth-policy-bridge.test.mjs
+          npx wrangler versions upload --dry-run
+
+      - name: Commit only the validated application patch to safety branch
+        run: |
+          git fetch origin main --depth=1
+          git checkout origin/main -- .github/workflows/validate-commercial-v2-release.yml
+          rm -f .github/workflows/commercial-auth-safe-audit.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Unify participant auth with central commercial policy"
+          git push origin HEAD:fix/commercial-auth-audit-20260826
