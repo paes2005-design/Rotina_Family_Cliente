@@ -10,6 +10,7 @@ import { handleEmergencyCompensation } from './emergency-compensation-20260826.j
 import { handleTechnicalDiagnostics, handleNormalizedHealth } from './technical-diagnostics.js';
 import { handleReliableAppLogV2 } from './reliable-app-log-v2.js';
 import { handleWorkerAuditDiagnostics } from './worker-audit-diagnostics.js';
+export { RotinaTechnicalStore } from './technical-store-do.js';
 
 let masterReadQueue = Promise.resolve();
 const responseCache = new Map();
