@@ -67,27 +67,40 @@ jobs:
           reliable='onesignal-scheduler/test/reliable-app-log-v2.test.mjs'
           replace_exact(reliable,"const event={aplicativo:'cliente'","const event={aplicativo:'participante'",1)
 
+          integration='onesignal-scheduler/test/integration.test.mjs'
+          replace_exact(integration,
+              "{ field: 'tag', key: 'aplicativo', relation: '=', value: 'cliente' }",
+              "{ field: 'tag', key: 'aplicativo', relation: '=', value: 'participante' }",
+              1)
+          replace_exact(integration,
+              "assert.equal(creates.at(-1).filters.at(-1).value, 'cliente');",
+              "assert.equal(creates.at(-1).filters.at(-1).value, 'participante');",
+              1)
+
           deploy='.github/workflows/deploy-worker-master-fix.yml'
           replace_exact(deploy,"assert 'MONITOR_VERSION = 5' in monitor","assert 'MONITOR_VERSION = 6' in monitor",1)
           replace_exact(deploy,"const event={aplicativo:'cliente',versaoMonitor:5","const event={aplicativo:'participante',versaoMonitor:6",1)
           p=Path(deploy)
           text=p.read_text(encoding='utf-8')
-          anchor="assert 'appendTechnicalLogs' in core\n"
-          addition=("assert \"value: 'participante'\" in core\n"
+          anchor="          assert 'appendTechnicalLogs' in core\n"
+          addition=("          assert \"value: 'participante'\" in core\n"
                     "          assert \"['participante','adm','master']\" in store\n"
                     "          assert \"['participante','adm','master']\" in diag\n")
           if addition not in text:
               if anchor not in text: raise SystemExit('Ancora de invariantes nao encontrada')
-              text=text.replace(anchor,anchor+'          '+addition,1)
+              text=text.replace(anchor,anchor+addition,1)
           p.write_text(text,encoding='utf-8')
 
           core_text=Path(core).read_text(encoding='utf-8')
           store_text=Path(store).read_text(encoding='utf-8')
           diag_text=Path(diag).read_text(encoding='utf-8')
+          integration_text=Path(integration).read_text(encoding='utf-8')
           assert "value: 'participante'" in core_text
           assert "aplicativo: 'participante'" in core_text
           assert "['participante','adm','master']" in store_text
           assert "['participante','adm','master']" in diag_text
+          assert "value: 'cliente'" not in integration_text
+          assert "filters.at(-1).value, 'cliente'" not in integration_text
           print('NORMALIZACAO_WORKER_PARTICIPANTE=OK')
       - name: Validar testes
         run: |
@@ -106,7 +119,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add onesignal-scheduler/src/index.js onesignal-scheduler/src/technical-store-do.js onesignal-scheduler/src/technical-diagnostics.js onesignal-scheduler/test/technical-diagnostics.test.mjs onesignal-scheduler/test/reliable-app-log-v2.test.mjs .github/workflows/deploy-worker-master-fix.yml
+          git add onesignal-scheduler/src/index.js onesignal-scheduler/src/technical-store-do.js onesignal-scheduler/src/technical-diagnostics.js onesignal-scheduler/test/technical-diagnostics.test.mjs onesignal-scheduler/test/reliable-app-log-v2.test.mjs onesignal-scheduler/test/integration.test.mjs .github/workflows/deploy-worker-master-fix.yml
           if git diff --cached --quiet; then
             echo 'Normalizacao do Worker ja aplicada.'
           else
