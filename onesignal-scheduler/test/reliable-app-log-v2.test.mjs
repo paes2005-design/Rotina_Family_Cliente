@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { handleReliableAppLogV2 } from '../src/reliable-app-log-v2.js';
 
-const event={aplicativo:'cliente',evento:'teste',grupoId:'CLI-TESTE',clienteEm:'2026-08-27T05:20:00Z'};
+const event={aplicativo:'participante',evento:'teste',grupoId:'CLI-TESTE',clienteEm:'2026-08-27T05:20:00Z'};
 
 let fallbackCalls=0;
 const fallbackApp={fetch:async request=>{fallbackCalls+=1;assert.equal(request.headers.get('origin'),'https://paes2005-design.github.io');assert.equal(request.headers.get('x-transport-test'),null);const body=await request.json();assert.equal(body.events.length,1);return Response.json({accepted:1});}};

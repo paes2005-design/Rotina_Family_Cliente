@@ -177,7 +177,7 @@ export function redactTechnicalLog(log = {}) {
       : String(value ?? '').replace(/\s+/g,' ').slice(0,120);
   }
   return {
-    aplicativo: ['cliente','adm','master'].includes(log.aplicativo) ? log.aplicativo : 'desconhecido',
+    aplicativo: log.aplicativo === 'cliente' ? 'participante' : (['participante','adm','master'].includes(log.aplicativo) ? log.aplicativo : 'desconhecido'),
     evento: String(log.evento || 'evento').replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,80),
     nivel: ['info','warning','error'].includes(log.nivel) ? log.nivel : 'info',
     detalhes: details,

@@ -168,7 +168,7 @@ assert.deepEqual(creates[0].filters, [
   { operator: 'AND' },
   { field: 'tag', key: 'perfilId', relation: '=', value: 'perfil' },
   { operator: 'AND' },
-  { field: 'tag', key: 'aplicativo', relation: '=', value: 'cliente' }
+  { field: 'tag', key: 'aplicativo', relation: '=', value: 'participante' }
 ]);
 assert.notEqual(creates[0].idempotency_key, creates[1].idempotency_key);
 assert.equal(patches.at(-1).schedulerPendente, false);
@@ -275,7 +275,7 @@ const clientPush = await reconcileRewardNotification(env, {
   now: new Date('2026-08-20T09:02:01Z')
 });
 assert.equal(clientPush.state, 'ENVIADO');
-assert.equal(creates.at(-1).filters.at(-1).value, 'cliente');
+assert.equal(creates.at(-1).filters.at(-1).value, 'participante');
 assert.equal(creates.at(-1).headings.pt, '✅ Recompensa aprovada!');
 assert.equal(creates.at(-1).web_url, 'https://example.com/cliente/?abrir=resgates');
 assert.equal(patches.at(-1).pushClientePendente, false);

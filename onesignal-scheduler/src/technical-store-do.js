@@ -9,7 +9,7 @@ function clampLimit(value, fallback = 500, max = MAX_LOGS) {
 
 function cleanEvent(value = {}) {
   return {
-    aplicativo: ['cliente','adm','master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido',
+    aplicativo: value.aplicativo === 'cliente' ? 'participante' : (['participante','adm','master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido'),
     versaoMonitor: Number(value.versaoMonitor) || 1,
     evento: String(value.evento || 'evento').replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,80),
     nivel: ['info','warning','error'].includes(value.nivel) ? value.nivel : 'info',

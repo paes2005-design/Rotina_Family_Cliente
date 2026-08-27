@@ -383,7 +383,7 @@ export function sanitizeLogEvent(value = {}) {
     details[String(key).slice(0, 50)] = cleanLogScalar(item);
   }
   return {
-    aplicativo: ['cliente', 'adm', 'master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido',
+    aplicativo: value.aplicativo === 'cliente' ? 'participante' : (['participante', 'adm', 'master'].includes(value.aplicativo) ? value.aplicativo : 'desconhecido'),
     versaoMonitor: Number(value.versaoMonitor) || 1,
     evento: String(value.evento || 'evento').replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 80),
     nivel: ['info', 'warning', 'error'].includes(value.nivel) ? value.nivel : 'info',
@@ -852,7 +852,7 @@ function clientPushFilters(groupId, profileId) {
     { operator: 'AND' },
     { field: 'tag', key: 'perfilId', relation: '=', value: String(profileId || '') },
     { operator: 'AND' },
-    { field: 'tag', key: 'aplicativo', relation: '=', value: 'cliente' }
+    { field: 'tag', key: 'aplicativo', relation: '=', value: 'participante' }
   ];
 }
 
@@ -1062,7 +1062,7 @@ export async function auditAlarmDelivery(env, document, {
     if (summary.remaining === null || summary.remaining > 0 || !summary.completedAt) pending = true;
     if (summary.completedAt) {
       await storeSecureLog(env, {
-        aplicativo: 'cliente',
+        aplicativo: 'participante',
         evento: 'push.onesignal_auditado',
         nivel: summary.failed || summary.errored ? 'warning' : 'info',
         detalhes: {
@@ -1326,7 +1326,7 @@ export async function auditRewardDelivery(env, document, audience, {
   }, fetchImpl, now);
   if (summary.completedAt) {
     await storeSecureLog(env, {
-      aplicativo: audience === 'admin' ? 'adm' : 'cliente',
+      aplicativo: audience === 'admin' ? 'adm' : 'participante',
       evento: 'push.onesignal_auditado',
       nivel: summary.failed || summary.errored ? 'warning' : 'info',
       detalhes: {
