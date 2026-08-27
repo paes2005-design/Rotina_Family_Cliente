@@ -3,40 +3,386 @@ import { readTechnicalHealth, readTechnicalLogs } from './technical-store-do.js'
 const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/datastore';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DIAGNOSTICS_VERSION = 2;
-const TECHNICAL_DETAIL_KEYS = new Set(['status','tempoMs','duracaoMs','operacao','recurso','tentativa','authVersion','startupStabilityVersion','autenticado','ms','motivo','etapa','estado','actionGuardVersion','versao','monitorExtra','online','instalado','resultado']);
+const TECHNICAL_DETAIL_KEYS = new Set([
+  'status','tempoMs','duracaoMs','operacao','recurso','tentativa','authVersion',
+  'startupStabilityVersion','autenticado','ms','motivo','etapa','estado',
+  'actionGuardVersion','versao','monitorExtra','online','instalado','resultado'
+]);
 let cachedGoogleToken = { email: '', value: '', expiresAt: 0 };
 
-function required(value,name){if(!value)throw new Error(`Configuração obrigatória ausente: ${name}`);return value;}
-function base64Url(bytes){let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);return btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');}
-function decodeBase64Url(value){const normalized=String(value||'').replaceAll('-','+').replaceAll('_','/');const padded=normalized.padEnd(Math.ceil(normalized.length/4)*4,'=');const binary=atob(padded);return Uint8Array.from(binary,c=>c.charCodeAt(0));}
-function encodeJson(value){return base64Url(new TextEncoder().encode(JSON.stringify(value)));}
-function pemToBytes(pem){const normalized=String(pem||'').replaceAll('\\n','\n');const base64=normalized.replace(/-----BEGIN PRIVATE KEY-----/g,'').replace(/-----END PRIVATE KEY-----/g,'').replace(/\s/g,'');const binary=atob(base64);return Uint8Array.from(binary,c=>c.charCodeAt(0));}
-function serviceAccount(env){const parsed=JSON.parse(required(env.GOOGLE_SERVICE_ACCOUNT_JSON,'GOOGLE_SERVICE_ACCOUNT_JSON'));required(parsed.client_email,'client_email');required(parsed.private_key,'private_key');return parsed;}
-async function serviceAccountAssertion(credentials,now=new Date()){const issuedAt=Math.floor(now.getTime()/1000);const unsigned=`${encodeJson({alg:'RS256',typ:'JWT'})}.${encodeJson({iss:credentials.client_email,sub:credentials.client_email,scope:GOOGLE_SCOPES,aud:GOOGLE_TOKEN_URL,iat:issuedAt,exp:issuedAt+3600})}`;const key=await crypto.subtle.importKey('pkcs8',pemToBytes(credentials.private_key),{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);const signature=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(unsigned));return`${unsigned}.${base64Url(new Uint8Array(signature))}`;}
-async function googleAccessToken(env,fetchImpl=fetch,now=new Date()){const credentials=serviceAccount(env);if(cachedGoogleToken.email===credentials.client_email&&cachedGoogleToken.value&&cachedGoogleToken.expiresAt>now.getTime()+60000)return cachedGoogleToken.value;const response=await fetchImpl(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:await serviceAccountAssertion(credentials,now)})});const body=await response.json().catch(()=>({}));if(!response.ok||!body.access_token)throw new Error(`OAuth Google recusado (${response.status}).`);cachedGoogleToken={email:credentials.client_email,value:body.access_token,expiresAt:now.getTime()+Number(body.expires_in||3600)*1000};return cachedGoogleToken.value;}
-function firestoreBaseUrl(env){return`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(required(env.FIREBASE_PROJECT_ID,'FIREBASE_PROJECT_ID'))}/databases/(default)/documents`;}
-function firestoreValue(value={}){if('nullValue'in value)return null;if('stringValue'in value)return value.stringValue;if('integerValue'in value)return Number(value.integerValue);if('doubleValue'in value)return Number(value.doubleValue);if('booleanValue'in value)return value.booleanValue===true;if('timestampValue'in value)return value.timestampValue;if('arrayValue'in value)return(value.arrayValue?.values||[]).map(firestoreValue);if('mapValue'in value)return firestoreFields(value.mapValue?.fields||{});return'';}
-function firestoreFields(fields={}){return Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,firestoreValue(v)]));}
-async function queryRecentSecureLogs(env,limit=200,fetchImpl=fetch,now=new Date()){const token=await googleAccessToken(env,fetchImpl,now);const response=await fetchImpl(`${firestoreBaseUrl(env)}:runQuery`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({structuredQuery:{from:[{collectionId:'appLogsSecure'}],orderBy:[{field:{fieldPath:'criadoEm'},direction:'DESCENDING'}],limit:Math.min(250,Math.max(20,Number(limit)||200))}})});const rows=await response.json().catch(()=>[]);if(!response.ok)throw new Error(`Consulta de diagnóstico recusada (${response.status}).`);return(Array.isArray(rows)?rows:[]).filter(row=>row.document).map(row=>firestoreFields(row.document.fields||{}));}
-async function readMonitoringDocument(env,fetchImpl=fetch,now=new Date()){const token=await googleAccessToken(env,fetchImpl,now);const response=await fetchImpl(`${firestoreBaseUrl(env)}/monitoramento/rotina-family-runtime`,{headers:{authorization:`Bearer ${token}`}});if(response.status===404)return{};const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(`Monitoramento indisponível (${response.status}).`);return firestoreFields(body.fields||{});}
-async function logEncryptionKey(env){const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(required(env.APP_LOG_ENCRYPTION_KEY,'APP_LOG_ENCRYPTION_KEY')));return crypto.subtle.importKey('raw',digest,{name:'AES-GCM'},false,['decrypt']);}
-async function decryptSecureEnvelope(env,envelope){const decrypted=await crypto.subtle.decrypt({name:'AES-GCM',iv:decodeBase64Url(envelope.iv)},await logEncryptionKey(env),decodeBase64Url(envelope.payload));return JSON.parse(new TextDecoder().decode(decrypted));}
+function required(value, name) {
+  if (!value) throw new Error(`Configuração obrigatória ausente: ${name}`);
+  return value;
+}
 
-export function redactTechnicalLog(log={}){const details={};for(const[key,value]of Object.entries(log.detalhes||{})){if(!TECHNICAL_DETAIL_KEYS.has(key)||typeof value==='object')continue;details[key]=typeof value==='number'||typeof value==='boolean'?value:String(value??'').replace(/\s+/g,' ').slice(0,120);}return{aplicativo:['cliente','adm','master'].includes(log.aplicativo)?log.aplicativo:'desconhecido',evento:String(log.evento||'evento').replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,80),nivel:['info','warning','error'].includes(log.nivel)?log.nivel:'info',detalhes:details,clienteEm:String(log.clienteEm||'').slice(0,40),pagina:String(log.pagina||'').split('/').pop().slice(0,80),navegador:String(log.navegador||'').slice(0,30),online:log.online!==false,visibilidade:String(log.visibilidade||'').slice(0,20),instalado:log.instalado===true};}
-function isTechnicalLog(log){const event=String(log?.evento||'');return log?.nivel==='error'||log?.nivel==='warning'||/^(operacao\.|rede\.|startup\.adm_|auth\.adm_|service_worker\.|selftest\.)/.test(event);}
-function eventCount(logs,predicate){return logs.reduce((count,log)=>count+(predicate(log)?1:0),0);}
-function failureReasons(states={}){const hard=[],attention=[];for(const[state,count]of Object.entries(states||{})){if(!Number(count))continue;if(/ERRO|FALHOU/.test(state))hard.push(`${state}:${count}`);else if(/SEM_ASSINANTE/.test(state))attention.push(`${state}:${count}`);}return{hard,attention};}
-function normalizedHealth(monitor={}){const last=monitor.ultimaExecucao||monitor.lastRun||{};const reasons=failureReasons(last.states||{});const status=reasons.hard.length?'DEGRADADO':reasons.attention.length?'ATENCAO':(monitor.status||last.status||'INICIALIZANDO');return{status,reasons};}
+function base64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');
+}
 
-async function loadFromTechnicalStore(env,limit){if(!env?.TECHNICAL_STORE)return null;const[logData,healthData]=await Promise.all([readTechnicalLogs(env,{limit:Math.max(220,Number(limit)||80)}),readTechnicalHealth(env)]);const health=healthData?.health||null;return{storage:'cloudflare-do',logs:Array.isArray(logData?.logs)?logData.logs:[],monitor:health?{status:health.status||'INICIALIZANDO',ultimaExecucaoEm:health.em||health.storedAt||'',ultimaExecucao:health,ultimosCiclos:Array.isArray(healthData?.recentCycles)?healthData.recentCycles:[]}:{status:'INICIALIZANDO',ultimaExecucaoEm:'',ultimaExecucao:{},ultimosCiclos:[]},storeVersion:Number(logData?.storeVersion||healthData?.storeVersion||1),lastLogAt:logData?.lastLogAt||healthData?.lastLogAt||''};}
+function decodeBase64Url(value) {
+  const normalized = String(value || '').replaceAll('-','+').replaceAll('_','/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  return Uint8Array.from(binary, c => c.charCodeAt(0));
+}
 
-async function loadLegacyFirestore(env,fetchImpl,now){const[documents,monitor]=await Promise.all([queryRecentSecureLogs(env,220,fetchImpl,now),readMonitoringDocument(env,fetchImpl,now)]);const logs=[];for(const document of documents){try{logs.push(await decryptSecureEnvelope(env,document));}catch(_){}}return{storage:'firestore-legacy',logs,monitor,storeVersion:0,lastLogAt:''};}
+function encodeJson(value) {
+  return base64Url(new TextEncoder().encode(JSON.stringify(value)));
+}
 
-export async function buildTechnicalDiagnostics(env,{limit=80,fetchImpl=fetch,now=new Date()}={}){const source=await loadFromTechnicalStore(env,limit)||await loadLegacyFirestore(env,fetchImpl,now);const logs=[];for(const log of source.logs){if(isTechnicalLog(log))logs.push(redactTechnicalLog(log));}logs.sort((a,b)=>String(b.clienteEm).localeCompare(String(a.clienteEm)));const selected=logs.slice(0,Math.min(120,Math.max(10,Number(limit)||80)));const health=normalizedHealth(source.monitor);return{service:'rotina-family-onesignal-scheduler',diagnosticsVersion:DIAGNOSTICS_VERSION,generatedAt:now.toISOString(),storage:source.storage,technicalStoreVersion:source.storeVersion,lastLogAt:source.lastLogAt,status:health.status,healthReasons:health.reasons,lastRunAt:source.monitor.ultimaExecucaoEm||'',lastRun:source.monitor.ultimaExecucao||{},summary:{technicalLogs:selected.length,errors:eventCount(selected,l=>l.nivel==='error'),warnings:eventCount(selected,l=>l.nivel==='warning'),slowOperations:eventCount(selected,l=>l.evento==='operacao.lenta'),http400:eventCount(selected,l=>l.evento==='rede.http_erro'&&Number(l.detalhes?.status)===400),http429:eventCount(selected,l=>Number(l.detalhes?.status)===429||/429/.test(l.evento)),ignoredClicks:eventCount(selected,l=>l.evento==='operacao.clique_ignorado')},logs:selected};}
+function pemToBytes(pem) {
+  const normalized = String(pem || '').replaceAll('\\n','\n');
+  const base64 = normalized
+    .replace(/-----BEGIN PRIVATE KEY-----/g,'')
+    .replace(/-----END PRIVATE KEY-----/g,'')
+    .replace(/\s/g,'');
+  const binary = atob(base64);
+  return Uint8Array.from(binary, c => c.charCodeAt(0));
+}
 
-function publicHeaders(){return{'access-control-allow-origin':'*','cache-control':'no-store','content-type':'application/json; charset=utf-8'};}
-export async function handleTechnicalDiagnostics(request,env){const url=new URL(request.url);if(request.method!=='GET'||url.pathname!=='/diagnostico-tecnico')return null;try{return Response.json(await buildTechnicalDiagnostics(env,{limit:Number(url.searchParams.get('limit')||80)}),{headers:publicHeaders()});}catch(error){return Response.json({service:'rotina-family-onesignal-scheduler',diagnosticsVersion:DIAGNOSTICS_VERSION,status:'ERRO_DIAGNOSTICO',error:String(error?.message||error).slice(0,180)},{status:503,headers:publicHeaders()});}}
+function serviceAccount(env) {
+  const parsed = JSON.parse(required(env.GOOGLE_SERVICE_ACCOUNT_JSON,'GOOGLE_SERVICE_ACCOUNT_JSON'));
+  required(parsed.client_email,'client_email');
+  required(parsed.private_key,'private_key');
+  return parsed;
+}
 
-export async function handleNormalizedHealth(request,env,ctx,baseApp){const url=new URL(request.url);if(request.method!=='GET'||!['/monitoramento','/health'].includes(url.pathname))return null;if(env?.TECHNICAL_STORE){try{const stored=await readTechnicalHealth(env);const health=stored?.health;if(health){const reasons=failureReasons(health.states||{});const status=reasons.hard.length?'DEGRADADO':reasons.attention.length?'ATENCAO':(health.status||'SAUDAVEL');return Response.json({service:'rotina-family-onesignal-scheduler',status,lastRunAt:health.em||health.storedAt||'',lastRun:health,recentCycles:Array.isArray(stored.recentCycles)?stored.recentCycles:[],healthReasons:reasons,baseStatus:health.status||status,diagnosticsVersion:DIAGNOSTICS_VERSION,storage:'cloudflare-do',technicalStoreVersion:Number(stored.storeVersion)||1},{headers:publicHeaders()});}}catch(error){console.error(JSON.stringify({event:'technical_store_health_read_failure',message:String(error?.message||error).slice(0,120)}));}}
-  return Response.json({service:'rotina-family-onesignal-scheduler',status:'INICIALIZANDO',lastRunAt:'',lastRun:{},recentCycles:[],healthReasons:{hard:[],attention:[]},baseStatus:'INICIALIZANDO',diagnosticsVersion:DIAGNOSTICS_VERSION,storage:'cloudflare-do',technicalStoreVersion:1},{headers:publicHeaders()});}
-const response=await baseApp.fetch(request,env,ctx);if(!response.ok)return response;const body=await response.clone().json().catch(()=>null);if(!body)return response;const reasons=failureReasons(body.lastRun?.states||{});const status=reasons.hard.length?'DEGRADADO':reasons.attention.length?'ATENCAO':body.status;return Response.json({...body,status,healthReasons:reasons,baseStatus:body.status,diagnosticsVersion:DIAGNOSTICS_VERSION,storage:'firestore-legacy'},{headers:publicHeaders()});}
+async function serviceAccountAssertion(credentials, now = new Date()) {
+  const issuedAt = Math.floor(now.getTime() / 1000);
+  const unsigned = `${encodeJson({alg:'RS256',typ:'JWT'})}.${encodeJson({
+    iss: credentials.client_email,
+    sub: credentials.client_email,
+    scope: GOOGLE_SCOPES,
+    aud: GOOGLE_TOKEN_URL,
+    iat: issuedAt,
+    exp: issuedAt + 3600
+  })}`;
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    pemToBytes(credentials.private_key),
+    {name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    key,
+    new TextEncoder().encode(unsigned)
+  );
+  return `${unsigned}.${base64Url(new Uint8Array(signature))}`;
+}
+
+async function googleAccessToken(env, fetchImpl = fetch, now = new Date()) {
+  const credentials = serviceAccount(env);
+  if (
+    cachedGoogleToken.email === credentials.client_email &&
+    cachedGoogleToken.value &&
+    cachedGoogleToken.expiresAt > now.getTime() + 60_000
+  ) return cachedGoogleToken.value;
+
+  const response = await fetchImpl(GOOGLE_TOKEN_URL, {
+    method: 'POST',
+    headers: {'content-type':'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: await serviceAccountAssertion(credentials, now)
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.access_token) throw new Error(`OAuth Google recusado (${response.status}).`);
+  cachedGoogleToken = {
+    email: credentials.client_email,
+    value: body.access_token,
+    expiresAt: now.getTime() + Number(body.expires_in || 3600) * 1000
+  };
+  return cachedGoogleToken.value;
+}
+
+function firestoreBaseUrl(env) {
+  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(required(env.FIREBASE_PROJECT_ID,'FIREBASE_PROJECT_ID'))}/databases/(default)/documents`;
+}
+
+function firestoreValue(value = {}) {
+  if ('nullValue' in value) return null;
+  if ('stringValue' in value) return value.stringValue;
+  if ('integerValue' in value) return Number(value.integerValue);
+  if ('doubleValue' in value) return Number(value.doubleValue);
+  if ('booleanValue' in value) return value.booleanValue === true;
+  if ('timestampValue' in value) return value.timestampValue;
+  if ('arrayValue' in value) return (value.arrayValue?.values || []).map(firestoreValue);
+  if ('mapValue' in value) return firestoreFields(value.mapValue?.fields || {});
+  return '';
+}
+
+function firestoreFields(fields = {}) {
+  return Object.fromEntries(Object.entries(fields).map(([key,value]) => [key, firestoreValue(value)]));
+}
+
+async function queryRecentSecureLogs(env, limit = 200, fetchImpl = fetch, now = new Date()) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const response = await fetchImpl(`${firestoreBaseUrl(env)}:runQuery`, {
+    method: 'POST',
+    headers: {authorization:`Bearer ${token}`,'content-type':'application/json'},
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{collectionId:'appLogsSecure'}],
+        orderBy: [{field:{fieldPath:'criadoEm'},direction:'DESCENDING'}],
+        limit: Math.min(250, Math.max(20, Number(limit) || 200))
+      }
+    })
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok) throw new Error(`Consulta de diagnóstico recusada (${response.status}).`);
+  return (Array.isArray(rows) ? rows : [])
+    .filter(row => row.document)
+    .map(row => firestoreFields(row.document.fields || {}));
+}
+
+async function readMonitoringDocument(env, fetchImpl = fetch, now = new Date()) {
+  const token = await googleAccessToken(env, fetchImpl, now);
+  const response = await fetchImpl(`${firestoreBaseUrl(env)}/monitoramento/rotina-family-runtime`, {
+    headers: {authorization:`Bearer ${token}`}
+  });
+  if (response.status === 404) return {};
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Monitoramento indisponível (${response.status}).`);
+  return firestoreFields(body.fields || {});
+}
+
+async function logEncryptionKey(env) {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(required(env.APP_LOG_ENCRYPTION_KEY,'APP_LOG_ENCRYPTION_KEY'))
+  );
+  return crypto.subtle.importKey('raw', digest, {name:'AES-GCM'}, false, ['decrypt']);
+}
+
+async function decryptSecureEnvelope(env, envelope) {
+  const decrypted = await crypto.subtle.decrypt(
+    {name:'AES-GCM',iv:decodeBase64Url(envelope.iv)},
+    await logEncryptionKey(env),
+    decodeBase64Url(envelope.payload)
+  );
+  return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+export function redactTechnicalLog(log = {}) {
+  const details = {};
+  for (const [key,value] of Object.entries(log.detalhes || {})) {
+    if (!TECHNICAL_DETAIL_KEYS.has(key) || typeof value === 'object') continue;
+    details[key] = typeof value === 'number' || typeof value === 'boolean'
+      ? value
+      : String(value ?? '').replace(/\s+/g,' ').slice(0,120);
+  }
+  return {
+    aplicativo: ['cliente','adm','master'].includes(log.aplicativo) ? log.aplicativo : 'desconhecido',
+    evento: String(log.evento || 'evento').replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,80),
+    nivel: ['info','warning','error'].includes(log.nivel) ? log.nivel : 'info',
+    detalhes: details,
+    clienteEm: String(log.clienteEm || '').slice(0,40),
+    pagina: String(log.pagina || '').split('/').pop().slice(0,80),
+    navegador: String(log.navegador || '').slice(0,30),
+    online: log.online !== false,
+    visibilidade: String(log.visibilidade || '').slice(0,20),
+    instalado: log.instalado === true
+  };
+}
+
+function isTechnicalLog(log) {
+  const event = String(log?.evento || '');
+  return log?.nivel === 'error' || log?.nivel === 'warning' ||
+    /^(operacao\.|rede\.|startup\.adm_|auth\.adm_|service_worker\.|selftest\.)/.test(event);
+}
+
+function eventCount(logs, predicate) {
+  return logs.reduce((count, log) => count + (predicate(log) ? 1 : 0), 0);
+}
+
+function failureReasons(states = {}) {
+  const hard = [];
+  const attention = [];
+  for (const [state,count] of Object.entries(states || {})) {
+    if (!Number(count)) continue;
+    if (/ERRO|FALHOU/.test(state)) hard.push(`${state}:${count}`);
+    else if (/SEM_ASSINANTE/.test(state)) attention.push(`${state}:${count}`);
+  }
+  return { hard, attention };
+}
+
+function normalizedHealth(monitor = {}) {
+  const last = monitor.ultimaExecucao || monitor.lastRun || {};
+  const reasons = failureReasons(last.states || {});
+  const status = reasons.hard.length
+    ? 'DEGRADADO'
+    : reasons.attention.length
+      ? 'ATENCAO'
+      : (monitor.status || last.status || 'INICIALIZANDO');
+  return { status, reasons };
+}
+
+async function loadFromTechnicalStore(env, limit) {
+  if (!env?.TECHNICAL_STORE) return null;
+  const [logData, healthData] = await Promise.all([
+    readTechnicalLogs(env, {limit:Math.max(220, Number(limit) || 80)}),
+    readTechnicalHealth(env)
+  ]);
+  const health = healthData?.health || null;
+  return {
+    storage: 'cloudflare-do',
+    logs: Array.isArray(logData?.logs) ? logData.logs : [],
+    monitor: health ? {
+      status: health.status || 'INICIALIZANDO',
+      ultimaExecucaoEm: health.em || health.storedAt || '',
+      ultimaExecucao: health,
+      ultimosCiclos: Array.isArray(healthData?.recentCycles) ? healthData.recentCycles : []
+    } : {
+      status: 'INICIALIZANDO',
+      ultimaExecucaoEm: '',
+      ultimaExecucao: {},
+      ultimosCiclos: []
+    },
+    storeVersion: Number(logData?.storeVersion || healthData?.storeVersion || 1),
+    lastLogAt: logData?.lastLogAt || healthData?.lastLogAt || ''
+  };
+}
+
+async function loadLegacyFirestore(env, fetchImpl, now) {
+  const [documents,monitor] = await Promise.all([
+    queryRecentSecureLogs(env, 220, fetchImpl, now),
+    readMonitoringDocument(env, fetchImpl, now)
+  ]);
+  const logs = [];
+  for (const document of documents) {
+    try { logs.push(await decryptSecureEnvelope(env, document)); } catch (_) {}
+  }
+  return {storage:'firestore-legacy',logs,monitor,storeVersion:0,lastLogAt:''};
+}
+
+export async function buildTechnicalDiagnostics(env, {limit=80,fetchImpl=fetch,now=new Date()} = {}) {
+  const source = await loadFromTechnicalStore(env, limit) || await loadLegacyFirestore(env, fetchImpl, now);
+  const logs = [];
+  for (const log of source.logs) {
+    if (isTechnicalLog(log)) logs.push(redactTechnicalLog(log));
+  }
+  logs.sort((a,b) => String(b.clienteEm).localeCompare(String(a.clienteEm)));
+  const selected = logs.slice(0, Math.min(120, Math.max(10, Number(limit) || 80)));
+  const health = normalizedHealth(source.monitor);
+  return {
+    service: 'rotina-family-onesignal-scheduler',
+    diagnosticsVersion: DIAGNOSTICS_VERSION,
+    generatedAt: now.toISOString(),
+    storage: source.storage,
+    technicalStoreVersion: source.storeVersion,
+    lastLogAt: source.lastLogAt,
+    status: health.status,
+    healthReasons: health.reasons,
+    lastRunAt: source.monitor.ultimaExecucaoEm || '',
+    lastRun: source.monitor.ultimaExecucao || {},
+    summary: {
+      technicalLogs: selected.length,
+      errors: eventCount(selected, log => log.nivel === 'error'),
+      warnings: eventCount(selected, log => log.nivel === 'warning'),
+      slowOperations: eventCount(selected, log => log.evento === 'operacao.lenta'),
+      http400: eventCount(selected, log => log.evento === 'rede.http_erro' && Number(log.detalhes?.status) === 400),
+      http429: eventCount(selected, log => Number(log.detalhes?.status) === 429 || /429/.test(log.evento)),
+      ignoredClicks: eventCount(selected, log => log.evento === 'operacao.clique_ignorado')
+    },
+    logs: selected
+  };
+}
+
+function publicHeaders() {
+  return {
+    'access-control-allow-origin': '*',
+    'cache-control': 'no-store',
+    'content-type': 'application/json; charset=utf-8'
+  };
+}
+
+export async function handleTechnicalDiagnostics(request, env) {
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.pathname !== '/diagnostico-tecnico') return null;
+  try {
+    return Response.json(
+      await buildTechnicalDiagnostics(env, {limit:Number(url.searchParams.get('limit') || 80)}),
+      {headers:publicHeaders()}
+    );
+  } catch (error) {
+    return Response.json({
+      service: 'rotina-family-onesignal-scheduler',
+      diagnosticsVersion: DIAGNOSTICS_VERSION,
+      status: 'ERRO_DIAGNOSTICO',
+      error: String(error?.message || error).slice(0,180)
+    }, {status:503,headers:publicHeaders()});
+  }
+}
+
+export async function handleNormalizedHealth(request, env, ctx, baseApp) {
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || !['/monitoramento','/health'].includes(url.pathname)) return null;
+
+  if (env?.TECHNICAL_STORE) {
+    try {
+      const stored = await readTechnicalHealth(env);
+      const health = stored?.health;
+      if (health) {
+        const reasons = failureReasons(health.states || {});
+        const status = reasons.hard.length
+          ? 'DEGRADADO'
+          : reasons.attention.length
+            ? 'ATENCAO'
+            : (health.status || 'SAUDAVEL');
+        return Response.json({
+          service: 'rotina-family-onesignal-scheduler',
+          status,
+          lastRunAt: health.em || health.storedAt || '',
+          lastRun: health,
+          recentCycles: Array.isArray(stored.recentCycles) ? stored.recentCycles : [],
+          healthReasons: reasons,
+          baseStatus: health.status || status,
+          diagnosticsVersion: DIAGNOSTICS_VERSION,
+          storage: 'cloudflare-do',
+          technicalStoreVersion: Number(stored.storeVersion) || 1
+        }, {headers:publicHeaders()});
+      }
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'technical_store_health_read_failure',
+        message: String(error?.message || error).slice(0,120)
+      }));
+    }
+    return Response.json({
+      service: 'rotina-family-onesignal-scheduler',
+      status: 'INICIALIZANDO',
+      lastRunAt: '',
+      lastRun: {},
+      recentCycles: [],
+      healthReasons: {hard:[],attention:[]},
+      baseStatus: 'INICIALIZANDO',
+      diagnosticsVersion: DIAGNOSTICS_VERSION,
+      storage: 'cloudflare-do',
+      technicalStoreVersion: 1
+    }, {headers:publicHeaders()});
+  }
+
+  const response = await baseApp.fetch(request, env, ctx);
+  if (!response.ok) return response;
+  const body = await response.clone().json().catch(() => null);
+  if (!body) return response;
+  const reasons = failureReasons(body.lastRun?.states || {});
+  const status = reasons.hard.length
+    ? 'DEGRADADO'
+    : reasons.attention.length
+      ? 'ATENCAO'
+      : body.status;
+  return Response.json({
+    ...body,
+    status,
+    healthReasons: reasons,
+    baseStatus: body.status,
+    diagnosticsVersion: DIAGNOSTICS_VERSION,
+    storage: 'firestore-legacy'
+  }, {headers:publicHeaders()});
+}
