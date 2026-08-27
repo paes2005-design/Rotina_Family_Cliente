@@ -1,0 +1,81 @@
+name: Auditoria independente pos migracao Cloudflare
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/post-migration-technical-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Testar Worker publicado sem novo deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev'
+          TOKEN="audit-$(date -u +%Y%m%dT%H%M%SZ)-${GITHUB_RUN_ID}"
+
+          curl -fsS "$BASE/monitoramento?audit=$TOKEN" -o /tmp/monitor.json
+          echo 'MONITORAMENTO_ATUAL:'
+          cat /tmp/monitor.json
+          node - <<'NODE'
+          const j=require('/tmp/monitor.json');
+          if(j.diagnosticsVersion!==2) process.exit(1);
+          if(j.storage!=='cloudflare-do'||j.technicalStoreVersion!==1) process.exit(2);
+          if(j.status==='DEGRADADO'||j.status==='ERRO_MONITORAMENTO_TECNICO') process.exit(3);
+          if(!j.lastRunAt) process.exit(4);
+          NODE
+
+          TOKEN="$TOKEN" node - <<'NODE' >/tmp/payload.json
+          const stamp=new Date().toISOString();
+          const token=process.env.TOKEN;
+          const event={
+            aplicativo:'cliente',versaoMonitor:5,evento:'selftest.pos_migracao',nivel:'warning',
+            detalhes:{status:298,tempoMs:9,recurso:token},
+            grupoId:'SYSTEM-AUDIT',perfilId:'AUDIT-PROFILE',sessaoId:'AUDIT-SESSION',
+            clienteEm:stamp,pagina:'post-migration-audit',navegador:'CI',online:true,visibilidade:'servidor',instalado:false
+          };
+          process.stdout.write(JSON.stringify({events:[event,event]}));
+          NODE
+
+          curl -fsS -H 'Origin: https://paes2005-design.github.io' -H 'Content-Type: application/json' --data-binary @/tmp/payload.json "$BASE/app-log" -o /tmp/app-log.json
+          echo 'APP_LOG_ATUAL:'
+          cat /tmp/app-log.json
+          node - <<'NODE'
+          const j=require('/tmp/app-log.json');
+          if(j.pipelineVersion!==6||j.storage!=='cloudflare-do') process.exit(1);
+          if(j.accepted!==2||j.stored!==1||j.duplicates<1||j.dropped!==0) process.exit(2);
+          NODE
+
+          curl -fsS "$BASE/diagnostico-tecnico?limit=120&audit=$TOKEN" -o /tmp/diag.json
+          echo 'DIAGNOSTICO_TECNICO_ATUAL:'
+          node - <<'NODE'
+          const j=require('/tmp/diag.json');
+          const raw=JSON.stringify(j);
+          if(j.diagnosticsVersion!==2||j.storage!=='cloudflare-do'||j.technicalStoreVersion!==1) process.exit(1);
+          if(!Array.isArray(j.logs)||!j.logs.some(x=>x.evento==='selftest.pos_migracao')) process.exit(2);
+          for(const forbidden of ['SYSTEM-AUDIT','AUDIT-PROFILE','AUDIT-SESSION']) if(raw.includes(forbidden)) process.exit(3);
+          if(Number(j.summary?.http400||0)!==0||Number(j.summary?.http429||0)!==0) process.exit(4);
+          if(Number(j.summary?.errors||0)!==0) process.exit(5);
+          console.log(JSON.stringify({status:j.status,storage:j.storage,lastRunAt:j.lastRunAt,summary:j.summary,latest:j.logs.slice(0,5)},null,2));
+          NODE
+
+          curl -fsS "$BASE/diagnostico-worker?audit=$TOKEN" -o /tmp/worker.json
+          echo 'DIAGNOSTICO_WORKER_ATUAL:'
+          node - <<'NODE'
+          const j=require('/tmp/worker.json');
+          const raw=JSON.stringify(j);
+          if(j.diagnosticsVersion!==1) process.exit(1);
+          if(/CLI-\d{4}|perfilId|grupoId|sessaoId|email/i.test(raw)) process.exit(2);
+          if(Number(j.alarms?.withError||0)!==0||Number(j.rewardAdmin?.withError||0)!==0||Number(j.rewardClient?.withError||0)!==0) process.exit(3);
+          console.log(JSON.stringify(j,null,2));
+          NODE
+
+          echo 'AUDITORIA_POS_MIGRACAO=OK'
