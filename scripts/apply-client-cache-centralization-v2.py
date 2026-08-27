@@ -38,7 +38,6 @@ window.addEventListener('rotina-client-session-ready',()=>{garantirEscuta();apli
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{garantirEscuta();aplicar();},{once:true});else{garantirEscuta();aplicar();}
 """
 s=regex_once(s,r"function garantirEscuta\(\)\{.*?window\.aplicarInicioAntecipadoCliente=aplicar;.*?if\(document\.readyState==='loading'\).*?else aplicar\(\);",new_guard,'early-start central cache')
-# aplicar() não deve tentar reabrir uma fonte externa.
 s=s.replace('  garantirEscuta();garantirEstilo();','  garantirEstilo();',1)
 p.write_text(s,encoding='utf-8')
 
@@ -48,7 +47,6 @@ s=p.read_text(encoding='utf-8')
 s=replace_once(s,
 "import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';\nimport {getFirestore,collection,query,where,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';\n",
 '', 'imports tolerance timer')
-s=replace_once(s,'  garantirEscuta();garantirEstilo();','  garantirEstilo();','timer render sem leitura')
 new_guard="""function garantirEscuta(){
   const s=sessao(),chave=`${s.grupo}|${s.perfil||s.nome}`;
   if(!s.grupo||(!s.perfil&&!s.nome)){chaveSessao='';tarefas=[];prepararLinhasCronometro();return;}
