@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { createSingleFlightAction } from '../../client-action-guard-v1.js';
+let calls=0, ignored=0, slow=0, success=0;
+let release;
+const wait=new Promise(r=>{release=r});
+const guarded=createSingleFlightAction(async id=>{calls++;await wait;return id;},{name:'finalizarTarefa',keyOf:a=>a[0],onIgnored:()=>ignored++,onSlow:()=>slow++,onSuccess:()=>success++,now:(()=>{let n=0;return()=>n+=1000})(),slowMs:500});
+const first=guarded('T1');
+const second=await guarded('T1');
+assert.equal(second.ignored,true);
+assert.equal(calls,1);
+release();
+assert.equal(await first,'T1');
+assert.equal(ignored,1);
+assert.equal(success,1);
+assert.equal(slow,1);
+console.log('client-action-guard: OK');
