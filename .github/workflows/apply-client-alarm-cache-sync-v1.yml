@@ -1,0 +1,47 @@
+name: Aplicar cache de alarmes 5 minutos no Cliente
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-client-alarm-cache-sync-v1.yml'
+      - 'scripts/apply-client-alarm-cache-sync-v1.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Aplicar sincronização de alarmes
+        run: python scripts/apply-client-alarm-cache-sync-v1.py
+      - name: Validar
+        run: |
+          node --check family-alarm-client.js
+          node --check client-ui-pro.js
+          node --check sw.js
+          python - <<'PY'
+          from pathlib import Path
+          a=Path('family-alarm-client.js').read_text(encoding='utf-8')
+          e=Path('index.html').read_text(encoding='utf-8')
+          sw=Path('sw.js').read_text(encoding='utf-8')
+          assert 'const ALARM_SYNC_MS=5*60*1000' in a
+          assert 'getDocsFromCache' in a and 'getDocsFromServer' in a
+          assert 'onSnapshot(' not in a
+          assert "intervalo-5min" in a
+          assert "BUILD='20260827.2'" in e
+          assert 'rotina-family-cliente-v74' in sw
+          print('AUDITORIA_ALARM_CACHE=OK')
+          PY
+      - name: Persistir
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-alarm-client.js client-ui-pro.js index.html sw.js
+          if git diff --cached --quiet; then echo 'Já aplicado.'; else git commit -m "Sincronizar alarmes do Cliente a cada 5 minutos" && git push origin main; fi
