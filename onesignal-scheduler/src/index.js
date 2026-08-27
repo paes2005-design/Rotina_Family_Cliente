@@ -916,6 +916,14 @@ function cleanError(error) {
   return String(error?.message || error || 'erro desconhecido').replace(/\s+/g, ' ').slice(0, 500);
 }
 
+function alarmRecordAuditComplete(record = {}) {
+  return Boolean(record?.auditoria?.completedAt) && Number(record?.auditoria?.remaining || 0) === 0;
+}
+
+function alarmAuditPending(records = []) {
+  return records.some(record => !alarmRecordAuditComplete(record));
+}
+
 export async function reconcileAlarm(env, document, {
   fetchImpl = fetch,
   now = new Date()
@@ -950,9 +958,11 @@ export async function reconcileAlarm(env, document, {
 
   const fingerprint = await alarmFingerprint(alarm);
   let records = previousRecords;
+  let recordsChanged = false;
   if (alarm.oneSignalFingerprint && alarm.oneSignalFingerprint !== fingerprint) {
     await cancelRecords(env, records, fetchImpl);
     records = [];
+    recordsChanged = true;
   }
   const occurrences = plannedOccurrences(alarm, { now, timeZone });
   const existingKeys = new Set(records.map(record => record.chave));
@@ -970,14 +980,27 @@ export async function reconcileAlarm(env, document, {
     records.push(record);
     existingKeys.add(record.chave);
     created += 1;
+    recordsChanged = true;
   }
   const state = records.length ? 'AGENDADO' : 'SEM_OCORRENCIA_FUTURA';
+  const auditPending = alarmAuditPending(records);
+  const needsPatch = recordsChanged
+    || alarm.schedulerPendente === true
+    || Number(alarm.schedulerVersao || 0) !== SCHEDULER_VERSION
+    || String(alarm.oneSignalEstado || '') !== state
+    || String(alarm.oneSignalFingerprint || '') !== fingerprint
+    || String(alarm.oneSignalErro || '') !== ''
+    || alarm.oneSignalAuditoriaPendente !== auditPending;
+
+  // Full scans são de reconciliação. Se nada mudou, não consumir uma gravação do Firestore.
+  if (!needsPatch) return { state, created, writeSkipped: true };
+
   await patchDocument(env, document.name, {
     schedulerPendente: false,
     schedulerVersao: SCHEDULER_VERSION,
     oneSignalEstado: state,
     oneSignalAgendamentos: records,
-    oneSignalAuditoriaPendente: records.length > 0,
+    oneSignalAuditoriaPendente: auditPending,
     oneSignalFingerprint: fingerprint,
     oneSignalErro: '',
     oneSignalAtualizadoEm: now
