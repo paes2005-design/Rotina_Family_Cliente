@@ -1,0 +1,118 @@
+name: Commercial auth safe audit
+
+on:
+  push:
+    branches:
+      - fix/commercial-auth-audit-20260826
+    paths:
+      - '.github/workflows/commercial-auth-safe-audit.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/commercial-auth-audit-20260826
+          fetch-depth: 0
+
+      - name: Patch auth to use central commercial policy
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, re
+
+          p = Path('onesignal-scheduler/src/family-auth-session.js')
+          s = p.read_text(encoding='utf-8')
+          import_line = "import { resolveClientCommercialAccess, isCommercialExemptGroup } from './commercial-policy.js';"
+          if import_line not in s:
+              anchor = "import { readCommercialState } from './security-maintenance-v1.js';"
+              if anchor not in s:
+                  raise SystemExit('commercial state import anchor not found')
+              s = s.replace(anchor, anchor + "\n" + import_line, 1)
+
+          pattern = re.compile(
+              r"function commercialState\(config = \{\}, now = Date\.now\(\)\) \{.*?\n\}\n\n"
+              r"function blockedCommercialState\(state\) \{.*?\n\}\n\n"
+              r"async function assertCommercialAccess\(env, groupId, now = new Date\(\)\) \{.*?\n\}\n",
+              re.S
+          )
+          replacement = '''async function assertCommercialAccess(env, groupId, now = new Date()) {
+            if (isCommercialExemptGroup(groupId)) return 'isento';
+            let config = null;
+            let configAvailable = true;
+            try {
+              config = await readCommercialState(env, groupId, now);
+            } catch (error) {
+              configAvailable = false;
+              console.error(JSON.stringify({
+                event: 'auth.commercial_state_unavailable',
+                grupoId: groupId,
+                message: String(error?.message || error).replace(/\\s+/g, ' ').slice(0, 220)
+              }));
+            }
+            const access = resolveClientCommercialAccess({
+              groupId,
+              config: config || {},
+              configAvailable,
+              now: now.getTime()
+            });
+            console.log(JSON.stringify({
+              event: 'auth.commercial_access_resolved',
+              grupoId: groupId,
+              state: access.state,
+              reason: access.reason,
+              configAvailable
+            }));
+            if (!access.allowed) {
+              const error = new Error(access.state === 'teste-expirado'
+                ? 'O período de teste deste grupo terminou.'
+                : 'Este grupo está temporariamente bloqueado.');
+              error.status = 403;
+              throw error;
+            }
+            return access.state;
+          }
+'''
+          s2, count = pattern.subn(replacement, s, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one commercial auth block replacement, got {count}')
+          p.write_text(s2, encoding='utf-8')
+
+          test = Path('onesignal-scheduler/test/family-auth-policy-bridge.test.mjs')
+          test.write_text("""import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const source = fs.readFileSync(new URL('../src/family-auth-session.js', import.meta.url), 'utf8');
+          assert.match(source, /resolveClientCommercialAccess/);
+          assert.match(source, /isCommercialExemptGroup/);
+          assert.doesNotMatch(source, /function commercialState\\(/);
+          assert.match(source, /configAvailable = false/);
+          assert.match(source, /auth\\.commercial_state_unavailable/);
+          assert.match(source, /auth\\.commercial_access_resolved/);
+          console.log('family-auth-policy-bridge.test.mjs: OK');
+          """, encoding='utf-8')
+
+          pkg_path = Path('onesignal-scheduler/package.json')
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
+          pkg['scripts']['test'] = 'node test/scheduler.test.mjs && node test/integration.test.mjs && node test/commercial-safety.test.mjs && node test/family-auth-policy-bridge.test.mjs'
+          pkg['scripts']['check'] = 'node --check src/core.js && node --check src/index.js && node --check src/commercial-policy.js && node --check src/family-auth-session.js && node --check test/scheduler.test.mjs && node --check test/integration.test.mjs && node --check test/commercial-safety.test.mjs && node --check test/family-auth-policy-bridge.test.mjs'
+          pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+      - name: Validate syntax, tests and Worker bundle
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npx wrangler deploy --dry-run
+
+      - name: Stage validated patch on safety branch only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add onesignal-scheduler/src/family-auth-session.js onesignal-scheduler/package.json onesignal-scheduler/test/family-auth-policy-bridge.test.mjs
+          git diff --cached --quiet || git commit -m "[commercial-audit-patched] Unify family auth commercial policy"
+          git push origin HEAD:fix/commercial-auth-audit-20260826
