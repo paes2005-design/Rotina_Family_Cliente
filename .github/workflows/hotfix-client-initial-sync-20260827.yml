@@ -1,0 +1,117 @@
+name: Hotfix carga inicial Cliente
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hotfix-client-initial-sync-20260827.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Corrigir inicialização e forçar novo build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text(encoding='utf-8')
+          old="""            inicializarEscutasFirebase();
+            window.dispatchEvent(new CustomEvent('rotina-client-session-ready',{detail:{grupo:codigoGrupo,perfilId:clientePerfilId}}));"""
+          new="""            await iniciarEscutasFirebase();
+            window.dispatchEvent(new CustomEvent('rotina-client-session-ready',{detail:{grupo:codigoGrupo,perfilId:clientePerfilId}}));"""
+          if old not in s:
+              raise SystemExit('Chamada antiga de inicialização não encontrada')
+          s=s.replace(old,new,1)
+
+          old2="""            sincronizarDadosCliente('cache-inicial',false).finally(()=>sincronizarDadosCliente('servidor-inicial',true));
+            sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);"""
+          new2="""            const cargaInicial=sincronizarDadosCliente('cache-inicial',false)
+                .then(()=>sincronizarDadosCliente('servidor-inicial',true))
+                .catch(e=>{window.rotinaLog?.('sync.cliente_inicial_erro',{mensagem:String(e?.message||e)},'warning');return false;});
+            sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);"""
+          if old2 not in s:
+              raise SystemExit('Bloco de carga inicial não encontrado')
+          s=s.replace(old2,new2,1)
+
+          marker="""            if(!eventosSincronizacaoInstalados){
+                eventosSincronizacaoInstalados=true;"""
+          if marker not in s:
+              raise SystemExit('Marcador de eventos de sincronização ausente')
+          # adicionar retorno após o bloco de instalação de eventos, antes de fechar a função
+          target="""                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
+            }
+        }
+
+        function horaSugeridaComSegundos"""
+          repl="""                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
+            }
+            return cargaInicial;
+        }
+
+        function horaSugeridaComSegundos"""
+          if target not in s:
+              raise SystemExit('Fechamento da inicialização não encontrado')
+          s=s.replace(target,repl,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html'); s=p.read_text(encoding='utf-8')
+          s=s.replace("const BUILD='20260827.3';","const BUILD='20260827.4';")
+          s=s.replace("./client-ui-pro.js?v=48","./client-ui-pro.js?v=49")
+          s=s.replace("navigator.serviceWorker.register('./sw.js?v=75',{updateViaCache:'none'})","navigator.serviceWorker.register('./sw.js?v=76',{updateViaCache:'none'})")
+          s=s.replace("runtime-build-info.js?v=20260827.3","runtime-build-info.js?v=20260827.4")
+          s=s.replace("release:'cliente-cache-first-v2'","release:'cliente-cache-first-v2-hotfix-sync'")
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('sw.js'); s=p.read_text(encoding='utf-8')
+          s=s.replace("rotina-family-cliente-v75","rotina-family-cliente-v76")
+          s=s.replace("ROTINA_SW_VERSION='75'","ROTINA_SW_VERSION='76'")
+          s=s.replace("ROTINA_BUILD_ID='20260827.3'","ROTINA_BUILD_ID='20260827.4'")
+          s=s.replace("runtime-build-info.js?v=20260827.3","runtime-build-info.js?v=20260827.4")
+          p.write_text(s,encoding='utf-8')
+
+          print('HOTFIX_INITIAL_SYNC=OK')
+          PY
+
+      - name: Validar hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('index-CLIENTE-v6.html').read_text(encoding='utf-8')
+          assert 'inicializarEscutasFirebase();' not in s
+          assert 'await iniciarEscutasFirebase();' in s
+          assert "sincronizarDadosCliente('cache-inicial',false)" in s
+          assert ".then(()=>sincronizarDadosCliente('servidor-inicial',true))" in s
+          assert 'return cargaInicial;' in s
+          assert 'SINCRONIZACAO_CLIENTE_MS = 5 * 60 * 1000' in s
+          e=Path('index.html').read_text(encoding='utf-8')
+          sw=Path('sw.js').read_text(encoding='utf-8')
+          assert "20260827.4" in e
+          assert "sw.js?v=76" in e
+          assert "ROTINA_SW_VERSION='76'" in sw
+          print('VALIDACAO_HOTFIX=OK')
+          PY
+
+      - name: Persistir hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index-CLIENTE-v6.html index.html sw.js
+          git diff --cached --quiet && exit 0
+          git commit -m 'Corrigir carga inicial imediata do Cliente'
+          git push origin HEAD:main
