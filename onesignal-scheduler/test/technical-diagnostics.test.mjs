@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { redactTechnicalLog } from '../src/technical-diagnostics.js';
+const redacted=redactTechnicalLog({aplicativo:'cliente',evento:'rede.http_erro',nivel:'warning',grupoId:'CLI-9999',perfilId:'abc',sessaoId:'secret',detalhes:{status:400,tempoMs:1995,recurso:'Write/channel',grupoId:'CLI-9999',mensagem:'dados pessoais'},clienteEm:'2026-08-27T00:00:00Z',pagina:'index.html',navegador:'Edge',online:true,visibilidade:'visible',instalado:true});
+assert.equal(redacted.detalhes.status,400);
+assert.equal(redacted.detalhes.recurso,'Write/channel');
+assert.equal('grupoId' in redacted,false);
+assert.equal('perfilId' in redacted,false);
+assert.equal('sessaoId' in redacted,false);
+assert.equal('grupoId' in redacted.detalhes,false);
+assert.equal('mensagem' in redacted.detalhes,false);
+console.log('technical-diagnostics-redaction: OK');
