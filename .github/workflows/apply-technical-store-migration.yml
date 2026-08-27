@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - '.github/workflows/apply-technical-store-migration.yml'
       - 'onesignal-scheduler/scripts/apply-technical-store-migration.py'
 
 permissions:
@@ -21,6 +22,9 @@ jobs:
         run: |
           node --check onesignal-scheduler/src/index.js
           node --check onesignal-scheduler/src/technical-store-do.js
+          cd onesignal-scheduler
+          node test/scheduler-write-budget.test.mjs
+          npm test
       - name: Persistir fonte migrada
         run: |
           git config user.name "github-actions[bot]"
