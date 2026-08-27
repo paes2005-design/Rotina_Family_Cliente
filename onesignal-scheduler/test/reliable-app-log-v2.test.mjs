@@ -11,5 +11,5 @@ assert.equal(result.accepted,2);
 assert.equal(result.stored,1);
 assert.equal(result.duplicates,1);
 assert.equal(result.dropped,0);
-assert.equal(result.pipelineVersion,4);
+assert.equal(result.pipelineVersion,5);
 console.log('reliable-app-log-v2: OK');
