@@ -3,13 +3,33 @@
   const INFO=Object.freeze({
     app:'CLIENTE',
     appVersion:'1.0.0',
-    build:'20260826.8',
+    build:'20260827.4',
     htmlVersion:'index-CLIENTE-v6',
     rulesModuleVersion:'4',
-    expectedServiceWorkerVersion:'72'
+    expectedServiceWorkerVersion:'75',
+    initialSyncCompatVersion:'1'
   });
   window.ROTINA_BUILD_INFO=INFO;
   const emit=(event,details={})=>{try{window.rotinaLog?.(event,{...INFO,...details});}catch{}};
+
+  // Compatibilidade da migração cache-first: a tela antiga ainda chama
+  // inicializarEscutasFirebase(), enquanto o núcleo novo expõe iniciarEscutasFirebase().
+  // A ponte é instalada antes do DOMContentLoaded/módulos de autenticação concluírem.
+  if(typeof window.inicializarEscutasFirebase!=='function'){
+    window.inicializarEscutasFirebase=function(){
+      if(typeof window.iniciarEscutasFirebase==='function'){
+        emit('sync.cliente_entrada_imediata',{origem:'compat-runtime'});
+        return window.iniciarEscutasFirebase();
+      }
+      if(typeof window.rotinaSincronizarClienteAgora==='function'){
+        emit('sync.cliente_entrada_fallback',{origem:'compat-runtime'},'warning');
+        return window.rotinaSincronizarClienteAgora('entrada-imediata-fallback');
+      }
+      emit('sync.cliente_inicializador_indisponivel',{origem:'compat-runtime'},'error');
+      return Promise.resolve(false);
+    };
+  }
+
   function badge(){
     if(document.getElementById('rotinaBuildBadge'))return;
     const el=document.createElement('button');
