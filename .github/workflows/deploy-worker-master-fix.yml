@@ -14,12 +14,14 @@ on:
       - 'onesignal-scheduler/src/master-rate-limit-production-entry.js'
       - 'onesignal-scheduler/src/technical-diagnostics.js'
       - 'onesignal-scheduler/src/worker-audit-diagnostics.js'
+      - 'onesignal-scheduler/src/reliable-app-log-v2.js'
       - 'onesignal-scheduler/src/master-groups-index.js'
       - 'onesignal-scheduler/src/master-group-summary.js'
       - 'onesignal-scheduler/src/master-users-fallback.js'
       - 'onesignal-scheduler/src/master-logs-fallback.js'
       - 'onesignal-scheduler/test/client-action-guard.test.mjs'
       - 'onesignal-scheduler/test/technical-diagnostics.test.mjs'
+      - 'onesignal-scheduler/test/reliable-app-log-v2.test.mjs'
       - 'onesignal-scheduler/wrangler.jsonc'
   workflow_dispatch:
 
@@ -69,10 +71,12 @@ jobs:
         run: |
           node --check src/technical-diagnostics.js
           node --check src/worker-audit-diagnostics.js
+          node --check src/reliable-app-log-v2.js
           node --check ../client-action-guard-v1.js
           node --check ../app-monitoring.js
           node test/client-action-guard.test.mjs
           node test/technical-diagnostics.test.mjs
+          node test/reliable-app-log-v2.test.mjs
       - name: Syntax check production modules
         run: |
           node --check src/commercial-policy.js
@@ -80,6 +84,7 @@ jobs:
           node --check src/master-rate-limit-production-entry.js
           node --check src/technical-diagnostics.js
           node --check src/worker-audit-diagnostics.js
+          node --check src/reliable-app-log-v2.js
           node --check src/master-groups-index.js
           node --check src/master-group-summary.js
           node --check src/master-users-fallback.js
@@ -94,12 +99,14 @@ jobs:
           users=Path('src/master-users-fallback.js').read_text(encoding='utf-8')
           diag=Path('src/technical-diagnostics.js').read_text(encoding='utf-8')
           worker_diag=Path('src/worker-audit-diagnostics.js').read_text(encoding='utf-8')
+          reliable=Path('src/reliable-app-log-v2.js').read_text(encoding='utf-8')
           guard=Path('../client-action-guard-v1.js').read_text(encoding='utf-8')
           monitor=Path('../app-monitoring.js').read_text(encoding='utf-8')
           wrangler=Path('wrangler.jsonc').read_text(encoding='utf-8')
           assert "import app from './commercial-safe-v2-entry.js'" in prod
           assert "from './technical-diagnostics.js'" in prod
           assert "from './worker-audit-diagnostics.js'" in prod
+          assert "from './reliable-app-log-v2.js'" in prod
           assert 'commercial-preview-entry' not in prod
           assert 'master-user-actions-preview' not in prod
           assert "body.action==='set-group-blocked'" in safe or "body.action === 'set-group-blocked'" in safe
@@ -114,11 +121,11 @@ jobs:
           assert 'COMMERCIAL_TEST_DRY_RUN' not in wrangler
           assert "'/diagnostico-tecnico'" in diag
           assert "'/diagnostico-worker'" in worker_diag
-          assert 'handleReliableAppLog' in diag
+          assert 'pipelineVersion:4' in reliable.replace(' ', '')
           assert 'createSingleFlightAction' in guard
           assert 'MONITOR_VERSION = 5' in monitor
           assert "includes('/app-log')" in monitor
-          print('Produção segura: árvore/comercial preservados + single-flight + diagnóstico redigido + log pipeline v3 OK')
+          print('Produção segura: árvore/comercial preservados + single-flight + diagnóstico redigido + log pipeline v4 OK')
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
@@ -141,7 +148,7 @@ jobs:
           printf '%s' '{"events":[{"aplicativo":"cliente","versaoMonitor":5,"evento":"selftest.pipeline","nivel":"warning","detalhes":{"status":299,"tempoMs":12,"recurso":"selftest"},"grupoId":"SYSTEM-SELFTEST","perfilId":"SELFTEST-PROFILE","sessaoId":"SELFTEST-SESSION","clienteEm":"2026-08-27T02:00:00Z","pagina":"selftest","navegador":"CI","online":true,"visibilidade":"servidor","instalado":false},{"aplicativo":"cliente","versaoMonitor":5,"evento":"selftest.pipeline","nivel":"warning","detalhes":{"status":299,"tempoMs":12,"recurso":"selftest"},"grupoId":"SYSTEM-SELFTEST","perfilId":"SELFTEST-PROFILE","sessaoId":"SELFTEST-SESSION","clienteEm":"2026-08-27T02:00:00Z","pagina":"selftest","navegador":"CI","online":true,"visibilidade":"servidor","instalado":false}]}' >/tmp/payload.json
           curl -fsS -H 'Origin: https://paes2005-design.github.io' -H 'Content-Type: application/json' --data-binary @/tmp/payload.json "$BASE/app-log" -o /tmp/app-log.json
           cat /tmp/app-log.json
-          node -e "const j=require('/tmp/app-log.json'); if(j.accepted!==2||j.duplicates<1||j.dropped!==0) process.exit(1)"
+          node -e "const j=require('/tmp/app-log.json'); if(j.pipelineVersion!==4||j.accepted!==2||j.duplicates<1||j.dropped!==0||j.stored!==1) process.exit(1)"
           curl -fsS "$BASE/diagnostico-tecnico?limit=40&deploy=${GITHUB_SHA}" -o /tmp/diagnostics.json
           node - <<'NODE'
           const fs=require('fs');const j=JSON.parse(fs.readFileSync('/tmp/diagnostics.json','utf8'));
