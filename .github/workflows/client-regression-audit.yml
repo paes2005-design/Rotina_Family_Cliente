@@ -28,7 +28,6 @@ jobs:
           node --check client-early-start-ui.js
           node --check client-tolerance-timer.js
           node --check client-week-nav.js
-          node --check client-rewards-layout-v1.js
           node --check scoring-core.js
           node --check runtime-build-info.js
           node --check sw.js
@@ -46,38 +45,29 @@ jobs:
           const guard=read('client-time-guard-v3.js');
           const auth=read('client-auth-session-v1.js');
           const offline=read('client-offline-execution-integrity-v1.js');
-          const rewardsLayout=read('client-rewards-layout-v1.js');
           const sw=read('sw.js');
           const runtime=read('runtime-build-info.js');
           const manifest=JSON.parse(read('manifest.json'));
           const assert=(ok,msg)=>{if(!ok)throw new Error(msg);console.log('OK - '+msg)};
 
-          assert(index.includes("const BUILD='20260829.1'"),'entry build is 20260829.1');
-          assert(index.includes("./sw.js?v=78")&&index.includes("updateViaCache:'none'"),'entry forces Service Worker 78 update without intermediary cache');
-          assert(index.includes('client-auth-session-v1.js?v=6'),'secure participant auth is injected');
-          assert(index.includes('client-offline-execution-integrity-v1.js?v=4'),'offline execution integrity is injected');
-          assert(index.includes('client-rewards-layout-v1.js?v=1'),'reward layout module is injected');
-          assert(index.includes('runtime-build-info.js?v=20260829.1'),'runtime build indicator is injected explicitly');
+          assert(index.includes("const BUILD='20260826.1'"),'entry build is 20260826.1');
+          assert(index.includes("./sw.js?v=72")&&index.includes("updateViaCache:'none'"),'entry forces Service Worker 72 update without intermediary cache');
+          assert(index.includes('client-auth-session-v1.js?v=2'),'secure participant auth is injected');
+          assert(index.includes('client-offline-execution-integrity-v1.js?v=2'),'offline execution integrity is injected');
+          assert(index.includes('runtime-build-info.js?v=20260826.1'),'runtime build indicator is injected explicitly');
 
-          assert(sw.includes("const CACHE_NAME='rotina-family-participante-v78'"),'Service Worker cache is v78');
-          assert(sw.includes("const ROTINA_SW_VERSION='78'"),'Service Worker reports version 78');
-          assert(sw.includes("const ROTINA_BUILD_ID='20260829.1'"),'Service Worker reports current build');
+          assert(sw.includes("const CACHE_NAME='rotina-family-cliente-v72'"),'Service Worker cache is v72');
+          assert(sw.includes("const ROTINA_SW_VERSION='72'"),'Service Worker reports version 72');
+          assert(sw.includes("const ROTINA_BUILD_ID='20260826.1'"),'Service Worker reports current build');
           assert(sw.includes('client-auth-session-v1.js')&&sw.includes('client-offline-execution-integrity-v1.js'),'secure auth and offline integrity are cached');
-          assert(sw.includes('client-rewards-layout-v1.js'),'reward layout module is cached');
           assert(sw.includes('firebase-auth.js'),'Firebase Auth module tree is cached');
           assert(sw.includes("cache:'no-store'"),'app navigation/assets remain network-first');
 
-          assert(runtime.includes("build:'20260829.1'"),'runtime badge reports current build');
-          assert(runtime.includes("expectedServiceWorkerVersion:'78'"),'runtime badge expects SW 78');
+          assert(runtime.includes("build:'20260826.1'"),'runtime badge reports current build');
+          assert(runtime.includes("expectedServiceWorkerVersion:'72'"),'runtime badge expects SW 72');
           assert(manifest.start_url==='./index.html','PWA starts through controlled entry page');
 
-          assert(rewardsLayout.includes("tituloCard(cardRecompensas,'🎁 Recompensas')"),'desktop/mobile rewards title is explicit');
-          assert(rewardsLayout.includes("tituloCard(cardConquistas,'🏆 Conquistas')"),'desktop/mobile achievements title is explicit');
-          assert(rewardsLayout.includes("grid-template-columns:minmax(0,1fr) minmax(0,1fr)"),'desktop rewards and achievements use two columns');
-          assert(rewardsLayout.includes("@media(max-width:700px)")&&rewardsLayout.includes("grid-template-columns:1fr!important"),'mobile rewards and achievements stack vertically');
-          assert(rewardsLayout.includes("<span>📋 Histórico</span>"),'redemption history is rendered below both cards');
-
-          assert(ui.includes("import('./client-time-guard-v3.js?v=7')"),'current temporal guard v3 is loaded');
+          assert(ui.includes("import('./client-time-guard-v3.js?v=4')"),'current temporal guard v3 is loaded');
           assert(ui.includes("import('./client-session-integrity.js?v=2')"),'session integrity module is loaded');
           assert(ui.includes("rotina-time-guard-ready"),'UI has explicit temporal guard readiness signal');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'temporal guard explicitly releases readiness');

@@ -3,10 +3,10 @@
   const INFO=Object.freeze({
     app:'PARTICIPANTE',
     appVersion:'1.0.0',
-    build:'20260829.1',
+    build:'20260827.5',
     htmlVersion:'index-CLIENTE-v6',
     rulesModuleVersion:'4',
-    expectedServiceWorkerVersion:'78',
+    expectedServiceWorkerVersion:'77',
     initialSyncCompatVersion:'1'
   });
   window.ROTINA_BUILD_INFO=INFO;
