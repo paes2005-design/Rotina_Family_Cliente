@@ -77,7 +77,7 @@ jobs:
           assert(rewardsLayout.includes("@media(max-width:700px)")&&rewardsLayout.includes("grid-template-columns:1fr!important"),'mobile rewards and achievements stack vertically');
           assert(rewardsLayout.includes("<span>📋 Histórico</span>"),'redemption history is rendered below both cards');
 
-          assert(ui.includes("import('./client-time-guard-v3.js?v=4')"),'current temporal guard v3 is loaded');
+          assert(ui.includes("import('./client-time-guard-v3.js?v=7')"),'current temporal guard v3 is loaded');
           assert(ui.includes("import('./client-session-integrity.js?v=2')"),'session integrity module is loaded');
           assert(ui.includes("rotina-time-guard-ready"),'UI has explicit temporal guard readiness signal');
           assert(guard.includes("dispatchEvent(new CustomEvent('rotina-time-guard-ready'))"),'temporal guard explicitly releases readiness');
