@@ -172,6 +172,16 @@ service cloud.firestore {
 
     match /conquistas/{id} {
       allow read: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup())
+        || (isParticipant()
+            && resource.data.grupoId == myGroup()
+            && (resource.data.perfilId == myProfile() || resource.data.perfilId == '__ALL__'));
+      allow create, update, delete: if isMaster();
+    }
+
+    match /conquistaHistorico/{id} {
+      allow read: if isMaster()
+        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup())
         || (isParticipant()
             && resource.data.grupoId == myGroup()
             && (resource.data.perfilId == myProfile() || resource.data.perfilId == '__ALL__'));
