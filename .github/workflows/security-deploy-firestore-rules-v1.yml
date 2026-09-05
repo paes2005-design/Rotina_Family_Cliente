@@ -181,9 +181,18 @@ jobs:
         run: |
           set -euo pipefail
           URL='https://rotina-family-onesignal-scheduler.rotina-family-onesignal-scheduler.workers.dev/__security/firestore-rules-deploy-v1'
-          BODY="$(curl --silent --show-error -X POST -H "x-rf-deploy-key: $DEPLOY_KEY" "$URL")"
-          if printf '%s' "$BODY" | grep -Eq 'rulesetName|releaseMatches|activeRuleset'; then
-            echo 'Temporary Firestore rules publisher still active.'
+          CLEAN=false
+          for ATTEMPT in 1 2 3 4 5 6 7 8; do
+            BODY="$(curl --silent --show-error -X POST -H "x-rf-deploy-key: $DEPLOY_KEY" "$URL" || true)"
+            if ! printf '%s' "$BODY" | grep -Eq 'rulesetName|releaseMatches|activeRuleset'; then
+              CLEAN=true
+              echo "TEMPORARY RULES PUBLISHER REMOVED"
+              break
+            fi
+            echo "Limpeza ainda propagando na tentativa $ATTEMPT."
+            sleep 3
+          done
+          if [ "$CLEAN" != true ]; then
+            echo 'Temporary Firestore rules publisher still active after propagation window.'
             exit 1
           fi
-          echo 'TEMPORARY RULES PUBLISHER REMOVED'
