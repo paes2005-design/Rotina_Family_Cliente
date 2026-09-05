@@ -56,7 +56,7 @@ jobs:
             const key=await crypto.subtle.importKey('pkcs8',pemBytes(c.private_key),{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
             const signature=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(unsigned));
             const assertion=unsigned+'.'+base64Url(new Uint8Array(signature));
-            const response=await fetch(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
+            const response=await fetch(GOOGLE_TOKEN_URL,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth-type:jwt-bearer',assertion})});
             const body=await response.json().catch(()=>({}));
             if(!response.ok||!body.access_token)throw new Error('OAuth Google recusado ('+response.status+'): '+String(body.error_description||body.error||'sem detalhe').slice(0,180));
             tokenCache={value:body.access_token,email:c.client_email,expiresAt:now.getTime()+Number(body.expires_in||3600)*1000};
@@ -103,9 +103,9 @@ jobs:
               if first not in s: raise SystemExit('Import marker not found')
               s = s.replace(first, first + imp, 1)
 
-          needle = "    try {\n      const emergencyResponse = await handleEmergencyCompensation(request, env);"
-          route = "    try {\n      if (new URL(request.url).pathname === '/__security/firestore-rules-deploy-v1' && request.method === 'POST') {\n        if (request.headers.get('x-rf-deploy-key') !== __KEY__) return new Response('Not found', { status: 404 });\n        try {\n          const result = await deployFirestoreRulesV1(env);\n          return Response.json(result, { headers: { 'cache-control': 'no-store' } });\n        } catch (error) {\n          return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,500) }, { status:500, headers: { 'cache-control':'no-store' } });\n        }\n      }\n      const emergencyResponse = await handleEmergencyCompensation(request, env);".replace('__KEY__', key_literal)
-          if needle not in s: raise SystemExit('Fetch marker not found')
+          needle = "  async fetch(request,env,ctx){try{\n"
+          route = "  async fetch(request,env,ctx){try{\n    if (new URL(request.url).pathname === '/__security/firestore-rules-deploy-v1' && request.method === 'POST') {\n      if (request.headers.get('x-rf-deploy-key') !== __KEY__) return new Response('Not found', { status: 404 });\n      try {\n        const result = await deployFirestoreRulesV1(env);\n        return Response.json(result, { headers: { 'cache-control': 'no-store' } });\n      } catch (error) {\n        return Response.json({ ok:false, error:String(error?.message || error).replace(/\\s+/g,' ').slice(0,500) }, { status:500, headers: { 'cache-control':'no-store' } });\n      }\n    }\n".replace('__KEY__', key_literal)
+          if s.count(needle) != 1: raise SystemExit('Fetch owner marker not found exactly once')
           s = s.replace(needle, route, 1)
           p.write_text(s, encoding='utf-8')
 
