@@ -248,7 +248,7 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px">
             <div class="card" style="text-align:left"><span>🔥 Sequência / Conquistas</span><div id="conquistasCliente" style="margin-top:8px"></div></div>
-            <div class="card" style="text-align:left"><span>🎁 Recompensas e Resgates</span><div id="recompensasCliente" style="margin-top:8px"></div></div>
+            <div class="card" style="text-align:left"><span>🎁 Recompensas, Desafios e Resgates</span><div id="recompensasCliente" style="margin-top:8px"></div></div>
         </div>
         <div class="card" style="text-align:left;margin-bottom:20px"><span>📝 Minhas justificativas</span><div id="justificativasCliente" style="margin-top:8px"></div></div>
         <table>
@@ -295,12 +295,14 @@
         let unsubscribeHistorico = null;
         let cacheTarefasHoje = [];
         let cacheTarefasTodas = [];
+        let cacheTarefasGrupo = [];
         let cacheHistorico = [];
         let pendenteJustificativaAtraso = null;
         let reconhecimentoVoz = null;
         let justificativaFoiDitada = false;
         let recompensasCache = [];
         let resgatesCache = [];
+        let desafiosCache = [];
         let unsubscribeRecompensas = null;
         let unsubscribeResgates = null;
         let unsubscribeConfigGrupo = null;
@@ -391,7 +393,7 @@
             const mesAtual = new Date().getMonth();
 
             let ganhoHoje = 0, ganhoSemana = 0, ganhoMes = 0;
-            cacheHistorico.forEach((h) => {
+            historicoPontuavel().forEach((h) => {
                 const pts = Number(h.pontosGanhos) || 0;
                 if(h.data === hojeISO) ganhoHoje += pts;
                 if(h.data >= inicioSemanaISO) ganhoSemana += pts;
@@ -542,25 +544,45 @@
                 historico: cacheHistorico.map(x=>({...x})),
                 recompensas: recompensasCache.map(x=>({...x})),
                 resgates: resgatesCache.map(x=>({...x})),
+                desafios: desafiosCache.map(x=>({...x})),
                 regraAtraso: {...regraAtrasoAtual},
                 ultimaSincronizacaoServidor: ultimaSincronizacaoClienteServidor
             };
         }
         window.rotinaClientCacheSnapshot = snapshotClienteCompartilhado;
+        function tarefaVisivelParticipante(t){
+            return !(t?.ativa===false || t?.ativo===false || t?.active===false || String(t?.status||'').trim().toLowerCase()==='inativa');
+        }
+        function tarefaDoHistorico(h){
+            if(!h)return null;
+            const tarefaId=String(h.tarefaId||'').trim();
+            if(tarefaId){const encontrada=cacheTarefasGrupo.find(t=>String(t.id||'')===tarefaId);if(encontrada)return encontrada;}
+            const tarefaGrupoId=String(h.tarefaGrupoId||'').trim();
+            if(tarefaGrupoId)return cacheTarefasGrupo.find(t=>String(t.tarefaGrupoId||'')===tarefaGrupoId)||null;
+            return null;
+        }
+        function historicoContaPontos(h){
+            const tarefa=tarefaDoHistorico(h);
+            if(!tarefa || tarefaVisivelParticipante(tarefa))return true;
+            return String(h?.data||'')!==formatarDataISO(new Date());
+        }
+        function historicoPontuavel(){return cacheHistorico.filter(historicoContaPontos);}
         window.rotinaAtualizarTarefaLocal = (id, patch={}) => {
             const tarefaId=String(id||'').trim(); if(!tarefaId)return;
-            cacheTarefasTodas=cacheTarefasTodas.map(t=>t.id===tarefaId?{...t,...patch}:t);
-            cacheTarefasHoje=cacheTarefasHoje.map(t=>t.id===tarefaId?{...t,...patch}:t);
-            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
+            cacheTarefasGrupo=cacheTarefasGrupo.map(t=>t.id===tarefaId?{...t,...patch}:t);
+            cacheTarefasTodas=cacheTarefasGrupo.filter(tarefaVisivelParticipante);
+            cacheTarefasHoje=cacheTarefasTodas.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas(); renderizarRecompensasCliente();
             window.dispatchEvent(new CustomEvent('rotina-client-cache-updated',{detail:{origem:'acao-local',servidor:false,colecoes:['tarefas']}}));
         };
 
         function aplicarTarefasSnapshot(snapshot, origem) {
             if(!snapshot)return;
-            const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome));
-            cacheTarefasTodas=lista;
-            cacheTarefasHoje=lista.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
-            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
+            cacheTarefasGrupo=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome));
+            cacheTarefasTodas=cacheTarefasGrupo.filter(tarefaVisivelParticipante);
+            cacheTarefasHoje=cacheTarefasTodas.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas(); renderizarRecompensasCliente();
+            window.rotinaLog?.('tarefas.inativas_aplicadas',{inativas:cacheTarefasGrupo.length-cacheTarefasTodas.length,ativas:cacheTarefasTodas.length,retiraPontosHoje:true});
             window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem}}));
         }
         function aplicarHistoricoSnapshot(snapshot){
@@ -570,6 +592,7 @@
         }
         function aplicarRecompensasSnapshot(snapshot){if(snapshot){recompensasCache=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(r=>r.ativa!==false);renderizarRecompensasCliente();}}
         function aplicarResgatesSnapshot(snapshot){if(snapshot){resgatesCache=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente();verificarRetornosResgates();}}
+        function aplicarDesafiosSnapshots(snapshots=[]){const mapa=new Map();snapshots.filter(Boolean).forEach(snapshot=>snapshot.docs.forEach(d=>mapa.set(d.id,{id:d.id,...d.data()})));desafiosCache=[...mapa.values()].filter(c=>c.ativa!==false&&!c.encerrada&&(c.perfilId===clientePerfilId||c.perfilId==='__ALL__'));renderizarRecompensasCliente();}
         function aplicarConfigSnapshot(snapshot){if(snapshot){regraAtrasoAtual=normalizarRegraAtraso(snapshot.exists()?snapshot.data():{});const el=document.getElementById('textoRegraAtrasoCliente');if(el)el.innerHTML=textoRegraAtrasoCliente();}}
 
         async function sincronizarDadosCliente(origem='intervalo-5min', servidor=true) {
@@ -581,17 +604,20 @@
                 const qHistorico=query(collection(db,'historico'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
                 const qRecompensas=query(collection(db,'recompensas'),where('grupoId','==',codigoGrupo));
                 const qResgates=query(collection(db,'resgates'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const qDesafiosPerfil=query(collection(db,'conquistas'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const qDesafiosTodos=query(collection(db,'conquistas'),where('grupoId','==',codigoGrupo),where('perfilId','==','__ALL__'));
                 const refConfig=doc(db,'configGrupos',codigoGrupo);
                 const lerColecao=servidor?getDocsFromServer:getDocsFromCache;
                 const lerDocumento=servidor?getDocFromServer:getDocFromCache;
                 const resultados=await Promise.allSettled([
-                    lerColecao(qTarefas),lerColecao(qHistorico),lerColecao(qRecompensas),lerColecao(qResgates),lerDocumento(refConfig)
+                    lerColecao(qTarefas),lerColecao(qHistorico),lerColecao(qRecompensas),lerColecao(qResgates),lerColecao(qDesafiosPerfil),lerColecao(qDesafiosTodos),lerDocumento(refConfig)
                 ]);
-                const [tarefas,historico,recompensas,resgates,config]=resultados;
+                const [tarefas,historico,recompensas,resgates,desafiosPerfil,desafiosTodos,config]=resultados;
                 if(tarefas.status==='fulfilled')aplicarTarefasSnapshot(tarefas.value,servidor?'servidor-5min':'cache-persistente');
                 if(historico.status==='fulfilled')aplicarHistoricoSnapshot(historico.value);
                 if(recompensas.status==='fulfilled')aplicarRecompensasSnapshot(recompensas.value);
                 if(resgates.status==='fulfilled')aplicarResgatesSnapshot(resgates.value);
+                if(desafiosPerfil.status==='fulfilled'||desafiosTodos.status==='fulfilled')aplicarDesafiosSnapshots([desafiosPerfil.status==='fulfilled'?desafiosPerfil.value:null,desafiosTodos.status==='fulfilled'?desafiosTodos.value:null]);
                 if(config.status==='fulfilled')aplicarConfigSnapshot(config.value);
                 const falhas=resultados.filter(x=>x.status==='rejected').length;
                 if(servidor && falhas<resultados.length)ultimaSincronizacaoClienteServidor=Date.now();
@@ -837,18 +863,28 @@
         };
 
         function ehExecucaoPontual(h){ return h.faixaAtraso ? h.faixaAtraso==='dentro-limites' : (h.status?.includes('Prazo') && !h.iniciouComAtraso); }
-        function atualizarConquistas(){ const el=document.getElementById('conquistasCliente');if(!el)return; const datas=[...new Set(cacheHistorico.filter(ehExecucaoPontual).map(h=>h.data))].sort().reverse(); let seq=0,d=new Date();for(let i=0;i<60;i++){const iso=formatarDataISO(d);if(datas.includes(iso))seq++;else if(i>0)break;d.setDate(d.getDate()-1);} const total=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0); const conquistas=[];if(seq>=3)conquistas.push('🔥 3 dias seguidos');if(seq>=7)conquistas.push('🏅 Persistente: 7 dias');if(total>=1000)conquistas.push('⭐ Mil pontos');if(cacheHistorico.filter(ehExecucaoPontual).length>=10)conquistas.push('⏱️ Pontual: 10 tarefas'); el.innerHTML=`<strong>🔥 ${seq} dia(s)</strong><br>${conquistas.map(escaparHtml).join('<br>')||'Continue cumprindo metas para desbloquear conquistas.'}`; }
+        function atualizarConquistas(){ const el=document.getElementById('conquistasCliente');if(!el)return; const historico=historicoPontuavel(); const datas=[...new Set(historico.filter(ehExecucaoPontual).map(h=>h.data))].sort().reverse(); let seq=0,d=new Date();for(let i=0;i<60;i++){const iso=formatarDataISO(d);if(datas.includes(iso))seq++;else if(i>0)break;d.setDate(d.getDate()-1);} const total=historico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0); const conquistas=[];if(seq>=3)conquistas.push('🔥 3 dias seguidos');if(seq>=7)conquistas.push('🏅 Persistente: 7 dias');if(total>=1000)conquistas.push('⭐ Mil pontos');if(historico.filter(ehExecucaoPontual).length>=10)conquistas.push('⏱️ Pontual: 10 tarefas'); el.innerHTML=`<strong>🔥 ${seq} dia(s)</strong><br>${conquistas.map(escaparHtml).join('<br>')||'Continue cumprindo metas para desbloquear conquistas.'}`; }
         function saldoPontos(){
-            const ganho=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0);
+            const ganho=historicoPontuavel().reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0);
             const comprometido=resgatesCache.filter(r=>r.status==='Aprovado'||r.status==='Pendente').reduce((s,r)=>s+(Number(r.pontos)||0),0);
             return ganho-comprometido;
         }
+        const REGRAS_DESAFIO={on_time_days:'Dias com todas as tarefas dentro do horário',tasks_100:'Tarefas consecutivas com 100%',no_justification_days:'Dias sem necessidade de justificativa',points:'Pontos atingidos',percent_points:'Percentual dos pontos possíveis'};
+        function dataDesafio(x){return String(x?.data||x?.dataExecucao||x?.criadoEmIso||x?.criadoEm||'').slice(0,10);}
+        function percentualDesafio(x){for(const v of [x?.percentualRevisado,x?.percentualAplicado])if(v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v)))return Math.max(0,Math.min(100,Math.round(Number(v))));const f=String(x?.faixaAtraso||'').toLowerCase(),st=String(x?.status||'').toLowerCase();if(f==='dentro-limites')return 100;if(f==='atraso-leve'||st.includes('75%'))return 75;if(f==='atraso-maior'||st.includes('50%'))return 50;if(f==='estourado'||st.includes('atrasado'))return 0;if(st.includes('prazo'))return 100;return null;}
+        function registroFinalDesafio(x){return percentualDesafio(x)!==null||!!(x?.terminoExecutadoEm||x?.horarioTermino);}
+        function diaSemanaData(iso){const [a,m,d]=String(iso).split('-').map(Number);return ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'][new Date(a,m-1,d,12).getDay()];}
+        function tarefasEsperadasNoDia(iso){const dia=diaSemanaData(iso);return cacheTarefasGrupo.filter(t=>tarefaVisivelParticipante(t)&&t.diaSemana===dia).length;}
+        function limitesPeriodo(tipo){const n=new Date(),a=new Date(n.getFullYear(),n.getMonth(),n.getDate(),12);if(tipo==='month')return{ini:`${a.getFullYear()}-${String(a.getMonth()+1).padStart(2,'0')}-01`,fim:`${a.getFullYear()}-${String(a.getMonth()+1).padStart(2,'0')}-31`};const wd=(a.getDay()+6)%7,ini=new Date(a);ini.setDate(a.getDate()-wd);const fim=new Date(ini);fim.setDate(ini.getDate()+6);const iso=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;return{ini:iso(ini),fim:iso(fim)};}
+        function progressoDesafio(c){let hs=historicoPontuavel().filter(registroFinalDesafio);const inicio=String(c?.cicloIniciadoEm||c?.criadoEm||'').slice(0,10);if(inicio)hs=hs.filter(h=>!dataDesafio(h)||dataDesafio(h)>=inicio);if(c.tipo==='points')return hs.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0);if(c.tipo==='percent_points'){const b=limitesPeriodo(c.periodoPercentual==='month'?'month':'week'),r=hs.filter(h=>dataDesafio(h)>=b.ini&&dataDesafio(h)<=b.fim),ganho=r.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0),poss=r.reduce((s,h)=>s+(Number(h.pontosMaximos)||0),0);return poss?Math.round(ganho*100/poss):0;}if(c.tipo==='tasks_100'){const r=hs.slice().sort((a,b)=>`${dataDesafio(b)}${String(b.horarioTermino||b.terminoExecutadoEm||'')}`.localeCompare(`${dataDesafio(a)}${String(a.horarioTermino||a.terminoExecutadoEm||'')}`));let n=0;for(const h of r){if(percentualDesafio(h)===100)n++;else break;}return n;}const grupos={};for(const h of hs){const data=dataDesafio(h);if(data)(grupos[data]||(grupos[data]=[])).push(h);}const dias=Object.keys(grupos).sort(),ok={};for(const data of dias){const r=grupos[data],esperadas=tarefasEsperadasNoDia(data);if(!esperadas||r.length<esperadas){ok[data]=false;continue;}ok[data]=c.tipo==='on_time_days'?r.every(h=>percentualDesafio(h)===100):r.every(h=>!String(h.justificativaAtraso||'').trim()&&h.justificativaRecusada!==true);}if(c.modoContagem==='consecutive'){let n=0;for(const data of dias.slice().sort().reverse()){if(ok[data])n++;else if(tarefasEsperadasNoDia(data))break;}return n;}return dias.filter(data=>ok[data]).length;}
+        function metaDesafio(c){const alvo=Number(c.meta)||0;if(c.tipo==='on_time_days'||c.tipo==='no_justification_days')return `${alvo} dia(s) ${c.modoContagem==='consecutive'?'consecutivos':'acumulados'}`;if(c.tipo==='tasks_100')return `${alvo} tarefa(s) consecutiva(s) com 100%`;if(c.tipo==='percent_points')return `${alvo}% dos pontos possíveis no período de ${c.periodoPercentual==='month'?'mês':'semana'}`;return `${alvo} pontos${c.prazo==='with'?` em ${c.prazoValor} ${c.prazoUnidade==='days'?'dia(s)':c.prazoUnidade==='weeks'?'semana(s)':'mês(es)'}`:''}`;}
+        function htmlDesafiosCliente(){if(!desafiosCache.length)return '<div style="margin-top:7px"><small>Nenhum desafio ativo.</small></div>';return desafiosCache.map(c=>{const progresso=progressoDesafio(c),meta=Math.max(1,Number(c.meta)||1),pct=Math.max(0,Math.min(100,Math.round(progresso*100/meta))),atingido=c.pendenteValidacao||progresso>=meta;return `<div style="margin-top:9px;padding:9px;border:1px solid #eee;border-radius:10px"><strong>🏆 ${escaparHtml(REGRAS_DESAFIO[c.tipo]||'Desafio')}</strong><br><small>Meta: ${escaparHtml(metaDesafio(c))}</small><br><small>Prêmio: ${escaparHtml(c.premio||'Não informado')}</small><div style="height:7px;background:#eee;border-radius:20px;overflow:hidden;margin-top:6px"><div style="height:100%;width:${pct}%;background:var(--cor-primaria)"></div></div><small>${progresso} / ${meta}${atingido?' · ✅ Meta atingida, aguardando ADM':''}</small></div>`;}).join('');}
         function renderizarRecompensasCliente(){
             const el=document.getElementById('recompensasCliente');if(!el)return; const saldo=saldoPontos();
             const hojeISO=formatarDataISO(new Date());
             const catalogo=recompensasCache.map(r=>`<div style="margin-top:7px">🎁 ${escaparHtml(r.nome)} — ${Number(r.pontos)||0} pts <button class="btn" style="padding:5px 9px" onclick="resgatarRecompensa('${r.id}')" ${saldo<(Number(r.pontos)||0)?'disabled':''}>Resgatar</button></div>`).join('')||'<div style="margin-top:7px">Nenhuma recompensa disponível.</div>';
             const hist=[...resgatesCache].filter(r=>{const d=new Date(r.criadoEm||'');return Number.isFinite(d.getTime())&&formatarDataISO(d)===hojeISO;}).sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||'')).map(r=>{const ic=r.status==='Aprovado'?'✅':r.status==='Recusado'?'❌':'⏳'; const msg=r.status==='Aprovado'?'Resgate autorizado':r.status==='Recusado'?'Não autorizado':'Aguardando autorização'; return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">${ic} <strong>${escaparHtml(r.recompensaNome||'Recompensa')}</strong><br><small>${msg} · ${Number(r.pontos)||0} pts</small></div>`}).join('');
-            el.innerHTML=`<strong>Saldo disponível: ${saldo} pts</strong><br>${catalogo}<div style="margin-top:12px"><strong>Meus resgates de hoje</strong>${hist||'<br><small>Nenhum resgate solicitado hoje.</small>'}</div>`;
+            el.innerHTML=`<strong>Saldo disponível: ${saldo} pts</strong><div style="margin-top:12px"><strong>🏆 Desafios</strong>${htmlDesafiosCliente()}</div><div style="margin-top:12px"><strong>🎁 Catálogo</strong>${catalogo}</div><div style="margin-top:12px"><strong>Meus resgates de hoje</strong>${hist||'<br><small>Nenhum resgate solicitado hoje.</small>'}</div>`;
         }
         const resgatesEmEnvio=new Set();
         window.resgatarRecompensa=async id=>{ const r=recompensasCache.find(x=>x.id===id);if(!r||resgatesEmEnvio.has(id))return; const custo=Number(r.pontos)||0;if(saldoPontos()<custo)return alert('Pontos insuficientes ou já reservados em pedidos pendentes.'); if(resgatesCache.some(x=>x.recompensaId===id&&x.status==='Pendente'))return alert('Você já tem um pedido pendente para esta recompensa.'); resgatesEmEnvio.add(id); try{ const pedidoId=`${clientePerfilId}_${id}_${Date.now()}`,agora=new Date().toISOString(); await setDoc(doc(db,'resgates',pedidoId),{grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,recompensaId:id,recompensaNome:r.nome,pontos:custo,status:'Pendente',criadoEm:agora,pushAdminPendente:true,pushAdminSolicitadoEm:agora,pushAdminTentativas:0});window.rotinaLog?.('recompensa.solicitada',{recompensaId:id,pontos:custo});alert('Pedido enviado aos seus pais! Os pontos ficam reservados enquanto aguardam a decisão.'); } finally { resgatesEmEnvio.delete(id); } };

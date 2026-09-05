@@ -170,6 +170,14 @@ service cloud.firestore {
       allow delete: if isMaster() || (isFamilyAdmin() && resource.data.grupoId == myGroup());
     }
 
+    match /conquistas/{id} {
+      allow read: if isMaster()
+        || (isParticipant()
+            && resource.data.grupoId == myGroup()
+            && (resource.data.perfilId == myProfile() || resource.data.perfilId == '__ALL__'));
+      allow create, update, delete: if isMaster();
+    }
+
     match /despertadores/{id} {
       allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);
       allow create: if isMaster()
