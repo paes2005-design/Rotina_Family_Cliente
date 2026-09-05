@@ -1,0 +1,35 @@
+name: Sprint 2 Participante Ativacao V1
+on:
+  push:
+    paths:
+      - '.github/triggers/sprint2-participante-ativacao-v1.txt'
+permissions:
+  contents: write
+jobs:
+  build-test-page:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -euo pipefail
+          cp index-CLIENTE-v6.html sprint2-participante-ativacao-v1.html
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('sprint2-participante-ativacao-v1.html')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('<title>Rotina Family</title>','<title>Rotina Family — Sprint 2 • Teste Participante</title>',1)
+          old="const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome));"
+          new="const tarefaVisivel=t=>!(t?.ativa===false||t?.ativo===false||t?.active===false||String(t?.status||'').trim().toLowerCase()==='inativa');\n            const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome)).filter(tarefaVisivel);"
+          if s.count(old)!=1: raise SystemExit(f'origem de tarefas inesperada: {s.count(old)}')
+          s=s.replace(old,new,1)
+          badge='<div style="position:fixed;left:8px;bottom:8px;z-index:99999;background:#4a4e69;color:white;padding:5px 9px;border-radius:999px;font-size:10px;opacity:.8">Sprint 2 · teste participante</div>'
+          s=s.replace('</body>',badge+'\n</body>',1)
+          p.write_text(s,encoding='utf-8')
+          PY
+          grep -q 'const tarefaVisivel=' sprint2-participante-ativacao-v1.html
+          grep -q 'Sprint 2 · teste participante' sprint2-participante-ativacao-v1.html
+          git config user.name paes2005-design
+          git config user.email paes2005@gmail.com
+          git add sprint2-participante-ativacao-v1.html
+          git commit -m "Sprint 2: cria participante de teste com filtro de tarefas inativas"
+          git push
