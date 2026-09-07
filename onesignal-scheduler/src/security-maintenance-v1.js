@@ -1,5 +1,6 @@
-import { firestoreFieldsToJs, jsToFirestoreFields } from './core.js';
+import { firestoreFieldsToJs, jsToFirestoreFields, weekStartInZone } from './core.js';
 
+export const SECURITY_MAINTENANCE_VERSION = 2;
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const COMMERCIAL_FIELDS = Object.freeze([
   'trialVersao','trialAtivo','trialDias','trialInicioEm','trialFimEm',
@@ -9,6 +10,7 @@ const COMMERCIAL_FIELDS = Object.freeze([
 let tokenCache = { value: '', expiresAt: 0, email: '' };
 let migrationRunning = null;
 let resetRunning = null;
+let lastWeeklyResetChecked = '';
 
 const required = (value, name) => { if (!value) throw new Error(`Configuração obrigatória ausente: ${name}`); return value; };
 const docId = name => String(name || '').split('/').at(-1) || '';
@@ -82,12 +84,6 @@ async function deleteFields(env, collectionId, id, fields, now = new Date()) {
   const response = await fsRequest(env,url.toString(),{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({fields:{}})},now);
   if (!response.ok) throw new Error(`Limpeza ${collectionId}/${id} recusada (${response.status}).`);
 }
-async function queryString(env, collectionId, field, value, now = new Date()) {
-  const response = await fsRequest(env,`${base(env)}:runQuery`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({structuredQuery:{from:[{collectionId}],where:{fieldFilter:{field:{fieldPath:field},op:'EQUAL',value:{stringValue:String(value)}}},limit:500}})},now);
-  const rows = await response.json().catch(()=>[]);
-  if (!response.ok) throw new Error(`Consulta ${collectionId} recusada (${response.status}).`);
-  return (Array.isArray(rows)?rows:[]).filter(row=>row.document).map(row=>({name:row.document.name,data:firestoreFieldsToJs(row.document.fields||{})||{}}));
-}
 async function commitPatches(env, writes, now = new Date()) {
   for (let i=0;i<writes.length;i+=400) {
     const chunk = writes.slice(i,i+400);
@@ -118,44 +114,91 @@ async function migrateCommercialState(env, now = new Date()) {
 }
 
 function localParts(date,timeZone) {
-  const parts = new Intl.DateTimeFormat('en-CA',{timeZone,weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);
+  const parts = new Intl.DateTimeFormat('en-CA',{timeZone,weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date);
   return Object.fromEntries(parts.map(p=>[p.type,p.value]));
 }
-function sundayKey(now,timeZone) {
-  const parts = localParts(now,timeZone);
+function localDateKey(date,timeZone) {
+  const parts = localParts(date,timeZone);
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+function taskExecutionDate(task,timeZone) {
+  const direct = String(task?.dataExecucao || '').slice(0,10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+  for (const raw of [task?.inicioExecutadoEm,task?.terminoExecutadoEm]) {
+    const parsed = new Date(String(raw || ''));
+    if (!Number.isNaN(parsed.getTime())) return localDateKey(parsed,timeZone);
+  }
+  return '';
+}
+function taskNeedsWeeklyReset(task,weekKey,timeZone) {
+  const executionDate = taskExecutionDate(task,timeZone);
+  if (executionDate && executionDate >= weekKey) return false;
+  const status = String(task?.status || '').trim();
+  if (status && status !== 'Pendente') return true;
+  return Boolean(
+    task?.horarioInicio || task?.horarioTermino || task?.inicioExecutadoEm || task?.terminoExecutadoEm ||
+    task?.dataExecucao || Number(task?.pontosGanhos||0) || Number(task?.pontosOriginais||0) ||
+    task?.faixaAtraso || task?.justificativaAtraso || task?.tipoJustificativa ||
+    task?.iniciouComAtraso === true || task?.iniciouAposLimiteFinal === true || task?.inicioAntecipado === true
+  );
+}
+function weeklyResetFields() {
+  return {
+    status:'Pendente',
+    horarioInicio:'',horarioTermino:'',inicioExecutadoEm:'',terminoExecutadoEm:'',dataExecucao:'',
+    pontosGanhos:0,pontosOriginais:0,percentualAplicado:null,percentualOriginal:null,
+    faixaAtraso:'',toleranciaConsumidaMin:0,toleranciaConsumidaSeg:0,atrasoInicioMin:0,atrasoFimMin:0,
+    minutosAlemTolerancia:null,faixaLeveMinutos:null,limite75Min:null,limite50Min:null,limite75Seg:null,limite50Seg:null,
+    iniciouComAtraso:false,iniciouAposLimiteFinal:false,inicioAntecipado:false,antecipacaoMin:0,
+    motivoInicioAntecipado:'',tipoMotivoInicioAntecipado:'',justificativaAtraso:'',tipoJustificativa:'',justificativaRecusada:false,
+    revisaoStatus:'sem-revisao'
+  };
 }
 async function weeklyReset(env, now = new Date()) {
   const timeZone = env.ALARM_TIME_ZONE || 'America/Bahia';
+  const weekKey = weekStartInZone(now,timeZone);
+  if (lastWeeklyResetChecked === weekKey) return {ok:true,skipped:true,reason:'memory',weekKey};
+
   const parts = localParts(now,timeZone);
-  if (parts.weekday !== 'Sun' || Number(parts.hour)!==0 || Number(parts.minute)>10) return {ok:true,skipped:true};
-  const key = sundayKey(now,timeZone);
-  const marker = await getDoc(env,'systemMaintenance',`weekly-reset-${key}`,now);
-  if (marker?.data?.concluida === true) return {ok:true,skipped:true};
-  const configs = await listCollection(env,'configGrupos',now);
-  let groups = 0, tasks = 0;
-  for (const config of configs) {
-    const groupId = String(config.data.grupoId || docId(config.name)).trim().toUpperCase();
-    if (!groupId) continue;
-    const docs = await queryString(env,'tarefas','grupoId',groupId,now);
-    const writes = [];
-    for (const task of docs) {
-      if (!task.data.status || task.data.status === 'Pendente') continue;
-      const fields = {
-        status:'Pendente',horarioInicio:'',horarioTermino:'',pontosGanhos:0,
-        iniciouComAtraso:false,iniciouAposLimiteFinal:false,percentualAplicado:null,
-        faixaAtraso:'',minutosAlemTolerancia:null,faixaLeveMinutos:null,
-        justificativaAtraso:'',tipoJustificativa:'',justificativaRecusada:false
-      };
-      writes.push({update:{name:task.name,fields:jsToFirestoreFields(fields)},updateMask:{fieldPaths:Object.keys(fields)}});
-    }
-    if (writes.length) await commitPatches(env,writes,now);
-    await upsert(env,'configGrupos',groupId,{grupoId:groupId,ultimoReset:now.toISOString()},now);
-    groups += 1; tasks += writes.length;
+  const minute = Number(parts.minute);
+  const normalWindow = parts.weekday === 'Mon' && Number(parts.hour) === 0 && minute <= 10;
+  const catchUpSlot = minute % 5 === 0;
+  if (!normalWindow && !catchUpSlot) return {ok:true,skipped:true,reason:'schedule',weekKey};
+
+  const markerId = `weekly-reset-${weekKey}`;
+  const marker = await getDoc(env,'systemMaintenance',markerId,now);
+  if (marker?.data?.concluida === true) {
+    lastWeeklyResetChecked = weekKey;
+    return {ok:true,skipped:true,reason:'marker',weekKey};
   }
-  await upsert(env,'systemMaintenance',`weekly-reset-${key}`,{concluida:true,grupos:groups,tarefas:tasks,concluidaEm:now.toISOString()},now);
-  console.log(JSON.stringify({event:'security.weekly_reset_server',groups,tasks,key}));
-  return {ok:true,groups,tasks,key};
+
+  const docs = await listCollection(env,'tarefas',now);
+  const fields = weeklyResetFields();
+  const writes = [];
+  let preservedCurrentWeek = 0;
+  for (const task of docs) {
+    if (!taskNeedsWeeklyReset(task.data,weekKey,timeZone)) {
+      if (taskExecutionDate(task.data,timeZone) >= weekKey) preservedCurrentWeek += 1;
+      continue;
+    }
+    writes.push({
+      update:{name:task.name,fields:jsToFirestoreFields(fields)},
+      updateMask:{fieldPaths:Object.keys(fields)}
+    });
+  }
+  if (writes.length) await commitPatches(env,writes,now);
+  await upsert(env,'systemMaintenance',markerId,{
+    concluida:true,
+    versao:SECURITY_MAINTENANCE_VERSION,
+    semanaInicio:weekKey,
+    tarefasLidas:docs.length,
+    tarefasResetadas:writes.length,
+    tarefasSemanaAtualPreservadas:preservedCurrentWeek,
+    concluidaEm:now.toISOString()
+  },now);
+  lastWeeklyResetChecked = weekKey;
+  console.log(JSON.stringify({event:'security.weekly_reset_server',version:SECURITY_MAINTENANCE_VERSION,weekKey,tasksRead:docs.length,tasksReset:writes.length,preservedCurrentWeek}));
+  return {ok:true,weekKey,tasksRead:docs.length,tasksReset:writes.length,preservedCurrentWeek};
 }
 
 export async function runSecurityMaintenance(env, now = new Date()) {
@@ -163,7 +206,7 @@ export async function runSecurityMaintenance(env, now = new Date()) {
   const migration = await migrationRunning;
   if (!resetRunning) resetRunning = weeklyReset(env,now).finally(()=>{resetRunning=null;});
   const reset = await resetRunning;
-  return {migration,reset};
+  return {version:SECURITY_MAINTENANCE_VERSION,migration,reset};
 }
 
 export async function auditCommercialMigration(env, now = new Date()) {
