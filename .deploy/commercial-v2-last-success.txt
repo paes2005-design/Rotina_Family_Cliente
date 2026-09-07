@@ -1,4 +1,4 @@
 status=success
 package=commercial-v3-cloudflare-telemetry
-source_sha=72040a45b5313bb3bee3b67eece98a192a05c027
-completed_at=2026-09-04T22:11:03Z
+source_sha=670601a599f23273f234961f01ae44db7b3921c9
+completed_at=2026-09-07T23:48:11Z
