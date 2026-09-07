@@ -44,5 +44,13 @@ export default{
     if(isMasterRead(request))return queuedMasterRead(request,env,ctx);
     return app.fetch(request,env,ctx);
   }catch(error){if(isMasterGroupRead(request))return groupEmergencyResponse(request,error);throw error;}},
-  async scheduled(controller,env,ctx){const now=new Date(controller.scheduledTime);ctx.waitUntil(runSecurityMaintenance(env,now).catch(error=>{console.error(JSON.stringify({event:'security.maintenance_error',maintenanceVersion:SECURITY_MAINTENANCE_VERSION,message:String(error?.message||error)}));}));return app.scheduled(controller,env,ctx);}
+  async scheduled(controller,env,ctx){
+    const now=new Date(controller.scheduledTime);
+    ctx.waitUntil(
+      runSecurityMaintenance(env,now).catch(error=>{
+        console.error(JSON.stringify({event:'security.maintenance_error',maintenanceVersion:SECURITY_MAINTENANCE_VERSION,message:String(error?.message||error)}));
+      })
+    );
+    return app.scheduled(controller,env,ctx);
+  }
 };
