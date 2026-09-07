@@ -10,6 +10,7 @@ const COMMERCIAL_FIELDS = Object.freeze([
 let tokenCache = { value: '', expiresAt: 0, email: '' };
 let migrationRunning = null;
 let resetRunning = null;
+let commercialMigrationChecked = false;
 let lastWeeklyResetChecked = '';
 
 const required = (value, name) => { if (!value) throw new Error(`Configuração obrigatória ausente: ${name}`); return value; };
@@ -93,8 +94,12 @@ async function commitPatches(env, writes, now = new Date()) {
 }
 
 async function migrateCommercialState(env, now = new Date()) {
+  if (commercialMigrationChecked) return {ok:true,skipped:true,reason:'memory'};
   const marker = await getDoc(env,'systemMigrations','commercial-state-v1',now);
-  if (marker?.data?.concluida === true) return {ok:true,skipped:true,migrated:Number(marker.data.migrados||0)};
+  if (marker?.data?.concluida === true) {
+    commercialMigrationChecked = true;
+    return {ok:true,skipped:true,migrated:Number(marker.data.migrados||0)};
+  }
   const configs = await listCollection(env,'configGrupos',now);
   let migrated = 0;
   for (const config of configs) {
@@ -109,6 +114,7 @@ async function migrateCommercialState(env, now = new Date()) {
     migrated += 1;
   }
   await upsert(env,'systemMigrations','commercial-state-v1',{concluida:true,migrados:migrated,concluidaEm:now.toISOString()},now);
+  commercialMigrationChecked = true;
   console.log(JSON.stringify({event:'security.commercial_state_migrated',migrated}));
   return {ok:true,migrated};
 }
@@ -130,11 +136,10 @@ function taskExecutionDate(task,timeZone) {
   }
   return '';
 }
-function taskNeedsWeeklyReset(task,weekKey,timeZone) {
-  const executionDate = taskExecutionDate(task,timeZone);
-  if (executionDate && executionDate >= weekKey) return false;
-  const status = String(task?.status || '').trim();
-  if (status && status !== 'Pendente') return true;
+function taskInactive(task) {
+  return task?.ativa === false || task?.ativo === false || task?.active === false || String(task?.status||'').trim().toLowerCase() === 'inativa';
+}
+function taskHasExecutionState(task) {
   return Boolean(
     task?.horarioInicio || task?.horarioTermino || task?.inicioExecutadoEm || task?.terminoExecutadoEm ||
     task?.dataExecucao || Number(task?.pontosGanhos||0) || Number(task?.pontosOriginais||0) ||
@@ -142,9 +147,17 @@ function taskNeedsWeeklyReset(task,weekKey,timeZone) {
     task?.iniciouComAtraso === true || task?.iniciouAposLimiteFinal === true || task?.inicioAntecipado === true
   );
 }
-function weeklyResetFields() {
+function taskNeedsWeeklyReset(task,weekKey,timeZone) {
+  const executionDate = taskExecutionDate(task,timeZone);
+  if (executionDate && executionDate >= weekKey) return false;
+  if (taskInactive(task)) return taskHasExecutionState(task);
+  const status = String(task?.status || '').trim();
+  if (status && status !== 'Pendente') return true;
+  return taskHasExecutionState(task);
+}
+function weeklyResetFields(task) {
   return {
-    status:'Pendente',
+    status:taskInactive(task)?'Inativa':'Pendente',
     horarioInicio:'',horarioTermino:'',inicioExecutadoEm:'',terminoExecutadoEm:'',dataExecucao:'',
     pontosGanhos:0,pontosOriginais:0,percentualAplicado:null,percentualOriginal:null,
     faixaAtraso:'',toleranciaConsumidaMin:0,toleranciaConsumidaSeg:0,atrasoInicioMin:0,atrasoFimMin:0,
@@ -173,7 +186,6 @@ async function weeklyReset(env, now = new Date()) {
   }
 
   const docs = await listCollection(env,'tarefas',now);
-  const fields = weeklyResetFields();
   const writes = [];
   let preservedCurrentWeek = 0;
   for (const task of docs) {
@@ -181,6 +193,7 @@ async function weeklyReset(env, now = new Date()) {
       if (taskExecutionDate(task.data,timeZone) >= weekKey) preservedCurrentWeek += 1;
       continue;
     }
+    const fields = weeklyResetFields(task.data);
     writes.push({
       update:{name:task.name,fields:jsToFirestoreFields(fields)},
       updateMask:{fieldPaths:Object.keys(fields)}
