@@ -5,7 +5,7 @@ import { handleMasterGroupSummary } from './master-group-summary.js';
 import { handleMasterGroupsIndex } from './master-groups-index.js';
 import { handleFamilyAuthSession } from './family-auth-session.js';
 import { handleCommercialAccessStatus } from './commercial-access-status-v1.js';
-import { runSecurityMaintenance } from './security-maintenance-v1.js';
+import { runSecurityMaintenance, SECURITY_MAINTENANCE_VERSION } from './security-maintenance-v1.js';
 import { handleEmergencyCompensation } from './emergency-compensation-20260826.js';
 import { handleTechnicalDiagnostics, handleNormalizedHealth } from './technical-diagnostics.js';
 import { handleReliableAppLogV2 } from './reliable-app-log-v2.js';
@@ -44,5 +44,5 @@ export default{
     if(isMasterRead(request))return queuedMasterRead(request,env,ctx);
     return app.fetch(request,env,ctx);
   }catch(error){if(isMasterGroupRead(request))return groupEmergencyResponse(request,error);throw error;}},
-  async scheduled(controller,env,ctx){const now=new Date(controller.scheduledTime);ctx.waitUntil(runSecurityMaintenance(env,now).catch(error=>{console.error(JSON.stringify({event:'security.maintenance_error',message:String(error?.message||error)}));}));return app.scheduled(controller,env,ctx);}
+  async scheduled(controller,env,ctx){const now=new Date(controller.scheduledTime);ctx.waitUntil(runSecurityMaintenance(env,now).catch(error=>{console.error(JSON.stringify({event:'security.maintenance_error',maintenanceVersion:SECURITY_MAINTENANCE_VERSION,message:String(error?.message||error)}));}));return app.scheduled(controller,env,ctx);}
 };
