@@ -163,13 +163,9 @@ assert.deepEqual(creates.map(payload => payload.send_after), [
   '2026-08-20T09:00:00.000Z',
   '2026-08-20T09:10:00.000Z'
 ]);
-assert.deepEqual(creates[0].filters, [
-  { field: 'tag', key: 'grupoId', relation: '=', value: 'familia' },
-  { operator: 'AND' },
-  { field: 'tag', key: 'perfilId', relation: '=', value: 'perfil' },
-  { operator: 'AND' },
-  { field: 'tag', key: 'aplicativo', relation: '=', value: 'participante' }
-]);
+assert.deepEqual(creates[0].include_aliases, { external_id: ['rotina_family__familia__perfil'] });
+assert.equal(creates[0].target_channel, 'push');
+assert.equal(creates[0].filters, undefined, 'alarme individual não depende mais de tags');
 assert.notEqual(creates[0].idempotency_key, creates[1].idempotency_key);
 assert.equal(patches.at(-1).schedulerPendente, false);
 assert.equal(patches.at(-1).oneSignalEstado, 'AGENDADO');
@@ -275,7 +271,9 @@ const clientPush = await reconcileRewardNotification(env, {
   now: new Date('2026-08-20T09:02:01Z')
 });
 assert.equal(clientPush.state, 'ENVIADO');
-assert.equal(creates.at(-1).filters.at(-1).value, 'participante');
+assert.deepEqual(creates.at(-1).include_aliases, { external_id: ['rotina_family__familia__perfil'] });
+assert.equal(creates.at(-1).target_channel, 'push');
+assert.equal(creates.at(-1).filters, undefined, 'push individual de recompensa usa external_id');
 assert.equal(creates.at(-1).headings.pt, '✅ Recompensa aprovada!');
 assert.equal(creates.at(-1).web_url, 'https://example.com/cliente/?abrir=resgates');
 assert.equal(patches.at(-1).pushClientePendente, false);

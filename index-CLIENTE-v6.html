@@ -51,14 +51,36 @@
                 let concluido=false;
                 const concluir=estado=>{if(!concluido){concluido=true;resolve(estado)}};
                 window.OneSignalDeferred.push(async function(OneSignal) {
-                    try{await OneSignal.User.PushSubscription.optIn();concluir({optedIn:OneSignal.User.PushSubscription.optedIn,id:OneSignal.User.PushSubscription.id||''})}
-                    catch(e){concluir({optedIn:false,id:'',erro:String(e?.message||e)})}
+                    try{
+                        const g=String(localStorage.getItem('cliente_grupo')||'').trim();
+                        const p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+                        if(g&&p)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+                        await OneSignal.User.PushSubscription.optIn();
+                        if(g&&p)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+                        const estado={
+                            optedIn:OneSignal.User.PushSubscription.optedIn===true,
+                            id:OneSignal.User.PushSubscription.id||'',
+                            externalId:g&&p?`rotina_family__${g}__${p}`:'',
+                            erro:''
+                        };
+                        window.rotinaLog?.('push.onesignal_pronto',{optedIn:estado.optedIn,temSubscriptionId:!!estado.id,identificado:!!estado.externalId});
+                        concluir(estado);
+                    }catch(e){
+                        const erro=String(e?.message||e);
+                        window.rotinaLog?.('push.onesignal_preparo_erro',{mensagem:erro},'warning');
+                        concluir({optedIn:false,id:'',externalId:'',erro});
+                    }
                 });
-                setTimeout(()=>concluir({optedIn:false,id:'',erro:'tempo-esgotado'}),6000);
+                setTimeout(()=>concluir({optedIn:false,id:'',externalId:'',erro:'tempo-esgotado'}),8000);
             });
         };
         window.obterStatusPushRotina = function(callback) {
-            window.OneSignalDeferred.push(function(OneSignal) { callback?.({optedIn:OneSignal.User.PushSubscription.optedIn,id:OneSignal.User.PushSubscription.id||''}); });
+            let concluido=false;
+            const concluir=estado=>{if(!concluido){concluido=true;callback?.(estado)}};
+            window.OneSignalDeferred.push(function(OneSignal) {
+                concluir({optedIn:OneSignal.User.PushSubscription.optedIn===true,id:OneSignal.User.PushSubscription.id||'',erro:''});
+            });
+            setTimeout(()=>concluir({optedIn:false,id:'',erro:'tempo-esgotado'}),4000);
         };
         window.desvincularParticipanteDoPush = function() {
             oneSignalParticipanteAtual='';oneSignalParticipantePendente='';

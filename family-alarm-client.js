@@ -50,7 +50,16 @@ async function tocarUmaVez(tone=pref.tone){const a=audio();try{await a.resume()}
 function iniciarSom(){pararSom();tocarUmaVez().catch(()=>{});somTimer=setInterval(()=>tocarUmaVez().catch(()=>{}),2200)}
 function pararSom(){if(somTimer){clearInterval(somTimer);somTimer=null}fontesAtivas.forEach(o=>{try{o.stop()}catch{}});fontesAtivas.clear();ctx?.suspend?.().catch(()=>{})}
 function toast(texto){document.getElementById('familyAlarmToast')?.remove();const e=document.createElement('div');e.id='familyAlarmToast';e.textContent=texto;e.style.cssText='position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:31000;background:#0f172a;color:#fff;padding:11px 16px;border-radius:12px;font-weight:800;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:88vw;text-align:center';document.body.appendChild(e);setTimeout(()=>e.remove(),2400)}
-async function prepararNotificacoes(){if(!('Notification'in window)||!('serviceWorker'in navigator))return 'indisponivel';let permissao=Notification.permission;if(permissao==='default'){try{permissao=await Notification.requestPermission()}catch{permissao='default'}}if(permissao==='granted')await window.ativarPushRotina?.();return permissao}
+async function prepararNotificacoes(){
+  if(!('Notification'in window)||!('serviceWorker'in navigator))return{permissao:'indisponivel',pushAtivo:false,id:'',erro:'api-indisponivel'};
+  let permissao=Notification.permission;
+  if(permissao==='default'){try{permissao=await Notification.requestPermission()}catch{permissao='default'}}
+  if(permissao!=='granted')return{permissao,pushAtivo:false,id:'',erro:'permissao-nao-concedida'};
+  const estado=await window.ativarPushRotina?.();
+  const pushAtivo=!!estado?.optedIn&&!!estado?.id;
+  try{window.rotinaLog?.('alarme.push_pronto',{pushAtivo,temSubscriptionId:!!estado?.id,erro:estado?.erro||''},pushAtivo?'info':'warning')}catch{}
+  return{permissao,pushAtivo,id:estado?.id||'',erro:estado?.erro||''};
+}
 function tagNotificacao(ocorrencia){return `rotina-family-${ocorrencia||'alarme'}`}
 async function notificarTarefa(a,ocorrencia,token){if(!('Notification'in window)||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;try{const momento=momentoDaOcorrenciaAtual(a,new Date(),JANELA_DISPARO_MS,ocorrenciasSilenciadas(a)),hora=momento==='fim'?a.horaSugeridaFim:a.horaSugeridaInicio;const reg=await navigator.serviceWorker.ready;if(token!==notificacaoSolicitada||alarmeDisparado!==chaveAlarme(a)||ocorrenciaDisparada!==ocorrencia)return;await reg.showNotification(`⏰ ${momento==='fim'?'Fim':'Início'} da tarefa: ${a.nomeTarefa||'Tarefa'}`,{body:`Programada para ${formatarDataBR(a.dataAgendada)} às ${hora||'agora'}. Toque para abrir ou use “Parar”.`,icon:'./icon-cliente-192.png',badge:'./icon-cliente-192.png',tag:tagNotificacao(ocorrencia),renotify:true,requireInteraction:false,actions:[{action:'stop-alarm',title:'Parar despertador'}],data:{url:'./',tipo:'alarme-tarefa',tarefaId:a.tarefaId,dataAgendada:a.dataAgendada,ocorrencia}})}catch{}}
 async function fecharNotificacao(a,ocorrencia=ocorrenciaDisparada){if(!('serviceWorker'in navigator))return;try{const reg=await navigator.serviceWorker.ready;const lista=await reg.getNotifications();lista.filter(n=>n.tag===tagNotificacao(ocorrencia)||(n.data?.tipo==='alarme-tarefa'&&n.data?.tarefaId===a?.tarefaId&&n.data?.dataAgendada===a?.dataAgendada)).forEach(n=>n.close())}catch{}}
@@ -89,7 +98,28 @@ function abrirPainel(tarefa){
   document.body.appendChild(m);const tone=m.querySelector('#alarmTone'),vol=m.querySelector('#alarmVol'),lab=m.querySelector('#alarmVolLabel');
   const pushStatus=m.querySelector('#alarmPushStatus');window.obterStatusPushRotina?.(s=>{if(!pushStatus?.isConnected)return;pushStatus.textContent=s.optedIn&&s.id?'✅ Push deste aparelho ativo':'⚠️ Push ainda não ativado neste aparelho';pushStatus.style.background=s.optedIn&&s.id?'#ecfdf5':'#fff7ed';pushStatus.style.color=s.optedIn&&s.id?'#047857':'#9a3412'});
   tone.onchange=()=>{pref.tone=tone.value;salvar(KEY_PREF,pref)};vol.oninput=()=>{pref.volume=Number(vol.value)/100;lab.textContent=vol.value+'%';salvar(KEY_PREF,pref)};m.querySelector('#alarmTest').onclick=()=>tocarUmaVez();
-  m.querySelector('#alarmToggle').onclick=async()=>{const ativar=!a?.ativo,momento=m.querySelector('#alarmMoment').value;if(ativar){const permissao=await prepararNotificacoes();if(permissao!=='granted'){m.querySelector('#alarmTaskMsg').textContent='Autorize as notificações para programar o despertador.';return}}m.remove();toast(ativar?'Alarme desta data programado.':'Alarme desta data retirado.');gravar({...tarefa,momentos:momento==='ambos'?['inicio','fim']:[momento]},ativar,'CLIENTE').then(ok=>{if(!ok)toast('Não foi possível alterar este alarme.')})};
+  m.querySelector('#alarmToggle').onclick=async()=>{
+    const botao=m.querySelector('#alarmToggle'),msg=m.querySelector('#alarmTaskMsg');
+    const ativar=!a?.ativo,momento=m.querySelector('#alarmMoment').value;
+    botao.disabled=true;
+    if(ativar){
+      msg.textContent='Preparando notificações deste aparelho...';
+      const push=await prepararNotificacoes();
+      if(push.permissao!=='granted'){
+        msg.textContent='Autorize as notificações para programar o despertador.';
+        botao.disabled=false;return;
+      }
+      if(!push.pushAtivo){
+        msg.textContent='O push deste aparelho ainda não ficou ativo. Tente novamente em alguns segundos.';
+        botao.disabled=false;return;
+      }
+    }
+    msg.textContent=ativar?'Programando despertador...':'Retirando despertador...';
+    const ok=await gravar({...tarefa,momentos:momento==='ambos'?['inicio','fim']:[momento]},ativar,'CLIENTE',msg);
+    if(!ok){botao.disabled=false;return}
+    m.remove();
+    toast(ativar?'Alarme desta data programado.':'Alarme desta data retirado.');
+  };
   m.querySelector('#alarmClose').onclick=()=>m.remove();m.onclick=e=>{if(e.target===m)m.remove()};
 }
 

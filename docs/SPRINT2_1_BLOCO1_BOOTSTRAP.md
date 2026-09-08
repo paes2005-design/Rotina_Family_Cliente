@@ -2,9 +2,9 @@
 
 ## Bootstrap único e mapa de proprietários
 
-Status: **implementado — aguardando teste funcional**  
-Build do Participante: **20260907.2**  
-Service Worker esperado: **v79**
+Status: **implementado — aguardando teste funcional do despertador/push em segundo plano**
+Build do Participante: **20260908.1**
+Service Worker esperado: **v80**
 
 ## Objetivo
 
@@ -50,8 +50,8 @@ A remoção do carregamento duplicado/oculto de `client-session-integrity.js` ta
 
 ## Critérios para considerar o Bloco 1 aprovado
 
-- O Participante abre na build `20260907.2`.
-- Service Worker reporta `79`.
+- O Participante abre na build `20260908.1`.
+- Service Worker reporta `80`.
 - Sessão permanente continua restaurando normalmente.
 - `bootstrap.pronto` aparece sem falha crítica.
 - Tarefas aparecem e Iniciar/Finalizar continuam funcionando.
@@ -60,6 +60,14 @@ A remoção do carregamento duplicado/oculto de `client-session-integrity.js` ta
 - Offline/cache continuam disponíveis.
 - Recompensas, conquistas, alarmes e mascotes carregam normalmente.
 - Nenhuma nova consulta Firebase foi criada pelo bootstrap.
+
+## Correção de fechamento do Bloco 1 — Push do Participante
+
+- Ao programar um despertador, o Participante só confirma sucesso depois de a permissão do navegador e a assinatura OneSignal (`optedIn` + `subscription id`) estarem prontas.
+- A identidade `rotina_family__<grupo>__<perfil>` é reaplicada antes do agendamento.
+- O Worker endereça push individual pelo `external_id` do OneSignal, em vez de usar tags como identificador individual.
+- O ADM continua usando tags para audiência de grupo; apenas mensagens individuais do Participante usam alias.
+- O teste final continua sendo real: aplicativo fechado/segundo plano no aparelho do Participante.
 
 ## Próximo passo
 

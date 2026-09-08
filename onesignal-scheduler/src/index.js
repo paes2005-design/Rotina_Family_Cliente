@@ -846,14 +846,8 @@ function notificationText(alarm, occurrence) {
   };
 }
 
-function clientPushFilters(groupId, profileId) {
-  return [
-    { field: 'tag', key: 'grupoId', relation: '=', value: String(groupId || '') },
-    { operator: 'AND' },
-    { field: 'tag', key: 'perfilId', relation: '=', value: String(profileId || '') },
-    { operator: 'AND' },
-    { field: 'tag', key: 'aplicativo', relation: '=', value: 'participante' }
-  ];
+function participantExternalId(groupId, profileId) {
+  return `rotina_family__${String(groupId || '').trim()}__${String(profileId || '').trim()}`;
 }
 
 function adminPushFilters(groupId) {
@@ -873,7 +867,8 @@ async function createOneSignalMessage(env, documentName, alarm, fingerprint, occ
   const text = notificationText(alarm, occurrence);
   const payload = {
     app_id: appId,
-    filters: clientPushFilters(alarm.grupoId, alarm.perfilId),
+    include_aliases: { external_id: [participantExternalId(alarm.grupoId, alarm.perfilId)] },
+    target_channel: 'push',
     headings: { en: text.title, pt: text.title },
     contents: { en: text.body, pt: text.body },
     name: `Rotina Family · ${occurrence.key}`.slice(0, 128),
@@ -1184,9 +1179,9 @@ async function createRewardMessage(env, documentName, reward, audience, fetchImp
   const iconName = isAdmin ? 'icon-administrador-192.png' : 'icon-cliente-192.png';
   const payload = {
     app_id: appId,
-    filters: isAdmin
-      ? adminPushFilters(reward.grupoId)
-      : clientPushFilters(reward.grupoId, reward.perfilId),
+    ...(isAdmin
+      ? { filters: adminPushFilters(reward.grupoId) }
+      : { include_aliases: { external_id: [participantExternalId(reward.grupoId, reward.perfilId)] }, target_channel: 'push' }),
     headings: { en: content.title, pt: content.title },
     contents: { en: content.body, pt: content.body },
     name: `Rotina Family · ${content.type}`.slice(0, 128),
