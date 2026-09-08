@@ -3,10 +3,10 @@
   const INFO=Object.freeze({
     app:'PARTICIPANTE',
     appVersion:'1.0.0',
-    build:'20260908.1',
+    build:'20260908.2',
     htmlVersion:'index-CLIENTE-v6',
     rulesModuleVersion:'4',
-    expectedServiceWorkerVersion:'80',
+    expectedServiceWorkerVersion:'81',
     initialSyncCompatVersion:'1',
     bootstrapVersion:'1'
   });
