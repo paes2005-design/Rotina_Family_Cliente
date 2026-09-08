@@ -4,38 +4,10 @@
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
   // Impede a comemoração legada. As reações de cachorro/gato são controladas
-  // exclusivamente por client-mascot-v3.js.
+  // exclusivamente por client-mascot-v3.js, carregado pelo bootstrap central.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
   sessionStorage.setItem(chave100Legado,'mascote-v3');
-
-  import('./client-time-guard-v3.js?v=7').catch(e=>{
-    window.rotinaLog?.('perf.time_guard_v3_erro',{mensagem:String(e?.message||e)},'error');
-    console.error('Validação temporal v3:',e);
-  });
-  import('./client-session-integrity.js?v=2').catch(e=>{
-    window.rotinaLog?.('integridade.cliente_modulo_erro',{mensagem:String(e?.message||e)},'error');
-    console.error('Integridade de sessão do Cliente:',e);
-  });
-  import('./client-reviewed-points.js').catch(e=>console.error('Pontos revisados:',e));
-  import('./client-early-start-ui.js?v=2').catch(e=>console.error('Início antecipado Cliente:',e));
-  import('./client-tolerance-timer.js?v=5').catch(e=>console.error('Cronômetro de tolerância:',e));
-  import('./client-week-nav.js?v=4').catch(e=>console.error('Navegação semanal:',e));
-  import('./family-alarm-client.js?v=11').catch(e=>console.error('Despertador programado por tarefa:',e));
-  import('./client-history-reconciler.js?v=3').catch(e=>console.error('Reconciliação de pontuação:',e));
-
-  // Único controlador ativo para cachorro/gato, escolha, preview, áudio e reações reais.
-  import('./client-mascot-v3.js?v=1').catch(e=>{
-    window.__rotinaMascoteLoadError=String(e?.message||e);
-    window.rotinaLog?.('mascote.modulo_v3_erro',{mensagem:window.__rotinaMascoteLoadError},'error');
-    console.error('Módulo único de mascotes:',e);
-  });
-
-  // Feedback de 0% unificado: apenas dispara o evento; o mascote v3 decide visual e áudio.
-  import('./client-zero-feedback-v4.js?v=1').catch(e=>{
-    window.rotinaLog?.('tarefa.zero_feedback_modulo_erro',{mensagem:String(e?.message||e)},'error');
-    console.error('Feedback de 0% após justificativa:',e);
-  });
 
   let guardNoticeTimer=null;
   function mostrarPreparacaoGuard(){
