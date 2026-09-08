@@ -2,7 +2,7 @@
   'use strict';
 
   const BOOTSTRAP_VERSION=1;
-  const BUILD='20260907.1';
+  const BUILD='20260907.2';
   if(window.__rotinaBootstrapV1)return;
 
   const runtime={
@@ -18,8 +18,6 @@
     try{window.rotinaLog?.(event,{bootstrapVersion:BOOTSTRAP_VERSION,build:BUILD,...details},level);}catch{}
   };
 
-  // Ponte única para o login seguro. Ela é instalada antes dos módulos auxiliares;
-  // client-auth-session-v1.js resolve a ponte quando o Firebase Auth fica pronto.
   let resolveReady;
   const ready=window.__rotinaAuthBridgeReady||new Promise(resolve=>{resolveReady=resolve;});
   if(!window.__rotinaAuthBridgeReady)window.__rotinaAuthBridgeReady=ready;
@@ -74,13 +72,13 @@
     {name:'cat-layout-safe',src:'./client-cat-layout-safe-v5.js?v=5',type:'classic',owner:'Mascot UI',critical:false},
     {name:'mascot-fix',src:'./client-mascot-fix-v6.js?v=6',type:'classic',owner:'Mascot UI',critical:false},
     {name:'cat-container',src:'./client-cat-container-v7.js?v=9',type:'classic',owner:'Mascot UI',critical:false},
-    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260907.1',type:'classic',owner:'Runtime/Version',critical:false}
+    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260907.2',type:'classic',owner:'Runtime/Version',critical:false}
   ]);
 
   window.__ROTINA_RUNTIME_MANIFEST=Object.freeze({
     bootstrapVersion:BOOTSTRAP_VERSION,
     build:BUILD,
-    uiOrchestrator:'./client-ui-pro.js?v=49',
+    uiOrchestrator:'./client-ui-pro.js?v=50',
     modules:MODULES.map(({name,src,type,owner,critical})=>({name,src,type,owner,critical}))
   });
 
@@ -122,9 +120,6 @@
 
   async function start(){
     log('bootstrap.inicio',{modulos:MODULES.length});
-
-    // Bloco 1: toda composição adicional passa por este manifesto. Os módulos
-    // continuam com as mesmas responsabilidades; a mudança aqui é estrutural.
     const results=await Promise.allSettled(MODULES.map(loadScript));
     const falhas=results.filter(result=>result.status==='rejected').length;
     runtime.finishedAt=Date.now();
