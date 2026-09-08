@@ -1,5 +1,6 @@
 name: One-off fix participant alarm device configuration
 
+# Triggered once after the workflow existed on main.
 on:
   push:
     branches: [main]
@@ -89,7 +90,6 @@ jobs:
 
           p.write_text(s)
 
-          # Cache-bust the official alarm module and publish a coherent build.
           p = Path('client-bootstrap-v1.js')
           s = p.read_text().replace("const BUILD='20260908.1';", "const BUILD='20260908.2';", 1)
           s = s.replace("./family-alarm-client.js?v=12", "./family-alarm-client.js?v=13", 1)
