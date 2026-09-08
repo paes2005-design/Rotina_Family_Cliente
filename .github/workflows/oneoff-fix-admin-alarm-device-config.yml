@@ -1,0 +1,137 @@
+name: One-off fix participant alarm device configuration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oneoff-fix-admin-alarm-device-config.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Patch participant alarm contract
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('family-alarm-client.js')
+          s = p.read_text()
+
+          old = "function travado(a){return !!a&&(a.origem==='ADM'||a.bloqueado===true)}"
+          new = "function ativadoPeloResponsavel(a){return !!a&&a.ativo===true&&(a.origem==='ADM'||a.bloqueado===true)}\nfunction travado(a){return ativadoPeloResponsavel(a)}"
+          assert old in s, 'travado contract not found'
+          s = s.replace(old, new, 1)
+
+          old = "const a=alarmeDaTarefa(tarefa.tarefaId,tarefa.dataAgendada),bloqueado=travado(a);\n  const dataPassada=!!tarefa.dataAgendada&&tarefa.dataAgendada<dataLocal(new Date());"
+          new = "const a=alarmeDaTarefa(tarefa.tarefaId,tarefa.dataAgendada),bloqueado=travado(a);\n  const aguardandoResponsavel=!a?.ativo;\n  const dataPassada=!!tarefa.dataAgendada&&tarefa.dataAgendada<dataLocal(new Date());"
+          assert old in s, 'panel state block not found'
+          s = s.replace(old, new, 1)
+
+          old = "<select id=\"alarmMoment\" ${a?.ativo||bloqueado?'disabled':''}"
+          new = "<select id=\"alarmMoment\" ${a?.ativo&&!bloqueado?'disabled':''}"
+          assert old in s, 'moment select gate not found'
+          s = s.replace(old, new, 1)
+
+          old = "🔒 Ativado pelo responsável. Você não pode retirar este despertador."
+          new = "🔒 Ativado pelo responsável. Escolha quando tocar neste aparelho. Você não pode retirar este despertador."
+          assert old in s, 'responsible copy not found'
+          s = s.replace(old, new, 1)
+
+          old = "${bloqueado||impedirAtivacao?'disabled':''} style=\"flex:1;padding:12px;border-radius:11px;border:0;background:${a?.ativo?'#64748b':'#ef4444'};color:#fff;font-weight:900;opacity:${bloqueado||impedirAtivacao?'.55':'1'}\">${a?.ativo?'Retirar alarme':'Programar alarme'}"
+          new = "${bloqueado||impedirAtivacao||aguardandoResponsavel?'disabled':''} style=\"flex:1;padding:12px;border-radius:11px;border:0;background:${bloqueado?'#ef4444':a?.ativo?'#64748b':'#94a3b8'};color:#fff;font-weight:900;opacity:${bloqueado||impedirAtivacao||aguardandoResponsavel?'.55':'1'}\">${bloqueado?'Programar alarme':a?.ativo?'Retirar alarme':'Aguardando responsável'}"
+          assert old in s, 'toggle gate not found'
+          s = s.replace(old, new, 1)
+
+          old = "const pushStatus=m.querySelector('#alarmPushStatus');window.obterStatusPushRotina?.(s=>{if(!pushStatus?.isConnected)return;pushStatus.textContent=s.optedIn&&s.id?'✅ Push deste aparelho ativo':'⚠️ Push ainda não ativado neste aparelho';pushStatus.style.background=s.optedIn&&s.id?'#ecfdf5':'#fff7ed';pushStatus.style.color=s.optedIn&&s.id?'#047857':'#9a3412'});"
+          new = "const pushStatus=m.querySelector('#alarmPushStatus'),alarmMoment=m.querySelector('#alarmMoment'),alarmToggle=m.querySelector('#alarmToggle');window.obterStatusPushRotina?.(s=>{if(!pushStatus?.isConnected)return;const pushOk=!!s.optedIn&&!!s.id;pushStatus.textContent=pushOk?'✅ Push deste aparelho ativo':'⚠️ Push ainda não ativado neste aparelho';pushStatus.style.background=pushOk?'#ecfdf5':'#fff7ed';pushStatus.style.color=pushOk?'#047857':'#9a3412';if(bloqueado&&alarmToggle){alarmToggle.disabled=!pushOk;alarmToggle.style.opacity=pushOk?'1':'.55';if(alarmMoment)alarmMoment.disabled=false}});"
+          assert old in s, 'push UI block not found'
+          s = s.replace(old, new, 1)
+
+          old = "const ativar=!a?.ativo,momento=m.querySelector('#alarmMoment').value;\n    botao.disabled=true;\n    if(ativar){"
+          new = "const ativar=!a?.ativo,momento=m.querySelector('#alarmMoment').value;\n    botao.disabled=true;\n    if(bloqueado){\n      msg.textContent='Conferindo push deste aparelho...';\n      const push=await prepararNotificacoes();\n      if(push.permissao!=='granted'){msg.textContent='Autorize as notificações para programar o despertador.';botao.disabled=false;return}\n      if(!push.pushAtivo){msg.textContent='O push deste aparelho ainda não ficou ativo. Ative as notificações e tente novamente.';botao.disabled=false;return}\n      msg.textContent='Programando despertador neste aparelho...';\n      const momentos=momento==='ambos'?['inicio','fim']:[momento];\n      const ok=await configurarAlarmeDoResponsavel({...tarefa,momentos},a,msg);\n      if(ok){toast('Despertador programado neste aparelho.');setTimeout(()=>m.remove(),420)}else botao.disabled=false;\n      return;\n    }\n    if(ativar){"
+          assert old in s, 'toggle handler block not found'
+          s = s.replace(old, new, 1)
+
+          marker = "function payloadDaTarefa(tarefa,ativo,origem){"
+          insert = """async function configurarAlarmeDoResponsavel(tarefa,atual,msg=null){
+  if(!ativadoPeloResponsavel(atual)){if(msg)msg.textContent='O responsável precisa ativar este despertador primeiro.';return false}
+  const agora=new Date().toISOString(),momentos=Array.isArray(tarefa.momentos)&&tarefa.momentos.length?tarefa.momentos:['inicio'];
+  const anterior=alarmes[tarefa.tarefaId];
+  const patch={momentos,schedulerPendente:true,schedulerVersao:1,schedulerSolicitadoEm:agora,configuradoNoParticipante:true,configuradoNoParticipanteEm:agora,configuradoNoParticipantePor:nomePerfil()||'Participante',atualizadoEm:agora};
+  alarmes[tarefa.tarefaId]={...atual,...patch};salvar(KEY_STATE,alarmes);atualizarBotoes();
+  if(!navigator.onLine||!getApps().length){alarmes[tarefa.tarefaId]=anterior;salvar(KEY_STATE,alarmes);atualizarBotoes();if(msg)msg.textContent='Conecte-se à internet para programar o push deste despertador.';return false}
+  try{
+    await setDoc(doc(getFirestore(getApp()),'despertadores',chaveDoc(grupo(),perfil(),tarefa.tarefaId)),{...patch,servidorEm:serverTimestamp()},{merge:true});
+    try{window.rotinaLog?.('alarme.config_participante_sucesso',{tarefaId:tarefa.tarefaId,momentos,origemAlarme:atual?.origem||'',bloqueado:!!atual?.bloqueado},'info')}catch{}
+    if(msg)msg.textContent='Despertador programado neste aparelho.';
+    return true;
+  }catch(e){
+    alarmes[tarefa.tarefaId]=anterior;salvar(KEY_STATE,alarmes);atualizarBotoes();
+    try{window.rotinaLog?.('alarme.config_participante_erro',{tarefaId:tarefa.tarefaId,mensagem:String(e?.message||e)},'warning')}catch{}
+    if(msg)msg.textContent='Não foi possível programar o despertador agora.';
+    return false;
+  }
+}
+
+"""
+          assert marker in s, 'payload marker not found'
+          s = s.replace(marker, insert + marker, 1)
+
+          p.write_text(s)
+
+          # Cache-bust the official alarm module and publish a coherent build.
+          p = Path('client-bootstrap-v1.js')
+          s = p.read_text().replace("const BUILD='20260908.1';", "const BUILD='20260908.2';", 1)
+          s = s.replace("./family-alarm-client.js?v=12", "./family-alarm-client.js?v=13", 1)
+          s = s.replace("./runtime-build-info.js?v=20260908.1", "./runtime-build-info.js?v=20260908.2", 1)
+          p.write_text(s)
+
+          p = Path('runtime-build-info.js')
+          s = p.read_text().replace("build:'20260908.1'", "build:'20260908.2'", 1).replace("expectedServiceWorkerVersion:'80'", "expectedServiceWorkerVersion:'81'", 1)
+          p.write_text(s)
+
+          p = Path('index.html')
+          s = p.read_text().replace("const BUILD='20260908.1';", "const BUILD='20260908.2';", 1)
+          s = s.replace("navigator.serviceWorker.register('./sw.js?v=80',{updateViaCache:'none'})", "navigator.serviceWorker.register('./sw.js?v=81',{updateViaCache:'none'})", 1)
+          s = s.replace("release:'sprint2.1-alarm-push-v1'", "release:'sprint2.1-alarm-device-config-v2'", 1)
+          s = s.replace("serviceWorkerExpected:80", "serviceWorkerExpected:81", 1)
+          p.write_text(s)
+
+          p = Path('sw.js')
+          s = p.read_text().replace("rotina-family-participante-v80", "rotina-family-participante-v81", 1)
+          s = s.replace("ROTINA_SW_VERSION='80'", "ROTINA_SW_VERSION='81'", 1)
+          s = s.replace("ROTINA_BUILD_ID='20260908.1'", "ROTINA_BUILD_ID='20260908.2'", 1)
+          s = s.replace("navigator.serviceWorker.register('./sw.js?v=80',{updateViaCache:'none'})", "navigator.serviceWorker.register('./sw.js?v=81',{updateViaCache:'none'})", 1)
+          p.write_text(s)
+
+      - name: Validate JavaScript
+        run: |
+          node --check family-alarm-client.js
+          node --check client-bootstrap-v1.js
+          node --check runtime-build-info.js
+          node --check sw.js
+      - name: Validate alarm contract
+        run: |
+          grep -q "ativadoPeloResponsavel" family-alarm-client.js
+          grep -q "alarme.config_participante_sucesso" family-alarm-client.js
+          grep -q "family-alarm-client.js?v=13" client-bootstrap-v1.js
+          grep -q "20260908.2" runtime-build-info.js
+          grep -q "ROTINA_SW_VERSION='81'" sw.js
+      - name: Commit production fix and remove one-off workflow
+        run: |
+          rm .github/workflows/oneoff-fix-admin-alarm-device-config.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add family-alarm-client.js client-bootstrap-v1.js runtime-build-info.js index.html sw.js .github/workflows/oneoff-fix-admin-alarm-device-config.yml
+          git commit -m "Fix responsible alarm configuration on participant device"
+          git push
