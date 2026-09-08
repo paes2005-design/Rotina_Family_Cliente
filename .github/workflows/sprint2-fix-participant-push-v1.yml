@@ -48,6 +48,7 @@ jobs:
       - name: Commit da correção
         run: |
           set -euo pipefail
+          sed -i 's/[[:space:]]\+$//' docs/SPRINT2_1_BLOCO1_BOOTSTRAP.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index-CLIENTE-v6.html family-alarm-client.js client-bootstrap-v1.js index.html sw.js docs/SPRINT2_1_BLOCO1_BOOTSTRAP.md onesignal-scheduler/src/index.js onesignal-scheduler/test/integration.test.mjs .github/workflows/family-alarm-audit.yml
