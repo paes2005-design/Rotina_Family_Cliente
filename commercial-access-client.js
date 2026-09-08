@@ -1,6 +1,3 @@
-import './client-dog-only.js?v=1';
-import './client-session-integrity.js?v=2';
-import './client-tolerance-rule-ui.js?v=1';
 import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import { getAuth } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 
@@ -92,4 +89,4 @@ window.addEventListener('focus', enforce);
 window.addEventListener('online', enforce);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') enforce(); });
 
-window.__rotinaCommercialAccessVersion = 3;
+window.__rotinaCommercialAccessVersion = 4;
