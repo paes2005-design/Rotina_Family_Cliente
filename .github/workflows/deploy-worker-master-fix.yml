@@ -138,7 +138,10 @@ jobs:
           assert 'appendTechnicalLogs' in core
           assert 'writeTechnicalHealth' in core
           assert "storage: 'cloudflare-do'" in core
-          assert "value: 'participante'" in core
+          assert 'function participantExternalId' in core
+          assert 'include_aliases' in core
+          assert "target_channel: 'push'" in core
+          assert 'clientPushFilters' not in core
           assert "['participante','adm','master']" in store
           assert "['participante','adm','master']" in diag
           assert 'minute === 0 ? cleanupExpiredAppLogs' not in core
@@ -147,7 +150,7 @@ jobs:
           assert 'createSingleFlightAction' in guard
           assert 'MONITOR_VERSION = 6' in monitor
           assert "includes('/app-log')" in monitor
-          print('Produção segura: Participante + árvore/comercial preservados + telemetria Durable Object OK')
+          print('Produção segura: Participante + external_id push + árvore/comercial preservados + telemetria Durable Object OK')
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
