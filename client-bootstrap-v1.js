@@ -54,10 +54,20 @@
 
   const MODULES=Object.freeze([
     {name:'auth-session',src:'./client-auth-session-v1.js?v=6',type:'module',owner:'Session/Auth',critical:true},
+    {name:'time-guard',src:'./client-time-guard-v3.js?v=7',type:'module',owner:'Task Engine / Tempo',critical:true},
+    {name:'session-integrity',src:'./client-session-integrity.js?v=2',type:'module',owner:'Session Integrity',critical:false},
+    {name:'reviewed-points',src:'./client-reviewed-points.js',type:'module',owner:'Points UI',critical:false},
+    {name:'early-start-ui',src:'./client-early-start-ui.js?v=2',type:'module',owner:'Task UI',critical:false},
+    {name:'tolerance-timer',src:'./client-tolerance-timer.js?v=5',type:'module',owner:'Task UI / Tolerância',critical:false},
+    {name:'week-nav',src:'./client-week-nav.js?v=4',type:'module',owner:'Week UI',critical:false},
+    {name:'task-alarm',src:'./family-alarm-client.js?v=11',type:'module',owner:'Alarm',critical:false},
+    {name:'history-reconciler',src:'./client-history-reconciler.js?v=3',type:'module',owner:'History Repair',critical:false},
+    {name:'mascot-v3',src:'./client-mascot-v3.js?v=1',type:'module',owner:'Mascot',critical:false},
+    {name:'zero-feedback',src:'./client-zero-feedback-v4.js?v=1',type:'module',owner:'Mascot Feedback',critical:false},
     {name:'emergency-compensation',src:'./client-emergency-compensation-20260826.js?v=3',type:'module',owner:'Compatibilidade',critical:false},
     {name:'execution-source',src:'./client-execution-source-unifier-v1.js?v=2',type:'module',owner:'Task/Execution',critical:false},
     {name:'offline-integrity',src:'./client-offline-execution-integrity-v1.js?v=4',type:'module',owner:'Offline',critical:true},
-    {name:'commercial-access',src:'./commercial-access-client.js?v=3',type:'module',owner:'Commercial Access',critical:true},
+    {name:'commercial-access',src:'./commercial-access-client.js?v=4',type:'module',owner:'Commercial Access',critical:false},
     {name:'monitoring-extra',src:'./app-monitoring-extra-v1.js?v=3',type:'classic',owner:'Telemetry',critical:false},
     {name:'mascot-layout',src:'./client-mascot-layout-v1.js?v=4',type:'classic',owner:'Mascot UI',critical:false},
     {name:'cat-asset',src:'./client-cat-asset-v4.js?v=6',type:'classic',owner:'Mascot UI',critical:false},
@@ -112,12 +122,10 @@
 
   async function start(){
     log('bootstrap.inicio',{modulos:MODULES.length});
-    const auth=MODULES[0];
-    try{await loadScript(auth);}catch{}
 
-    // Os demais módulos mantêm as responsabilidades atuais. O Bloco 1 apenas
-    // centraliza a composição; regras de tarefa, pontos, offline e alarmes não mudam.
-    const results=await Promise.allSettled(MODULES.slice(1).map(loadScript));
+    // Bloco 1: toda composição adicional passa por este manifesto. Os módulos
+    // continuam com as mesmas responsabilidades; a mudança aqui é estrutural.
+    const results=await Promise.allSettled(MODULES.map(loadScript));
     const falhas=results.filter(result=>result.status==='rejected').length;
     runtime.finishedAt=Date.now();
     runtime.ready=falhas===0;
