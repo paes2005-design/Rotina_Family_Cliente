@@ -75,3 +75,5 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.
   function ensureWrapped(){for(const[name,config]of Object.entries(configs))wrapAction(name,config);}
   ensureWrapped();let attempts=0;const timer=setInterval(()=>{ensureWrapped();attempts+=1;if(attempts>=30)clearInterval(timer);},500);window.addEventListener('rotina-client-session-ready',ensureWrapped);window.addEventListener('pageshow',ensureWrapped);safeLog('operacao.guard_pronto',{versao:ACTION_GUARD_VERSION});
 }
+
+// Deploy sync: validar Worker com o push individual do Participante da build 20260908.1.
