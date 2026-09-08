@@ -1,0 +1,26 @@
+name: Dispatch participant push fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/dispatch-participant-push-fix.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Touch target workflow
+        run: |
+          printf '\n# dispatched %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .github/workflows/sprint2-fix-participant-push-v1.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/sprint2-fix-participant-push-v1.yml
+          git commit -m 'CI: disparar correção de push do Participante'
+          git push origin HEAD:main
