@@ -3,19 +3,16 @@
   const INFO=Object.freeze({
     app:'PARTICIPANTE',
     appVersion:'1.0.0',
-    build:'20260907.1',
+    build:'20260907.2',
     htmlVersion:'index-CLIENTE-v6',
     rulesModuleVersion:'4',
-    expectedServiceWorkerVersion:'78',
+    expectedServiceWorkerVersion:'79',
     initialSyncCompatVersion:'1',
     bootstrapVersion:'1'
   });
   window.ROTINA_BUILD_INFO=INFO;
   const emit=(event,details={})=>{try{window.rotinaLog?.(event,{...INFO,...details});}catch{}};
 
-  // Compatibilidade da migração cache-first: a tela antiga ainda chama
-  // inicializarEscutasFirebase(), enquanto o núcleo novo expõe iniciarEscutasFirebase().
-  // A ponte é instalada antes do DOMContentLoaded/módulos de autenticação concluírem.
   if(typeof window.inicializarEscutasFirebase!=='function'){
     window.inicializarEscutasFirebase=function(){
       if(typeof window.iniciarEscutasFirebase==='function'){
