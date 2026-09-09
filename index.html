@@ -10,7 +10,7 @@
   <div class="loading">Carregando Rotina Family...</div>
   <script>
     (async()=>{
-      const BUILD='20260909.1';
+      const BUILD='20260909.2';
       try{
         const r=await fetch(`./index-CLIENTE-v6.html?build=${BUILD}`,{cache:'no-store'});
         if(!r.ok)throw new Error(`Falha ao carregar aplicativo: HTTP ${r.status}`);
@@ -18,12 +18,12 @@
         html=html
           .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=6')
           .replace('./client-ui-pro.js?v=44','./client-ui-pro.js?v=50')
-          .replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=83',{updateViaCache:'none'})");
+          .replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=84',{updateViaCache:'none'})");
 
         const bootstrap='<script src="./client-bootstrap-v1.js?v=1"><\/script>';
         if(!html.includes('client-bootstrap-v1.js'))html=html.replace('</body>',bootstrap+'\n</body>');
 
-        html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',release:'sprint2.1-participant-store-repository-v1',bootstrap:1,participantStore:1,firebaseRepository:1,authVersion:6,offlineIntegrity:4,uiPro:50,serviceWorkerExpected:83,catVisual:'2d',catSadVisual:'2d-aprovado-novo'});<\/script>\n</body>`);
+        html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',release:'sprint2.1-participant-store-repository-v1',bootstrap:1,participantStore:1,firebaseRepository:1,authVersion:6,offlineIntegrity:4,uiPro:50,serviceWorkerExpected:84,catVisual:'2d',catSadVisual:'2d-aprovado-novo'});<\/script>\n</body>`);
         document.open();document.write(html);document.close();
       }catch(e){
         document.body.innerHTML='<div class="loading"><strong>Não foi possível abrir o aplicativo.</strong><br><button onclick="location.reload()" style="margin-top:14px;padding:10px 16px;border:0;border-radius:10px">Tentar novamente</button></div>';
