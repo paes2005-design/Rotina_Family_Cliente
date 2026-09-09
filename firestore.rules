@@ -88,6 +88,27 @@ service cloud.firestore {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['grupoId','perfilId','tarefaId']);
     }
 
+    function alarmLockedByAdmin(data) {
+      return ('ativo' in data && data.ativo == true)
+        && (('origem' in data && data.origem == 'ADM')
+            || ('bloqueado' in data && data.bloqueado == true));
+    }
+
+    function participantAlarmCreateAllowed() {
+      return participantOwn(request.resource.data)
+        && request.resource.data.origem == 'CLIENTE'
+        && request.resource.data.bloqueado == false;
+    }
+
+    function participantAlarmUpdateAllowed() {
+      return participantOwn(resource.data)
+        && participantOwn(request.resource.data)
+        && alarmIdentityUnchanged()
+        && !alarmLockedByAdmin(resource.data)
+        && request.resource.data.origem == 'CLIENTE'
+        && request.resource.data.bloqueado == false;
+    }
+
     match /authRoles/{uid} { allow read, write: if false; }
 
     match /administradores/{id} {
@@ -192,13 +213,13 @@ service cloud.firestore {
       allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);
       allow create: if isMaster()
         || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())
-        || participantOwn(request.resource.data);
+        || participantAlarmCreateAllowed();
       allow update: if isMaster()
         || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
-        || (participantOwn(resource.data) && participantOwn(request.resource.data) && alarmIdentityUnchanged());
+        || participantAlarmUpdateAllowed();
       allow delete: if isMaster()
         || (isFamilyAdmin() && resource.data.grupoId == myGroup())
-        || participantOwn(resource.data);
+        || (participantOwn(resource.data) && !alarmLockedByAdmin(resource.data));
     }
 
     match /configGrupos/{groupId} {

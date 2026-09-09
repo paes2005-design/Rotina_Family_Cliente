@@ -33,6 +33,9 @@ await env.withSecurityRulesDisabled(async context=>{
   await setDoc(doc(db,'resgates','x1'),{grupoId:'G1',perfilId:'PF1',perfilNome:'Filho',recompensaId:'r1',recompensaNome:'Cinema',pontos:20,status:'Aprovado',pushClientePendente:true});
   await setDoc(doc(db,'appLogs','l1'),{grupoId:'G1',evento:'teste'});
   await setDoc(doc(db,'appLogsSecure','s1'),{grupoId:'G1',evento:'seguro'});
+  await setDoc(doc(db,'despertadores','p-own'),{grupoId:'G1',perfilId:'PF1',tarefaId:'t1',ativo:true,origem:'CLIENTE',bloqueado:false,momentos:['inicio']});
+  await setDoc(doc(db,'despertadores','adm-lock'),{grupoId:'G1',perfilId:'PF1',tarefaId:'t1',ativo:true,origem:'ADM',bloqueado:true,momentos:['inicio']});
+  await setDoc(doc(db,'despertadores','adm-off'),{grupoId:'G1',perfilId:'PF1',tarefaId:'t1',ativo:false,origem:'ADM',bloqueado:false,momentos:['inicio']});
   await setDoc(doc(db,'coisaInterna','i1'),{segredo:true});
 });
 
@@ -50,6 +53,13 @@ await assertFails(getDocs(query(collection(participantDb,'tarefas'),where('grupo
 await assertSucceeds(getDocs(query(collection(participantDb,'tarefas'),where('grupoId','==','G1'),where('perfilId','==','PF1'))));
 await assertSucceeds(updateDoc(doc(participantDb,'tarefas','t1'),{status:'Em andamento',horarioInicio:'09:01'}));
 await assertFails(updateDoc(doc(participantDb,'tarefas','t1'),{pontosMaximos:999}));
+
+// Despertadores: o participante controla o próprio alarme, mas um alarme ativo do ADM é somente leitura.
+await assertSucceeds(updateDoc(doc(participantDb,'despertadores','p-own'),{momentos:['fim'],ativo:true,origem:'CLIENTE',bloqueado:false}));
+await assertSucceeds(updateDoc(doc(participantDb,'despertadores','p-own'),{ativo:false,origem:'CLIENTE',bloqueado:false}));
+await assertFails(updateDoc(doc(participantDb,'despertadores','adm-lock'),{momentos:['fim']}));
+await assertFails(updateDoc(doc(participantDb,'despertadores','adm-lock'),{ativo:false}));
+await assertSucceeds(updateDoc(doc(participantDb,'despertadores','adm-off'),{ativo:true,origem:'CLIENTE',bloqueado:false,momentos:['fim']}));
 
 // Integridade da ocorrência: Pendente -> Em andamento -> final apenas uma vez.
 await assertSucceeds(updateDoc(doc(participantDb,'tarefas','t1'),{status:'No Prazo',horarioTermino:'09:50',pontosGanhos:10,percentualAplicado:100,faixaAtraso:'dentro-limites'}));

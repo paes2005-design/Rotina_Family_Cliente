@@ -83,65 +83,59 @@ function decorarTarefas(){
     atualizarBotao(btn,tarefa.tarefaId,tarefa.dataAgendada);
   });
 }
-function atualizarBotao(btn,id,dataAgendada){const a=alarmeDaTarefa(id,dataAgendada),icone=!a?.ativo?'🔕':travado(a)?'🔒':'🔔',titulo=!a?.ativo?`Aguardando responsável para ${formatarDataBR(dataAgendada)}`:travado(a)?'Alarme desta data ativado pelo responsável':'Alarme desta data programado por você';if(btn.textContent!==icone)btn.textContent=icone;if(btn.title!==titulo)btn.title=titulo;btn.setAttribute('aria-label',titulo);btn.style.background=a?.ativo?(travado(a)?'#fee2e2':'#fff7ed'):'#fff'}
+function atualizarBotao(btn,id,dataAgendada){
+  const a=alarmeDaTarefa(id,dataAgendada),bloqueado=travado(a);
+  const icone=bloqueado?'🔒':a?.ativo?'🔔':'🔕';
+  const titulo=bloqueado?'Despertador configurado pelo ADM — somente visualização':a?.ativo?'Alarme desta data programado por você':'Alarme desta data desativado';
+  if(btn.textContent!==icone)btn.textContent=icone;
+  if(btn.title!==titulo)btn.title=titulo;
+  btn.setAttribute('aria-label',titulo);
+  btn.style.background=bloqueado?'#fee2e2':a?.ativo?'#fff7ed':'#fff';
+}
 function atualizarBotoes(){document.querySelectorAll('.family-task-alarm-client').forEach(btn=>{const row=btn.closest('tr[data-family-task-id]');if(row)atualizarBotao(btn,row.dataset.familyTaskId,row.dataset.familyTaskDate)});const atual=Object.values(alarmes).find(a=>chaveAlarme(a)===alarmeDisparado),paradoEmOutroAparelho=!!ocorrenciaDisparada&&ocorrenciasSilenciadas(atual).includes(ocorrenciaDisparada);if(alarmeDisparado&&(!alarmeVigente(atual,new Date())||paradoEmOutroAparelho)){fecharNotificacao(atual,ocorrenciaDisparada);encerrarDisparo(false)}else verificarDisparo()}
 
 function abrirPainel(tarefa){
   document.getElementById('familyAlarmTaskPanel')?.remove();
   tarefa={...tarefa,...agendaDaTarefa(tarefa)};
-  const a=alarmeDaTarefa(tarefa.tarefaId,tarefa.dataAgendada),bloqueado=travado(a),aguardandoResponsavel=!a?.ativo;
+  const a=alarmeDaTarefa(tarefa.tarefaId,tarefa.dataAgendada),bloqueado=travado(a),ativoParticipante=!!a?.ativo&&!bloqueado;
   const dataPassada=!!tarefa.dataAgendada&&tarefa.dataAgendada<dataLocal(new Date());
   const m=document.createElement('div');m.id='familyAlarmTaskPanel';m.style.cssText='position:fixed;inset:0;z-index:22000;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px';
   const proxima=descreverProximaOcorrencia({...tarefa,momentos:a?.momentos||['inicio']},new Date());
   const selecao=Array.isArray(a?.momentos)&&a.momentos.includes('fim')?(a.momentos.includes('inicio')?'ambos':'fim'):'inicio';
   const impedirAtivacao=dataPassada&&!a?.ativo;
-  m.innerHTML=`<div style="width:min(92vw,440px);background:#fff;border-radius:22px;padding:20px;color:#1f2937"><h2 style="margin:0 0 5px">⏰ ${esc(tarefa.nomeTarefa)}</h2><p style="margin:0 0 10px;color:#64748b"><strong>${esc(tarefa.diaSemana)}</strong> · <strong>${esc(formatarDataBR(tarefa.dataAgendada))}</strong><br>início <strong>${esc(tarefa.horaSugeridaInicio)}</strong> · fim <strong>${esc(tarefa.horaSugeridaFim)}</strong></p><label style="font-weight:800">Quando tocar</label><select id="alarmMoment" ${bloqueado?'':'disabled'} style="width:100%;padding:11px;margin:6px 0 12px;border:1px solid #cbd5e1;border-radius:10px"><option value="inicio" ${selecao==='inicio'?'selected':''}>No início da tarefa</option><option value="fim" ${selecao==='fim'?'selected':''}>No fim da tarefa</option><option value="ambos" ${selecao==='ambos'?'selected':''}>No início e no fim</option></select><div style="padding:11px;border-radius:11px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:800;margin-bottom:8px">📅 Toque desta semana: ${esc(proxima)}</div><div id="alarmPushStatus" style="padding:8px 10px;border-radius:10px;background:#f8fafc;color:#475569;font-size:12px;font-weight:800;margin-bottom:14px">🔄 Conferindo push do aparelho...</div>${dataPassada?'<div style="padding:10px;border-radius:10px;background:#f1f5f9;color:#475569;margin-bottom:12px">Esta data já passou. Um alarme novo não pode ser criado nela.</div>':''}${bloqueado?'<div style="padding:12px;border-radius:12px;background:#fee2e2;color:#991b1b;font-weight:800;margin-bottom:14px">🔒 Ativado pelo responsável. Escolha quando tocar neste aparelho. Você não pode retirar este despertador.</div>':aguardandoResponsavel?'<div style="padding:12px;border-radius:12px;background:#f1f5f9;color:#475569;font-weight:800;margin-bottom:14px">⏳ Aguardando o responsável ativar este despertador.</div>':''}<label style="font-weight:800">Toque</label><select id="alarmTone" style="width:100%;padding:11px;margin:6px 0 12px;border:1px solid #cbd5e1;border-radius:10px">${Object.entries(TONES).map(([k,v])=>`<option value="${k}" ${pref.tone===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select><label style="font-weight:800">Volume <span id="alarmVolLabel">${Math.round(pref.volume*100)}%</span></label><input id="alarmVol" type="range" min="10" max="100" value="${Math.round(pref.volume*100)}" style="width:100%;margin:8px 0 14px"><div style="display:flex;gap:8px"><button id="alarmTest" type="button" style="flex:1;padding:12px;border-radius:11px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:800">▶ Testar</button><button id="alarmToggle" type="button" ${bloqueado||(!aguardandoResponsavel&&!a?.ativo)?'disabled':aguardandoResponsavel||impedirAtivacao?'disabled':''} style="flex:1;padding:12px;border-radius:11px;border:0;background:${bloqueado?'#ef4444':a?.ativo?'#64748b':'#94a3b8'};color:#fff;font-weight:900;opacity:${bloqueado||(!aguardandoResponsavel&&a?.ativo)?'0.55':'.55'}">${bloqueado?'Programar alarme':a?.ativo?'Retirar alarme':'Aguardando responsável'}</button></div><div id="alarmTaskMsg" style="min-height:18px;margin-top:10px;font-size:12px;color:#64748b"></div><button id="alarmClose" type="button" style="width:100%;margin-top:8px;padding:10px;border:0;background:transparent;color:#475569">Fechar</button></div>`;
-  document.body.appendChild(m);const tone=m.querySelector('#alarmTone'),vol=m.querySelector('#alarmVol'),lab=m.querySelector('#alarmVolLabel');
-  const pushStatus=m.querySelector('#alarmPushStatus'),alarmMoment=m.querySelector('#alarmMoment'),alarmToggle=m.querySelector('#alarmToggle');window.obterStatusPushRotina?.(s=>{if(!pushStatus?.isConnected)return;const pushOk=!!s.optedIn&&!!s.id;pushStatus.textContent=pushOk?'✅ Push deste aparelho ativo':'⚠️ Push ainda não ativado neste aparelho';pushStatus.style.background=pushOk?'#ecfdf5':'#fff7ed';pushStatus.style.color=pushOk?'#047857':'#9a3412';if(bloqueado&&alarmToggle){alarmToggle.disabled=!pushOk;alarmToggle.style.opacity=pushOk?'1':'.55';if(alarmMoment)alarmMoment.disabled=false}});
-  tone.onchange=()=>{pref.tone=tone.value;salvar(KEY_PREF,pref)};vol.oninput=()=>{pref.volume=Number(vol.value)/100;lab.textContent=vol.value+'%';salvar(KEY_PREF,pref)};m.querySelector('#alarmTest').onclick=()=>tocarUmaVez();
-  m.querySelector('#alarmToggle').onclick=async()=>{
-    const botao=m.querySelector('#alarmToggle'),msg=m.querySelector('#alarmTaskMsg');
-    const ativar=!a?.ativo,momento=m.querySelector('#alarmMoment').value;
-    botao.disabled=true;
-    if(bloqueado){
-      msg.textContent='Conferindo push deste aparelho...';
-      const push=await prepararNotificacoes();
-      if(push.permissao!=='granted'){msg.textContent='Autorize as notificações para programar o despertador.';botao.disabled=false;return}
-      if(!push.pushAtivo){msg.textContent='O push deste aparelho ainda não ficou ativo. Ative as notificações e tente novamente.';botao.disabled=false;return}
-      msg.textContent='Programando despertador neste aparelho...';
-      const momentos=momento==='ambos'?['inicio','fim']:[momento];
-      const ok=await configurarAlarmeDoResponsavel({...tarefa,momentos},a,msg);
-      if(ok){toast('Despertador programado neste aparelho.');setTimeout(()=>m.remove(),420)}else botao.disabled=false;
-      return;
-    }
-    if(ativar){msg.textContent='Aguardando o responsável ativar este despertador.';return}
-    msg.textContent='Retirando despertador...';
-    const ok=await gravar({...tarefa,momentos:momento==='ambos'?['inicio','fim']:[momento]},false,'CLIENTE',msg);
-    if(!ok){botao.disabled=false;return}
+  const somenteLeitura=bloqueado?'disabled':'';
+  m.innerHTML=`<div style="width:min(92vw,440px);background:#fff;border-radius:22px;padding:20px;color:#1f2937"><h2 style="margin:0 0 5px">⏰ ${esc(tarefa.nomeTarefa)}</h2><p style="margin:0 0 10px;color:#64748b"><strong>${esc(tarefa.diaSemana)}</strong> · <strong>${esc(formatarDataBR(tarefa.dataAgendada))}</strong><br>início <strong>${esc(tarefa.horaSugeridaInicio)}</strong> · fim <strong>${esc(tarefa.horaSugeridaFim)}</strong></p><label style="font-weight:800">Quando tocar</label><select id="alarmMoment" ${somenteLeitura} style="width:100%;padding:11px;margin:6px 0 12px;border:1px solid #cbd5e1;border-radius:10px"><option value="inicio" ${selecao==='inicio'?'selected':''}>No início da tarefa</option><option value="fim" ${selecao==='fim'?'selected':''}>No fim da tarefa</option><option value="ambos" ${selecao==='ambos'?'selected':''}>No início e no fim</option></select><div style="padding:11px;border-radius:11px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:800;margin-bottom:8px">📅 Toque desta semana: ${esc(proxima)}</div><div id="alarmPushStatus" style="padding:8px 10px;border-radius:10px;background:#f8fafc;color:#475569;font-size:12px;font-weight:800;margin-bottom:14px">🔄 Conferindo push do aparelho...</div>${dataPassada?'<div style="padding:10px;border-radius:10px;background:#f1f5f9;color:#475569;margin-bottom:12px">Esta data já passou. Um alarme novo não pode ser criado nela.</div>':''}${bloqueado?'<div style="padding:12px;border-radius:12px;background:#fee2e2;color:#991b1b;font-weight:800;margin-bottom:14px">🔒 Configurado pelo ADM. Este despertador é somente leitura para o participante.</div>':''}<label style="font-weight:800">Toque</label><select id="alarmTone" ${somenteLeitura} style="width:100%;padding:11px;margin:6px 0 12px;border:1px solid #cbd5e1;border-radius:10px">${Object.entries(TONES).map(([k,v])=>`<option value="${k}" ${pref.tone===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select><label style="font-weight:800">Volume <span id="alarmVolLabel">${Math.round(pref.volume*100)}%</span></label><input id="alarmVol" type="range" min="10" max="100" value="${Math.round(pref.volume*100)}" ${somenteLeitura} style="width:100%;margin:8px 0 14px"><div style="display:flex;gap:8px"><button id="alarmTest" type="button" ${somenteLeitura} style="flex:1;padding:12px;border-radius:11px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:800;opacity:${bloqueado?'.55':'1'}">▶ Testar</button><button id="alarmToggle" type="button" ${bloqueado||impedirAtivacao?'disabled':''} style="flex:1;padding:12px;border-radius:11px;border:0;background:${bloqueado?'#94a3b8':a?.ativo?'#2563eb':'#ef4444'};color:#fff;font-weight:900;opacity:${bloqueado||impedirAtivacao?'.55':'1'}">${bloqueado?'Configurado pelo ADM':a?.ativo?'Salvar ajustes':'Ativar alarme'}</button></div>${ativoParticipante?'<button id="alarmDisable" type="button" style="width:100%;margin-top:10px;padding:12px;border-radius:11px;border:1px solid #fecaca;background:#fff;color:#b91c1c;font-weight:900">Desativar alarme</button>':''}<div id="alarmTaskMsg" style="min-height:18px;margin-top:10px;font-size:12px;color:#64748b"></div><button id="alarmClose" type="button" style="width:100%;margin-top:8px;padding:10px;border:0;background:transparent;color:#475569">Fechar</button></div>`;
+  document.body.appendChild(m);
+  const tone=m.querySelector('#alarmTone'),vol=m.querySelector('#alarmVol'),lab=m.querySelector('#alarmVolLabel'),pushStatus=m.querySelector('#alarmPushStatus'),alarmToggle=m.querySelector('#alarmToggle'),alarmDisable=m.querySelector('#alarmDisable');
+  window.obterStatusPushRotina?.(s=>{if(!pushStatus?.isConnected)return;const pushOk=!!s.optedIn&&!!s.id;pushStatus.textContent=pushOk?'✅ Push deste aparelho ativo':'⚠️ Push ainda não ativado neste aparelho';pushStatus.style.background=pushOk?'#ecfdf5':'#fff7ed';pushStatus.style.color=pushOk?'#047857':'#9a3412'});
+  tone.onchange=()=>{if(bloqueado)return;pref.tone=tone.value;salvar(KEY_PREF,pref)};
+  vol.oninput=()=>{if(bloqueado)return;pref.volume=Number(vol.value)/100;lab.textContent=vol.value+'%';salvar(KEY_PREF,pref)};
+  m.querySelector('#alarmTest').onclick=()=>{if(!bloqueado)tocarUmaVez()};
+  alarmToggle.onclick=async()=>{
+    const msg=m.querySelector('#alarmTaskMsg');
+    if(bloqueado){msg.textContent='Configurado pelo ADM. O participante não pode alterar este despertador.';return}
+    const momento=m.querySelector('#alarmMoment').value,momentos=momento==='ambos'?['inicio','fim']:[momento];
+    alarmToggle.disabled=true;
+    msg.textContent='Conferindo push deste aparelho...';
+    const push=await prepararNotificacoes();
+    if(push.permissao!=='granted'){msg.textContent='Autorize as notificações para ativar o despertador.';alarmToggle.disabled=false;return}
+    if(!push.pushAtivo){msg.textContent='O push deste aparelho ainda não ficou ativo. Ative as notificações e tente novamente.';alarmToggle.disabled=false;return}
+    msg.textContent=a?.ativo?'Salvando ajustes do despertador...':'Ativando despertador...';
+    const ok=await gravar({...tarefa,momentos},true,'CLIENTE',msg);
+    if(!ok){alarmToggle.disabled=false;return}
+    toast(a?.ativo?'Ajustes do despertador salvos.':'Alarme desta data ativado.');
+    setTimeout(()=>m.remove(),420);
+  };
+  if(alarmDisable)alarmDisable.onclick=async()=>{
+    const msg=m.querySelector('#alarmTaskMsg'),momento=m.querySelector('#alarmMoment').value,momentos=momento==='ambos'?['inicio','fim']:[momento];
+    alarmDisable.disabled=true;
+    msg.textContent='Desativando despertador...';
+    const ok=await gravar({...tarefa,momentos},false,'CLIENTE',msg);
+    if(!ok){alarmDisable.disabled=false;return}
     m.remove();
-    toast('Alarme desta data retirado.');
+    toast('Alarme desta data desativado.');
   };
   m.querySelector('#alarmClose').onclick=()=>m.remove();m.onclick=e=>{if(e.target===m)m.remove()};
-}
-
-async function configurarAlarmeDoResponsavel(tarefa,atual,msg=null){
-  if(!ativadoPeloResponsavel(atual)){if(msg)msg.textContent='O responsável precisa ativar este despertador primeiro.';return false}
-  const agora=new Date().toISOString(),momentos=Array.isArray(tarefa.momentos)&&tarefa.momentos.length?tarefa.momentos:['inicio'];
-  const anterior=alarmes[tarefa.tarefaId];
-  const patch={momentos,schedulerPendente:true,schedulerVersao:1,schedulerSolicitadoEm:agora,configuradoNoParticipante:true,configuradoNoParticipanteEm:agora,configuradoNoParticipantePor:nomePerfil()||'Participante',atualizadoEm:agora};
-  alarmes[tarefa.tarefaId]={...atual,...patch};salvar(KEY_STATE,alarmes);atualizarBotoes();
-  if(!navigator.onLine||!getApps().length){alarmes[tarefa.tarefaId]=anterior;salvar(KEY_STATE,alarmes);atualizarBotoes();if(msg)msg.textContent='Conecte-se à internet para programar o push deste despertador.';return false}
-  try{
-    await setDoc(doc(getFirestore(getApp()),'despertadores',chaveDoc(grupo(),perfil(),tarefa.tarefaId)),{...patch,servidorEm:serverTimestamp()},{merge:true});
-    try{window.rotinaLog?.('alarme.config_participante_sucesso',{tarefaId:tarefa.tarefaId,momentos,origemAlarme:atual?.origem||'',bloqueado:!!atual?.bloqueado},'info')}catch{}
-    if(msg)msg.textContent='Despertador programado neste aparelho.';
-    return true;
-  }catch(e){
-    alarmes[tarefa.tarefaId]=anterior;salvar(KEY_STATE,alarmes);atualizarBotoes();
-    try{window.rotinaLog?.('alarme.config_participante_erro',{tarefaId:tarefa.tarefaId,mensagem:String(e?.message||e)},'warning')}catch{}
-    if(msg)msg.textContent='Não foi possível programar o despertador agora.';
-    return false;
-  }
 }
 
 function payloadDaTarefa(tarefa,ativo,origem){const agora=new Date().toISOString(),agenda=agendaDaTarefa(tarefa);return {grupoId:grupo(),perfilId:perfil(),perfilNome:nomePerfil(),tarefaId:tarefa.tarefaId,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nomeTarefa,diaSemana:tarefa.diaSemana,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim||'',momentos:tarefa.momentos||['inicio'],...agenda,versaoAgenda:3,ativo,origem,bloqueado:origem==='ADM'&&ativo,ocorrenciasSilenciadas:Array.isArray(tarefa.ocorrenciasSilenciadas)?tarefa.ocorrenciasSilenciadas:[],schedulerPendente:true,schedulerVersao:1,schedulerSolicitadoEm:agora,atualizadoEm:agora,...(ativo?{acionadoEm:agora,acionadoPor:nomePerfil()||'Cliente'}:{encerradoEm:agora,encerradoPor:nomePerfil()||'Cliente'})}}
