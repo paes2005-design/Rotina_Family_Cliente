@@ -1,0 +1,83 @@
+name: Sprint 2.1 Participant Data Infrastructure Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client-participant-store-v1.js'
+      - 'client-firebase-repository-v1.js'
+      - 'client-bootstrap-v1.js'
+      - 'index.html'
+      - 'sw.js'
+      - 'runtime-build-info.js'
+      - '.github/workflows/sprint2-participant-data-infra-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JavaScript syntax
+        run: |
+          node --check client-participant-store-v1.js
+          node --check client-firebase-repository-v1.js
+          node --check client-bootstrap-v1.js
+          node --check sw.js
+          node --check runtime-build-info.js
+
+      - name: Validate Store contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "const PARTICIPANT_STORE_VERSION=1" client-participant-store-v1.js
+          grep -q "window.rotinaParticipantStore=api" client-participant-store-v1.js
+          grep -q "window.rotinaParticipantStoreSnapshot=snapshot" client-participant-store-v1.js
+          grep -q "rotina-client-cache-updated" client-participant-store-v1.js
+          if grep -q "firebase-firestore" client-participant-store-v1.js; then
+            echo 'ParticipantStore must not import Firestore.' >&2
+            exit 1
+          fi
+
+      - name: Validate Repository contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "const REPOSITORY_VERSION=1" client-firebase-repository-v1.js
+          grep -q "window.rotinaFirebaseRepository=api" client-firebase-repository-v1.js
+          grep -q "getDocsFromCache" client-firebase-repository-v1.js
+          grep -q "getDocsFromServer" client-firebase-repository-v1.js
+          grep -q "includeHistory=true" client-firebase-repository-v1.js
+          grep -q "includeAlarms=false" client-firebase-repository-v1.js
+          grep -q "rotina-participant-server-activity" client-firebase-repository-v1.js
+          if grep -q "setInterval" client-firebase-repository-v1.js; then
+            echo 'FirebaseRepository must not own a polling timer.' >&2
+            exit 1
+          fi
+
+      - name: Validate passive migration boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "SINCRONIZACAO_CLIENTE_MS = 5 \* 60 \* 1000" index-CLIENTE-v6.html
+          grep -q "alarmSyncTimer=setInterval" family-alarm-client.js
+          grep -q "participant-store" client-bootstrap-v1.js
+          grep -q "firebase-repository" client-bootstrap-v1.js
+          echo 'Step 2 keeps legacy sync active intentionally; scheduler migration belongs to Step 3.'
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "BUILD='20260909.2'" client-bootstrap-v1.js
+          grep -q "build:'20260909.2'" runtime-build-info.js
+          grep -q "expectedServiceWorkerVersion:'84'" runtime-build-info.js
+          grep -q "ROTINA_SW_VERSION='84'" sw.js
+          grep -q "ROTINA_BUILD_ID='20260909.2'" sw.js
+          grep -q "rotina-family-participante-v84" sw.js
+          grep -q "const BUILD='20260909.2'" index.html
