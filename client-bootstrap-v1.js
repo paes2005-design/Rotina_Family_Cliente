@@ -2,7 +2,7 @@
   'use strict';
 
   const BOOTSTRAP_VERSION=1;
-  const BUILD='20260909.2';
+  const BUILD='20260909.3';
   if(window.__rotinaBootstrapV1)return;
 
   const runtime={
@@ -53,6 +53,7 @@
   const MODULES=Object.freeze([
     {name:'participant-store',src:'./client-participant-store-v1.js?v=20260909.2',type:'module',owner:'Participant Data / Store',critical:true},
     {name:'firebase-repository',src:'./client-firebase-repository-v1.js?v=20260909.2',type:'module',owner:'Participant Data / Firebase Repository',critical:true},
+    {name:'sync-scheduler',src:'./client-sync-scheduler-v1.js?v=20260909.3',type:'classic',owner:'Participant Data / Sync Scheduler',critical:true},
     {name:'auth-session',src:'./client-auth-session-v1.js?v=6',type:'module',owner:'Session/Auth',critical:true},
     {name:'time-guard',src:'./client-time-guard-v3.js?v=7',type:'module',owner:'Task Engine / Tempo',critical:true},
     {name:'session-integrity',src:'./client-session-integrity.js?v=2',type:'module',owner:'Session Integrity',critical:false},
@@ -81,7 +82,7 @@
     bootstrapVersion:BOOTSTRAP_VERSION,
     build:BUILD,
     uiOrchestrator:'./client-ui-pro.js?v=50',
-    dataInfrastructure:{store:'client-participant-store-v1.js',repository:'client-firebase-repository-v1.js'},
+    dataInfrastructure:{store:'client-participant-store-v1.js',repository:'client-firebase-repository-v1.js',scheduler:'client-sync-scheduler-v1.js'},
     modules:MODULES.map(({name,src,type,owner,critical})=>({name,src,type,owner,critical}))
   });
 
