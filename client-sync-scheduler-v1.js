@@ -79,7 +79,7 @@ async function run(reason='timer'){
   const startedAt=performance.now();
   try{
     const bundle=await repository.readParticipantBundle({
-      grupoId,perfilId,source:'server',includeHistory:false,includeAlarms:false
+      grupoId,perfilId,source:'server',includeHistory:false,includeAlarms:true
     });
     applyBundle(bundle,'scheduler-server-sync');
     lastRunAt=Date.now();
