@@ -8,9 +8,11 @@ on:
       - '.github/workflows/deploy-worker-master-fix.yml'
       - 'app-monitoring.js'
       - 'client-action-guard-v1.js'
+      - 'onesignal-scheduler/package.json'
       - 'onesignal-scheduler/src/index.js'
       - 'onesignal-scheduler/src/commercial-policy.js'
       - 'onesignal-scheduler/src/commercial-safe-v2-entry.js'
+      - 'onesignal-scheduler/src/commercial-access-status-v1.js'
       - 'onesignal-scheduler/src/master-rate-limit-production-entry.js'
       - 'onesignal-scheduler/src/technical-diagnostics.js'
       - 'onesignal-scheduler/src/technical-store-do.js'
@@ -24,6 +26,7 @@ on:
       - 'onesignal-scheduler/test/technical-diagnostics.test.mjs'
       - 'onesignal-scheduler/test/reliable-app-log-v2.test.mjs'
       - 'onesignal-scheduler/test/integration.test.mjs'
+      - 'onesignal-scheduler/test/commercial-access-status-claims.test.mjs'
       - 'onesignal-scheduler/wrangler.jsonc'
   workflow_dispatch:
 
@@ -68,7 +71,9 @@ jobs:
       - name: Validate existing Worker regressions
         run: npm run check && npm test
       - name: Validate commercial policy
-        run: node test/commercial-safety.test.mjs
+        run: |
+          node test/commercial-safety.test.mjs
+          node test/commercial-access-status-claims.test.mjs
       - name: Validate latency guard and diagnostics
         run: |
           node --check src/technical-diagnostics.js
@@ -85,6 +90,7 @@ jobs:
           node --check src/index.js
           node --check src/commercial-policy.js
           node --check src/commercial-safe-v2-entry.js
+          node --check src/commercial-access-status-v1.js
           node --check src/master-rate-limit-production-entry.js
           node --check src/technical-diagnostics.js
           node --check src/technical-store-do.js
@@ -101,6 +107,7 @@ jobs:
           prod=Path('src/master-rate-limit-production-entry.js').read_text(encoding='utf-8')
           core=Path('src/index.js').read_text(encoding='utf-8')
           safe=Path('src/commercial-safe-v2-entry.js').read_text(encoding='utf-8')
+          access=Path('src/commercial-access-status-v1.js').read_text(encoding='utf-8')
           policy=Path('src/commercial-policy.js').read_text(encoding='utf-8')
           users=Path('src/master-users-fallback.js').read_text(encoding='utf-8')
           diag=Path('src/technical-diagnostics.js').read_text(encoding='utf-8')
@@ -114,6 +121,7 @@ jobs:
           assert "from './technical-diagnostics.js'" in prod
           assert "from './worker-audit-diagnostics.js'" in prod
           assert "from './reliable-app-log-v2.js'" in prod
+          assert "from './commercial-access-status-v1.js'" in prod
           assert "export { RotinaTechnicalStore } from './technical-store-do.js'" in prod
           assert 'commercial-preview-entry' not in prod
           assert 'master-user-actions-preview' not in prod
@@ -142,6 +150,9 @@ jobs:
           assert 'include_aliases' in core
           assert "target_channel: 'push'" in core
           assert 'clientPushFilters' not in core
+          assert 'identity?.claims' in access
+          assert 'claims.papel' in access and 'claims.grupoId' in access
+          assert 'identity.papel' not in access and 'identity.grupoId' not in access
           assert "['participante','adm','master']" in store
           assert "['participante','adm','master']" in diag
           assert 'minute === 0 ? cleanupExpiredAppLogs' not in core
@@ -150,7 +161,7 @@ jobs:
           assert 'createSingleFlightAction' in guard
           assert 'MONITOR_VERSION = 6' in monitor
           assert "includes('/app-log')" in monitor
-          print('Produção segura: Participante + external_id push + árvore/comercial preservados + telemetria Durable Object OK')
+          print('Produção segura: claims do Participante + external_id push + árvore/comercial preservados + telemetria Durable Object OK')
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy
         env:
