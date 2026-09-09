@@ -1,0 +1,168 @@
+name: Apply participant alarm ownership rule v3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-participant-alarm-ownership-v3.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Apply ownership rule and build bump
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          alarm_path=Path('family-alarm-client.js')
+          alarm=alarm_path.read_text(encoding='utf-8')
+          pattern=re.compile(r"function atualizarBotao\(btn,id,dataAgendada\)\{.*?\nfunction payloadDaTarefa",re.S)
+          replacement=r'''function atualizarBotao(btn,id,dataAgendada){
+            const a=alarmeDaTarefa(id,dataAgendada),bloqueado=travado(a);
+            const icone=bloqueado?'🔒':a?.ativo?'🔔':'🔕';
+            const titulo=bloqueado?'Despertador configurado pelo ADM — somente visualização':a?.ativo?'Alarme desta data programado por você':'Alarme desta data desativado';
+            if(btn.textContent!==icone)btn.textContent=icone;
+            if(btn.title!==titulo)btn.title=titulo;
+            btn.setAttribute('aria-label',titulo);
+            btn.style.background=bloqueado?'#fee2e2':a?.ativo?'#fff7ed':'#fff';
+          }
+          function atualizarBotoes(){document.querySelectorAll('.family-task-alarm-client').forEach(btn=>{const row=btn.closest('tr[data-family-task-id]');if(row)atualizarBotao(btn,row.dataset.familyTaskId,row.dataset.familyTaskDate)});const atual=Object.values(alarmes).find(a=>chaveAlarme(a)===alarmeDisparado),paradoEmOutroAparelho=!!ocorrenciaDisparada&&ocorrenciasSilenciadas(atual).includes(ocorrenciaDisparada);if(alarmeDisparado&&(!alarmeVigente(atual,new Date())||paradoEmOutroAparelho)){fecharNotificacao(atual,ocorrenciaDisparada);encerrarDisparo(false)}else verificarDisparo()}
+
+          function abrirPainel(tarefa){
+            document.getElementById('familyAlarmTaskPanel')?.remove();
+            tarefa={...tarefa,...agendaDaTarefa(tarefa)};
+            const a=alarmeDaTarefa(tarefa.tarefaId,tarefa.dataAgendada),bloqueado=travado(a),ativoParticipante=!!a?.ativo&&!bloqueado;
+            const dataPassada=!!tarefa.dataAgendada&&tarefa.dataAgendada<dataLocal(new Date());
+            const m=document.createElement('div');m.id='familyAlarmTaskPanel';m.style.cssText='position:fixed;inset:0;z-index:22000;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px';
+            const proxima=descreverProximaOcorrencia({...tarefa,momentos:a?.momentos||['inicio']},new Date());
+            const selecao=Array.isArray(a?.momentos)&&a.momentos.includes('fim')?(a.momentos.includes('inicio')?'ambos':'fim'):'inicio';
+            const impedirAtivacao=dataPassada&&!a?.ativo;
+            const somenteLeitura=bloqueado?'disabled':'';
+            m.innerHTML=`<div style="width:min(92vw,440px);background:#fff;border-radius:22px;padding:20px;color:#1f2937"><h2 style="margin:0 0 5px">⏰ ${esc(tarefa.nomeTarefa)}</h2><p style="margin:0 0 10px;color:#64748b"><strong>${esc(tarefa.diaSemana)}</strong> · <strong>${esc(formatarDataBR(tarefa.dataAgendada))}</strong><br>início <strong>${esc(tarefa.horaSugeridaInicio)}</strong> · fim <strong>${esc(tarefa.horaSugeridaFim)}</strong></p><label style="font-weight:800">Quando tocar</label><select id="alarmMoment" ${somenteLeitura} style="width:100%;padding:11px;margin:6px 0 12px;border:1px solid #cbd5e1;border-radius:10px"><option value="inicio" ${selecao==='inicio'?'selected':''}>No início da tarefa</option><option value="fim" ${selecao==='fim'?'selected':''}>No fim da tarefa</option><option value="ambos" ${selecao==='ambos'?'selected':''}>No início e no fim</option></select><div style="padding:11px;border-radius:11px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:800;margin-bottom:8px">📅 Toque desta semana: ${esc(proxima)}</div><div id="alarmPushStatus" style="padding:8px 10px;border-radius:10px;background:#f8fafc;color:#475569;font-size:12px;font-weight:800;margin-bottom:14px">🔄 Conferindo push do aparelho...</div>${dataPassada?'<div style="padding:10px;border-radius:10px;background:#f1f5f9;color:#475569;margin-bottom:12px">Esta data já passou. Um alarme novo não pode ser criado nela.</div>':''}${bloqueado?'<div style="padding:12px;border-radius:12px;background:#fee2e2;color:#991b1b;font-weight:800;margin-bottom:14px">🔒 Configurado pelo ADM. Este despertador é somente leitura para o participante.</div>':''}<label style="font-weight:800">Toque</label><select id="alarmTone" ${somenteLeitura} style="width:100%;padding:11px;margin:6px 0 12px;border:1px solid #cbd5e1;border-radius:10px">${Object.entries(TONES).map(([k,v])=>`<option value="${k}" ${pref.tone===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select><label style="font-weight:800">Volume <span id="alarmVolLabel">${Math.round(pref.volume*100)}%</span></label><input id="alarmVol" type="range" min="10" max="100" value="${Math.round(pref.volume*100)}" ${somenteLeitura} style="width:100%;margin:8px 0 14px"><div style="display:flex;gap:8px"><button id="alarmTest" type="button" ${somenteLeitura} style="flex:1;padding:12px;border-radius:11px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:800;opacity:${bloqueado?'.55':'1'}">▶ Testar</button><button id="alarmToggle" type="button" ${bloqueado||impedirAtivacao?'disabled':''} style="flex:1;padding:12px;border-radius:11px;border:0;background:${bloqueado?'#94a3b8':a?.ativo?'#2563eb':'#ef4444'};color:#fff;font-weight:900;opacity:${bloqueado||impedirAtivacao?'.55':'1'}">${bloqueado?'Configurado pelo ADM':a?.ativo?'Salvar ajustes':'Ativar alarme'}</button></div>${ativoParticipante?'<button id="alarmDisable" type="button" style="width:100%;margin-top:10px;padding:12px;border-radius:11px;border:1px solid #fecaca;background:#fff;color:#b91c1c;font-weight:900">Desativar alarme</button>':''}<div id="alarmTaskMsg" style="min-height:18px;margin-top:10px;font-size:12px;color:#64748b"></div><button id="alarmClose" type="button" style="width:100%;margin-top:8px;padding:10px;border:0;background:transparent;color:#475569">Fechar</button></div>`;
+            document.body.appendChild(m);
+            const tone=m.querySelector('#alarmTone'),vol=m.querySelector('#alarmVol'),lab=m.querySelector('#alarmVolLabel'),pushStatus=m.querySelector('#alarmPushStatus'),alarmToggle=m.querySelector('#alarmToggle'),alarmDisable=m.querySelector('#alarmDisable');
+            window.obterStatusPushRotina?.(s=>{if(!pushStatus?.isConnected)return;const pushOk=!!s.optedIn&&!!s.id;pushStatus.textContent=pushOk?'✅ Push deste aparelho ativo':'⚠️ Push ainda não ativado neste aparelho';pushStatus.style.background=pushOk?'#ecfdf5':'#fff7ed';pushStatus.style.color=pushOk?'#047857':'#9a3412'});
+            tone.onchange=()=>{if(bloqueado)return;pref.tone=tone.value;salvar(KEY_PREF,pref)};
+            vol.oninput=()=>{if(bloqueado)return;pref.volume=Number(vol.value)/100;lab.textContent=vol.value+'%';salvar(KEY_PREF,pref)};
+            m.querySelector('#alarmTest').onclick=()=>{if(!bloqueado)tocarUmaVez()};
+            alarmToggle.onclick=async()=>{
+              const msg=m.querySelector('#alarmTaskMsg');
+              if(bloqueado){msg.textContent='Configurado pelo ADM. O participante não pode alterar este despertador.';return}
+              const momento=m.querySelector('#alarmMoment').value,momentos=momento==='ambos'?['inicio','fim']:[momento];
+              alarmToggle.disabled=true;
+              msg.textContent='Conferindo push deste aparelho...';
+              const push=await prepararNotificacoes();
+              if(push.permissao!=='granted'){msg.textContent='Autorize as notificações para ativar o despertador.';alarmToggle.disabled=false;return}
+              if(!push.pushAtivo){msg.textContent='O push deste aparelho ainda não ficou ativo. Ative as notificações e tente novamente.';alarmToggle.disabled=false;return}
+              msg.textContent=a?.ativo?'Salvando ajustes do despertador...':'Ativando despertador...';
+              const ok=await gravar({...tarefa,momentos},true,'CLIENTE',msg);
+              if(!ok){alarmToggle.disabled=false;return}
+              toast(a?.ativo?'Ajustes do despertador salvos.':'Alarme desta data ativado.');
+              setTimeout(()=>m.remove(),420);
+            };
+            if(alarmDisable)alarmDisable.onclick=async()=>{
+              const msg=m.querySelector('#alarmTaskMsg'),momento=m.querySelector('#alarmMoment').value,momentos=momento==='ambos'?['inicio','fim']:[momento];
+              alarmDisable.disabled=true;
+              msg.textContent='Desativando despertador...';
+              const ok=await gravar({...tarefa,momentos},false,'CLIENTE',msg);
+              if(!ok){alarmDisable.disabled=false;return}
+              m.remove();
+              toast('Alarme desta data desativado.');
+            };
+            m.querySelector('#alarmClose').onclick=()=>m.remove();m.onclick=e=>{if(e.target===m)m.remove()};
+          }
+
+          function payloadDaTarefa'''
+          alarm2,n=pattern.subn(replacement,alarm,count=1)
+          if n!=1:
+            raise SystemExit(f'Falha ao localizar região do painel de alarme: {n}')
+          if 'Aguardando responsável' in alarm2 or 'configurarAlarmeDoResponsavel' in alarm2:
+            raise SystemExit('Contrato antigo do responsável ainda presente no cliente')
+          for token in ['Configurado pelo ADM. Este despertador é somente leitura para o participante.','Desativar alarme',"origem==='CLIENTE'&&travado(atual)"]:
+            if token not in alarm2: raise SystemExit(f'Contrato novo ausente: {token}')
+          alarm_path.write_text(alarm2,encoding='utf-8')
+
+          rules_path=Path('firestore.rules')
+          rules=rules_path.read_text(encoding='utf-8')
+          old_helper="""    function alarmIdentityUnchanged() {\n      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['grupoId','perfilId','tarefaId']);\n    }\n"""
+          new_helper=old_helper+"""\n    function alarmLockedByAdmin(data) {\n      return ('ativo' in data && data.ativo == true)\n        && (('origem' in data && data.origem == 'ADM')\n            || ('bloqueado' in data && data.bloqueado == true));\n    }\n\n    function participantAlarmCreateAllowed() {\n      return participantOwn(request.resource.data)\n        && request.resource.data.origem == 'CLIENTE'\n        && request.resource.data.bloqueado == false;\n    }\n\n    function participantAlarmUpdateAllowed() {\n      return participantOwn(resource.data)\n        && participantOwn(request.resource.data)\n        && alarmIdentityUnchanged()\n        && !alarmLockedByAdmin(resource.data)\n        && request.resource.data.origem == 'CLIENTE'\n        && request.resource.data.bloqueado == false;\n    }\n"""
+          if old_helper not in rules: raise SystemExit('Helper alarmIdentityUnchanged não localizado')
+          rules=rules.replace(old_helper,new_helper,1)
+          old_match="""    match /despertadores/{id} {\n      allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);\n      allow create: if isMaster()\n        || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())\n        || participantOwn(request.resource.data);\n      allow update: if isMaster()\n        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())\n        || (participantOwn(resource.data) && participantOwn(request.resource.data) && alarmIdentityUnchanged());\n      allow delete: if isMaster()\n        || (isFamilyAdmin() && resource.data.grupoId == myGroup())\n        || participantOwn(resource.data);\n    }\n"""
+          new_match="""    match /despertadores/{id} {\n      allow read: if isMaster() || familyOperatorFor(resource.data) || participantOwn(resource.data);\n      allow create: if isMaster()\n        || ((isFamilyAdmin() || isGuestAdmin()) && request.resource.data.grupoId == myGroup())\n        || participantAlarmCreateAllowed();\n      allow update: if isMaster()\n        || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())\n        || participantAlarmUpdateAllowed();\n      allow delete: if isMaster()\n        || (isFamilyAdmin() && resource.data.grupoId == myGroup())\n        || (participantOwn(resource.data) && !alarmLockedByAdmin(resource.data));\n    }\n"""
+          if old_match not in rules: raise SystemExit('Bloco despertadores não localizado')
+          rules=rules.replace(old_match,new_match,1)
+          rules_path.write_text(rules,encoding='utf-8')
+
+          test_path=Path('security-tests/firestore-rules.test.mjs')
+          test=test_path.read_text(encoding='utf-8')
+          fixture_anchor="  await setDoc(doc(db,'appLogsSecure','s1'),{grupoId:'G1',evento:'seguro'});\n"
+          fixtures="""  await setDoc(doc(db,'despertadores','p-own'),{grupoId:'G1',perfilId:'PF1',tarefaId:'t1',ativo:true,origem:'CLIENTE',bloqueado:false,momentos:['inicio']});\n  await setDoc(doc(db,'despertadores','adm-lock'),{grupoId:'G1',perfilId:'PF1',tarefaId:'t1',ativo:true,origem:'ADM',bloqueado:true,momentos:['inicio']});\n  await setDoc(doc(db,'despertadores','adm-off'),{grupoId:'G1',perfilId:'PF1',tarefaId:'t1',ativo:false,origem:'ADM',bloqueado:false,momentos:['inicio']});\n"""
+          if fixture_anchor not in test: raise SystemExit('Âncora de fixture de segurança não localizada')
+          test=test.replace(fixture_anchor,fixture_anchor+fixtures,1)
+          assertion_anchor="await assertFails(updateDoc(doc(participantDb,'tarefas','t1'),{pontosMaximos:999}));\n"
+          assertions="""\n// Despertadores: o participante controla o próprio alarme, mas um alarme ativo do ADM é somente leitura.\nawait assertSucceeds(updateDoc(doc(participantDb,'despertadores','p-own'),{momentos:['fim'],ativo:true,origem:'CLIENTE',bloqueado:false}));\nawait assertSucceeds(updateDoc(doc(participantDb,'despertadores','p-own'),{ativo:false,origem:'CLIENTE',bloqueado:false}));\nawait assertFails(updateDoc(doc(participantDb,'despertadores','adm-lock'),{momentos:['fim']}));\nawait assertFails(updateDoc(doc(participantDb,'despertadores','adm-lock'),{ativo:false}));\nawait assertSucceeds(updateDoc(doc(participantDb,'despertadores','adm-off'),{ativo:true,origem:'CLIENTE',bloqueado:false,momentos:['fim']}));\n"""
+          if assertion_anchor not in test: raise SystemExit('Âncora de asserção de segurança não localizada')
+          test=test.replace(assertion_anchor,assertion_anchor+assertions,1)
+          test_path.write_text(test,encoding='utf-8')
+
+          runtime=Path('runtime-build-info.js').read_text(encoding='utf-8')
+          runtime=runtime.replace("build:'20260908.2'","build:'20260908.3'",1).replace("expectedServiceWorkerVersion:'81'","expectedServiceWorkerVersion:'82'",1)
+          if "build:'20260908.3'" not in runtime or "expectedServiceWorkerVersion:'82'" not in runtime: raise SystemExit('Falha no bump do runtime')
+          Path('runtime-build-info.js').write_text(runtime,encoding='utf-8')
+
+          sw=Path('sw.js').read_text(encoding='utf-8')
+          sw=sw.replace("CACHE_NAME='rotina-family-participante-v81'","CACHE_NAME='rotina-family-participante-v82'",1).replace("ROTINA_SW_VERSION='81'","ROTINA_SW_VERSION='82'",1).replace("ROTINA_BUILD_ID='20260908.2'","ROTINA_BUILD_ID='20260908.3'",1).replace("register('./sw.js?v=30')\",\"navigator.serviceWorker.register('./sw.js?v=81'", "register('./sw.js?v=30')\",\"navigator.serviceWorker.register('./sw.js?v=82'",1)
+          if "ROTINA_SW_VERSION='82'" not in sw or "ROTINA_BUILD_ID='20260908.3'" not in sw or "sw.js?v=82" not in sw: raise SystemExit('Falha no bump do service worker')
+          Path('sw.js').write_text(sw,encoding='utf-8')
+
+          index=Path('index.html').read_text(encoding='utf-8')
+          index=index.replace("const BUILD='20260908.2'","const BUILD='20260908.3'",1).replace("sw.js?v=81","sw.js?v=82",1).replace("sprint2.1-alarm-device-config-v2","sprint2.1-alarm-ownership-v3",1).replace("serviceWorkerExpected:81","serviceWorkerExpected:82",1)
+          if "const BUILD='20260908.3'" not in index or 'serviceWorkerExpected:82' not in index: raise SystemExit('Falha no bump da entrada')
+          Path('index.html').write_text(index,encoding='utf-8')
+          PY
+
+      - name: Static verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check family-alarm-client.js
+          node --check sw.js
+          node --check runtime-build-info.js
+          git diff --check
+          grep -F "Configurado pelo ADM. Este despertador é somente leitura para o participante." family-alarm-client.js
+          grep -F "participantAlarmUpdateAllowed" firestore.rules
+          grep -F "build:'20260908.3'" runtime-build-info.js
+          grep -F "ROTINA_SW_VERSION='82'" sw.js
+
+      - name: Commit production change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'paes2005-design'
+          git config user.email 'paes2005@gmail.com'
+          git add family-alarm-client.js firestore.rules security-tests/firestore-rules.test.mjs runtime-build-info.js sw.js index.html
+          git commit -m 'Enforce participant alarm ownership rules build 20260908.3'
+          git push origin main
+
+      - name: Dispatch Firestore rules deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run security-deploy-firestore-rules-v1.yml --ref main
