@@ -20,6 +20,14 @@ function cors(request) {
   };
 }
 
+export function participantClaims(identity = {}) {
+  const claims = identity?.claims && typeof identity.claims === 'object' ? identity.claims : {};
+  return {
+    papel: String(claims.papel || '').trim().toLowerCase(),
+    groupId: String(claims.grupoId || '').trim().toUpperCase()
+  };
+}
+
 export async function handleCommercialAccessStatus(request, env, now = new Date()) {
   const url = new URL(request.url);
   if (url.pathname !== '/commercial/access-status') return null;
@@ -27,8 +35,7 @@ export async function handleCommercialAccessStatus(request, env, now = new Date(
   if (request.method !== 'GET') return Response.json({ error: 'Método não permitido.' }, { status: 405, headers: cors(request) });
   try {
     const identity = await verifyFirebaseIdToken(env, bearer(request), fetch, now);
-    const papel = String(identity.papel || '').trim().toLowerCase();
-    const groupId = String(identity.grupoId || '').trim().toUpperCase();
+    const { papel, groupId } = participantClaims(identity);
     if (papel !== 'participante' || !groupId) return Response.json({ error: 'Sessão de participante inválida.' }, { status: 403, headers: cors(request) });
     if (isCommercialExemptGroup(groupId)) return Response.json({ acessoPermitido: true }, { headers: cors(request) });
     const config = await readCommercialState(env, groupId, now);
