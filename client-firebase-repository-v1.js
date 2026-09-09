@@ -9,6 +9,7 @@ const REPOSITORY_VERSION=1;
 const clean=value=>String(value||'').trim();
 const group=value=>clean(value).toUpperCase();
 const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{...details,firebaseRepositoryVersion:REPOSITORY_VERSION},level);}catch{}};
+const STORE_COLLECTION=Object.freeze({historico:'historico',recompensas:'recompensas',resgates:'resgates',conquistas:'desafios',despertadores:'despertadores'});
 
 function database(){
   if(!getApps().length)throw new Error('Firebase ainda não foi iniciado.');
@@ -115,6 +116,12 @@ function serverActivity(reason='repository-write'){
   return detail.at;
 }
 
+function patchStoreCollection(collectionName,id,value,reason){
+  const storeName=STORE_COLLECTION[clean(collectionName)];
+  if(!storeName)return;
+  window.rotinaParticipantStore?.upsert?.(storeName,id,value||{},{source:reason,server:true});
+}
+
 async function patchTask(id,patch,reason='task-patch'){
   const taskId=clean(id);if(!taskId)throw new Error('ID da tarefa é obrigatório.');
   await updateDoc(doc(database(),'tarefas',taskId),patch||{});
@@ -127,7 +134,7 @@ async function mergeDocument(collectionName,id,value,reason='document-merge'){
   const name=clean(collectionName),documentId=clean(id);
   if(!name||!documentId)throw new Error('Coleção e ID são obrigatórios.');
   await setDoc(doc(database(),name,documentId),value||{},{merge:true});
-  if(['historico','recompensas','resgates','desafios','despertadores'].includes(name))window.rotinaParticipantStore?.upsert?.(name,documentId,value||{},{source:reason,server:true});
+  patchStoreCollection(name,documentId,value,reason);
   serverActivity(reason);
   return true;
 }
@@ -136,7 +143,7 @@ async function replaceDocument(collectionName,id,value,reason='document-set'){
   const name=clean(collectionName),documentId=clean(id);
   if(!name||!documentId)throw new Error('Coleção e ID são obrigatórios.');
   await setDoc(doc(database(),name,documentId),value||{});
-  if(['historico','recompensas','resgates','desafios','despertadores'].includes(name))window.rotinaParticipantStore?.upsert?.(name,documentId,value||{},{source:reason,server:true});
+  patchStoreCollection(name,documentId,value,reason);
   serverActivity(reason);
   return true;
 }
@@ -149,10 +156,17 @@ async function commit(operations=[],reason='batch-write'){
     if(!collectionName||!id)throw new Error('Toda operação do batch precisa de collection e id.');
     const ref=doc(db,collectionName,id),data=operation?.data||{};
     if(action==='update')batch.update(ref,data);
-    else if(action==='set')batch.set(ref,data,operation?.merge===true?{merge:true}:undefined);
-    else throw new Error(`Ação de batch não suportada: ${action}`);
+    else if(action==='set'){
+      if(operation?.merge===true)batch.set(ref,data,{merge:true});
+      else batch.set(ref,data);
+    }else throw new Error(`Ação de batch não suportada: ${action}`);
   }
   await batch.commit();
+  for(const operation of operations){
+    const collectionName=clean(operation?.collection),id=clean(operation?.id),data=operation?.data||{};
+    if(collectionName==='tarefas')window.rotinaParticipantStorePatchTask?.(id,data,{source:reason,server:true});
+    else patchStoreCollection(collectionName,id,data,reason);
+  }
   serverActivity(reason);
   return true;
 }
