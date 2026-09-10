@@ -2,7 +2,7 @@
   'use strict';
 
   const BOOTSTRAP_VERSION=1;
-  const BUILD='20260910.2';
+  const BUILD='20260910.3';
   if(window.__rotinaBootstrapV1)return;
 
   const runtime={version:BOOTSTRAP_VERSION,build:BUILD,startedAt:Date.now(),modules:{},errors:[]};
@@ -29,8 +29,7 @@
     {name:'early-start-ui',src:'./client-early-start-ui.js?v=2',type:'module',owner:'Task UI',critical:false},
     {name:'tolerance-timer',src:'./client-tolerance-timer.js?v=5',type:'module',owner:'Task UI / Tolerância',critical:false},
     {name:'week-nav',src:'./client-week-nav.js?v=4',type:'module',owner:'Week UI',critical:false},
-    {name:'task-alarm',src:'./family-alarm-loader-v14.js?v=1',type:'module',owner:'Alarm',critical:false},
-    {name:'alarm-stop-retry',src:'./client-alarm-stop-retry-v1.js?v=1',type:'module',owner:'Alarm / Pending Stop Retry',critical:false},
+    {name:'task-alarm',src:'./family-alarm-client.js?v=15',type:'module',owner:'Alarm / Single State Owner',critical:false},
     {name:'history-reconciler',src:'./client-history-reconciler.js?v=3',type:'module',owner:'History Repair',critical:false},
     {name:'mascot-v3',src:'./client-mascot-v3.js?v=1',type:'module',owner:'Mascot',critical:false},
     {name:'zero-feedback',src:'./client-zero-feedback-v4.js?v=1',type:'module',owner:'Mascot Feedback',critical:false},
@@ -44,7 +43,7 @@
     {name:'cat-layout-safe',src:'./client-cat-layout-safe-v5.js?v=5',type:'classic',owner:'Mascot UI',critical:false},
     {name:'mascot-fix',src:'./client-mascot-fix-v6.js?v=6',type:'classic',owner:'Mascot UI',critical:false},
     {name:'cat-container',src:'./client-cat-container-v7.js?v=9',type:'classic',owner:'Mascot UI',critical:false},
-    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260909.2',type:'classic',owner:'Runtime/Version',critical:false}
+    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260910.3',type:'classic',owner:'Runtime/Version',critical:false}
   ]);
 
   window.__ROTINA_RUNTIME_MANIFEST=Object.freeze({bootstrapVersion:BOOTSTRAP_VERSION,build:BUILD,uiOrchestrator:'./client-ui-pro.js?v=50',dataInfrastructure:{store:'client-participant-store-v1.js',repository:'client-firebase-repository-v1.js',scheduler:'client-sync-scheduler-v1.js'},modules:MODULES.map(({name,src,type,owner,critical})=>({name,src,type,owner,critical}))});

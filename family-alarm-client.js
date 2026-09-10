@@ -1,14 +1,15 @@
 import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import {arrayUnion,getFirestore,doc,serverTimestamp,setDoc} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import {arrayUnion,getFirestore,doc,serverTimestamp,setDoc,updateDoc} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import {agendaDaTarefa,alarmeVigente,chaveOcorrencia,dataLocal,deveDispararAgora,descreverProximaOcorrencia,momentoDaOcorrenciaAtual,semanaInicioISO} from './alarm-schedule-core.js?v=5';
 
+const ALARM_RUNTIME_VERSION=15;
 const KEY_PREF='rotina_family_alarm_pref_v2';
 const KEY_STATE='rotina_family_task_alarms_v3';
 const KEY_PENDING='rotina_family_task_alarm_pending_v3';
 const KEY_SILENCED='rotina_family_task_alarm_silenced_v2';
 const KEY_STOP_PENDING='rotina_family_task_alarm_stop_pending_v1';
 const KEY_WEEK='rotina_family_task_alarm_week_v1';
-const JANELA_DISPARO_MS=5*60*1000;
+const JANELA_DISPARO_MS=60*1000;
 const LIMITE_TOQUE_MS=2*60*1000;
 const TONES={
   classico:{label:'Alarme clássico',seq:[[880,.18],[660,.18],[880,.18],[660,.38]]},
@@ -17,7 +18,7 @@ const TONES={
   suave:{label:'Suave',seq:[[523,.28],[659,.28],[784,.45]]},
   musica:{label:'Música',seq:[[523,.16],[659,.16],[784,.16],[1046,.24],[784,.16],[659,.32]]}
 };
-let ctx=null,somTimer=null,relogioTimer=null,autoStopTimer=null,unsub=null,sessaoEscutada='',alarmeDisparado='',ocorrenciaDisparada='',notificacaoSolicitada=0,documentosRemotos=[],storeAlarmUnsub=null;
+let ctx=null,somTimer=null,relogioTimer=null,autoStopTimer=null,sessaoEscutada='',alarmeDisparado='',ocorrenciaDisparada='',notificacaoSolicitada=0,storeAlarmUnsub=null;
 const fontesAtivas=new Set();
 let pref=ler(KEY_PREF,{tone:'classico',volume:.75});
 let alarmes=ler(KEY_STATE,{});
@@ -28,6 +29,7 @@ const nomePerfil=()=>localStorage.getItem('cliente_nome')||'';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function ler(k,p){try{const v=JSON.parse(localStorage.getItem(k)||'null');return v&&typeof v==='object'?v:p}catch{return p}}
 function salvar(k,v){localStorage.setItem(k,JSON.stringify(v))}
+function logAlarme(evento,detalhes={},nivel='info'){try{window.rotinaLog?.(evento,{alarmRuntimeVersion:ALARM_RUNTIME_VERSION,...detalhes},nivel)}catch{}}
 function chaveDoc(g,p,t){return [g,p,t].map(v=>String(v||'').replaceAll('/','_')).join('__')}
 function chaveAlarme(a){return a?.tarefaId&&a?.dataAgendada?`${a.tarefaId}__${a.dataAgendada}`:''}
 function naSemanaAtual(a,agora=new Date()){const data=/^\d{4}-\d{2}-\d{2}$/.test(a?.dataAgendada||'')?new Date(`${a.dataAgendada}T12:00:00`):null;return !!data&&a.semanaInicio===semanaInicioISO(agora)&&a.semanaInicio===semanaInicioISO(data)}
@@ -138,22 +140,133 @@ function abrirPainel(tarefa){
 }
 
 function payloadDaTarefa(tarefa,ativo,origem){const agora=new Date().toISOString(),agenda=agendaDaTarefa(tarefa);return {grupoId:grupo(),perfilId:perfil(),perfilNome:nomePerfil(),tarefaId:tarefa.tarefaId,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nomeTarefa,diaSemana:tarefa.diaSemana,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim||'',momentos:tarefa.momentos||['inicio'],...agenda,versaoAgenda:3,ativo,origem,bloqueado:origem==='ADM'&&ativo,ocorrenciasSilenciadas:Array.isArray(tarefa.ocorrenciasSilenciadas)?tarefa.ocorrenciasSilenciadas:[],schedulerPendente:true,schedulerVersao:1,schedulerSolicitadoEm:agora,atualizadoEm:agora,...(ativo?{acionadoEm:agora,acionadoPor:nomePerfil()||'Cliente'}:{encerradoEm:agora,encerradoPor:nomePerfil()||'Cliente'})}}
-function enfileirar(payload){const fila=ler(KEY_PENDING,[]).filter(p=>naSemanaAtual(p));fila.push(payload);salvar(KEY_PENDING,fila.slice(-60))}
-async function gravar(tarefa,ativo,origem='CLIENTE',msg=null){const atual=alarmeDaTarefa(tarefa.tarefaId,tarefa.dataAgendada);if(origem==='CLIENTE'&&travado(atual)){if(msg)msg.textContent='Somente o responsável pode retirar este despertador.';return false}const payload=payloadDaTarefa({...tarefa,ocorrenciasSilenciadas:ativo?[]:(atual?.ocorrenciasSilenciadas||[])},ativo,origem);if(!payload.dataAgendada||!payload.semanaInicio){if(msg)msg.textContent='Não foi possível definir a data desta tarefa.';return false}if(ativo)limparSilenciosLocais(payload.tarefaId);alarmes[payload.tarefaId]=payload;salvar(KEY_STATE,alarmes);atualizarBotoes();if(!navigator.onLine||!getApps().length){enfileirar(payload);if(msg)msg.textContent='Alteração guardada e será sincronizada quando a internet voltar.';return true}try{await setDoc(doc(getFirestore(getApp()),'despertadores',chaveDoc(payload.grupoId,payload.perfilId,payload.tarefaId)),{...payload,servidorEm:serverTimestamp()},{merge:true});if(msg)msg.textContent=ativo?'Despertador ativado nesta data.':'Despertador retirado desta data.';return true}catch{enfileirar(payload);if(msg)msg.textContent='Alteração guardada para sincronizar depois.';return true}}
+function enfileirar(payload){
+  const fila=ler(KEY_PENDING,[]).filter(p=>naSemanaAtual(p)&&p.tarefaId!==payload.tarefaId);
+  fila.push(payload);
+  salvar(KEY_PENDING,fila.slice(-60));
+}
+function removerPendenteConfig(tarefaId){
+  salvar(KEY_PENDING,ler(KEY_PENDING,[]).filter(p=>naSemanaAtual(p)&&p.tarefaId!==tarefaId));
+}
+async function escreverConfig(payload){
+  await setDoc(
+    doc(getFirestore(getApp()),'despertadores',chaveDoc(payload.grupoId,payload.perfilId,payload.tarefaId)),
+    {...payload,servidorEm:serverTimestamp()},
+    {merge:true}
+  );
+}
+async function gravar(tarefa,ativo,origem='CLIENTE',msg=null){
+  const atual=alarmeDaTarefa(tarefa.tarefaId,tarefa.dataAgendada);
+  if(origem==='CLIENTE'&&travado(atual)){
+    if(msg)msg.textContent='Somente o responsável pode retirar este despertador.';
+    return false;
+  }
+  const reativando=ativo&&atual?.ativo!==true;
+  const ocorrencias=reativando?[]:(atual?.ocorrenciasSilenciadas||[]);
+  const payload=payloadDaTarefa({...tarefa,ocorrenciasSilenciadas:ocorrencias},ativo,origem);
+  if(!payload.dataAgendada||!payload.semanaInicio){
+    if(msg)msg.textContent='Não foi possível definir a data desta tarefa.';
+    return false;
+  }
+  if(reativando)limparSilenciosLocais(payload.tarefaId);
+  alarmes[payload.tarefaId]=payload;
+  salvar(KEY_STATE,alarmes);
+  atualizarBotoes();
+  enfileirar(payload);
+  if(!navigator.onLine||!getApps().length){
+    if(msg)msg.textContent='Alteração guardada e será sincronizada quando a internet voltar.';
+    return true;
+  }
+  try{
+    await escreverConfig(payload);
+    removerPendenteConfig(payload.tarefaId);
+    logAlarme('alarme.config_gravada',{tarefaId:payload.tarefaId,ativo});
+    if(msg)msg.textContent=ativo?'Despertador ativado nesta data.':'Despertador retirado desta data.';
+    window.rotinaParticipantSyncScheduler?.run?.('alarm-config-saved');
+    return true;
+  }catch(error){
+    logAlarme('alarme.config_pendente',{tarefaId:payload.tarefaId,ativo,mensagem:String(error?.message||error)},'warning');
+    if(msg)msg.textContent='Alteração guardada para sincronizar depois.';
+    return true;
+  }
+}
 
-async function sincronizarPendente(){if(!navigator.onLine||!getApps().length)return;const fila=ler(KEY_PENDING,[]).filter(p=>naSemanaAtual(p));if(!fila.length){salvar(KEY_PENDING,[]);return}const db=getFirestore(getApp()),rest=[];for(const p of fila){try{await setDoc(doc(db,'despertadores',chaveDoc(p.grupoId,p.perfilId,p.tarefaId)),{...p,servidorEm:serverTimestamp()},{merge:true})}catch{rest.push(p)}}salvar(KEY_PENDING,rest);window.dispatchEvent(new CustomEvent('rotina-family-alarm-sync',{detail:{pendentes:rest.length}}))}
-function enfileirarSilencio(a,ocorrencia){if(!ocorrencia)return;const item={grupoId:a?.grupoId||grupo(),perfilId:a?.perfilId||perfil(),tarefaId:a?.tarefaId||'',dataAgendada:a?.dataAgendada||'',semanaInicio:a?.semanaInicio||semanaInicioISO(new Date()),ocorrencia};const fila=ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p));if(!fila.some(p=>p.grupoId===item.grupoId&&p.perfilId===item.perfilId&&p.ocorrencia===ocorrencia))fila.push(item);salvar(KEY_STOP_PENDING,fila.slice(-120))}
-async function sincronizarSilenciosPendentes(){if(!navigator.onLine||!getApps().length)return;const fila=ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p)),rest=[];if(!fila.length){salvar(KEY_STOP_PENDING,[]);return}const db=getFirestore(getApp());for(const p of fila){try{await setDoc(doc(db,'despertadores',chaveDoc(p.grupoId,p.perfilId,p.tarefaId)),{grupoId:p.grupoId,perfilId:p.perfilId,tarefaId:p.tarefaId,dataAgendada:p.dataAgendada,semanaInicio:p.semanaInicio,ocorrenciasSilenciadas:arrayUnion(p.ocorrencia),ultimoSilenciadoEm:serverTimestamp(),ultimoSilenciadoPor:nomePerfil()||'Cliente'},{merge:true})}catch{rest.push(p)}}salvar(KEY_STOP_PENDING,rest);window.dispatchEvent(new CustomEvent('rotina-family-alarm-stop-sync',{detail:{pendentes:rest.length}}))}
+async function sincronizarPendente(){
+  if(!navigator.onLine||!getApps().length)return;
+  const fila=ler(KEY_PENDING,[]).filter(p=>naSemanaAtual(p));
+  if(!fila.length){salvar(KEY_PENDING,[]);return}
+  const rest=[];
+  let processados=0;
+  for(const p of fila){
+    try{await escreverConfig(p);processados++}
+    catch(error){rest.push(p);logAlarme('alarme.config_sync_falha',{tarefaId:p.tarefaId,mensagem:String(error?.message||error)},'warning')}
+  }
+  salvar(KEY_PENDING,rest);
+  logAlarme('alarme.config_sync_concluido',{processados,pendentes:rest.length},rest.length?'warning':'info');
+  window.dispatchEvent(new CustomEvent('rotina-family-alarm-sync',{detail:{pendentes:rest.length,origem:'config-pending'}}));
+  if(processados)window.rotinaParticipantSyncScheduler?.run?.('alarm-config-flushed');
+}
+function enfileirarSilencio(a,ocorrencia){
+  if(!ocorrencia)return;
+  const item={grupoId:a?.grupoId||grupo(),perfilId:a?.perfilId||perfil(),tarefaId:a?.tarefaId||'',dataAgendada:a?.dataAgendada||'',semanaInicio:a?.semanaInicio||semanaInicioISO(new Date()),ocorrencia};
+  const fila=ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p));
+  if(!fila.some(p=>p.grupoId===item.grupoId&&p.perfilId===item.perfilId&&p.tarefaId===item.tarefaId&&p.ocorrencia===item.ocorrencia))fila.push(item);
+  salvar(KEY_STOP_PENDING,fila.slice(-120));
+}
+function reconciliarSilenciosServidor(remotos){
+  const fila=ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p));
+  if(!fila.length)return;
+  const rest=fila.filter(p=>!Array.isArray(remotos[p.tarefaId]?.ocorrenciasSilenciadas)||!remotos[p.tarefaId].ocorrenciasSilenciadas.includes(p.ocorrencia));
+  if(rest.length!==fila.length){
+    salvar(KEY_STOP_PENDING,rest);
+    logAlarme('alarme.stop_reconciliado',{removidos:fila.length-rest.length,pendentes:rest.length});
+  }
+}
+async function sincronizarSilenciosPendentes(){
+  if(!navigator.onLine||!getApps().length)return;
+  const fila=ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p)),rest=[];
+  if(!fila.length){salvar(KEY_STOP_PENDING,[]);return}
+  const db=getFirestore(getApp());
+  let processados=0;
+  for(const p of fila){
+    try{
+      await updateDoc(doc(db,'despertadores',chaveDoc(p.grupoId,p.perfilId,p.tarefaId)),{
+        ocorrenciasSilenciadas:arrayUnion(p.ocorrencia),
+        ultimoSilenciadoEm:serverTimestamp(),
+        ultimoSilenciadoPor:nomePerfil()||'Cliente'
+      });
+      processados++;
+    }catch(error){
+      rest.push(p);
+      logAlarme('alarme.stop_sync_falha',{tarefaId:p.tarefaId,mensagem:String(error?.message||error)},'warning');
+    }
+  }
+  salvar(KEY_STOP_PENDING,rest);
+  logAlarme('alarme.stop_sync_concluido',{processados,pendentes:rest.length},rest.length?'warning':'info');
+  window.dispatchEvent(new CustomEvent('rotina-family-alarm-stop-sync',{detail:{processados,pendentes:rest.length}}));
+  if(processados)window.rotinaParticipantSyncScheduler?.run?.('alarm-stop-saved');
+}
 function sincronizarSilencioCompartilhado(a,ocorrencia){enfileirarSilencio(a,ocorrencia);sincronizarSilenciosPendentes()}
 async function sincronizarTudo(){await sincronizarPendente();await sincronizarSilenciosPendentes()}
-async function expirarAlarmesRemotos(){if(!navigator.onLine||!getApps().length)return;const agora=new Date().toISOString();for(const item of documentosRemotos){if(!item.dados.ativo||naSemanaAtual(item.dados))continue;try{await setDoc(item.ref,{ativo:false,bloqueado:false,expirado:true,expiradoEm:agora,expiradoPor:'VIRADA_SEMANA',schedulerPendente:true,schedulerVersao:1,schedulerSolicitadoEm:agora,servidorEm:serverTimestamp()},{merge:true})}catch{}}}
 function aplicarAlarmesStore(items=[],origem='participant-store'){
-  const g=grupo(),p=perfil(),proximos={};
-  documentosRemotos=(Array.isArray(items)?items:[]).filter(a=>a?.grupoId===g&&a?.perfilId===p).map(a=>({ref:null,dados:a}));
-  documentosRemotos.forEach(item=>{const a=item.dados;if(a.tarefaId&&naSemanaAtual(a))proximos[a.tarefaId]=a});
-  ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{proximos[a.tarefaId]=a});
-  alarmes=proximos;salvar(KEY_STATE,alarmes);atualizarBotoes();
+  const g=grupo(),p=perfil(),remotos={},pendentes={};
+  (Array.isArray(items)?items:[]).filter(a=>a?.grupoId===g&&a?.perfilId===p).forEach(a=>{if(a.tarefaId&&naSemanaAtual(a))remotos[a.tarefaId]=a});
+  ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{pendentes[a.tarefaId]=a});
+  const origemServidor=/server|servidor/i.test(String(origem||''));
+  const proximos=origemServidor?{}:filtrarSemana(alarmes);
+  for(const [id,a] of Object.entries(remotos)){
+    if(origemServidor||!proximos[id])proximos[id]=a;
+  }
+  for(const [id,a] of Object.entries(pendentes))proximos[id]=a;
+  alarmes=proximos;
+  salvar(KEY_STATE,alarmes);
+  atualizarBotoes();
+  logAlarme('alarme.estado_composto',{origem,origemServidor,remotos:Object.keys(remotos).length,efetivos:Object.keys(alarmes).length,configPendentes:Object.keys(pendentes).length,stopPendentes:ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p)).length});
   window.dispatchEvent(new CustomEvent('rotina-family-alarm-sync',{detail:{origem}}));
+  if(origemServidor){
+    reconciliarSilenciosServidor(remotos);
+    queueMicrotask(()=>sincronizarTudo());
+  }
 }
 function escutar(tentativa=0){
   const g=grupo(),p=perfil(),sessao=`${g}__${p}`,store=window.rotinaParticipantStore;
@@ -162,19 +275,19 @@ function escutar(tentativa=0){
   if(storeAlarmUnsub){try{storeAlarmUnsub()}catch{}storeAlarmUnsub=null}
   sessaoEscutada=sessao;
   storeAlarmUnsub=store.subscribe((snap,meta)=>aplicarAlarmesStore(snap?.despertadores||[],meta?.reason||'participant-store'));
-  unsub=()=>{if(storeAlarmUnsub){try{storeAlarmUnsub()}catch{}storeAlarmUnsub=null}};
   aplicarAlarmesStore(store.snapshot?.()?.despertadores||[],'store-inicial');
   window.rotinaParticipantSyncScheduler?.run?.('alarm-store-initial');
   sincronizarTudo();
 }
 function tarefaConcluida(a){const row=[...document.querySelectorAll(`tr[data-family-task-id="${CSS.escape(a?.tarefaId||'')}"]`)].find(r=>!r.dataset.familyTaskDate||r.dataset.familyTaskDate===a?.dataAgendada);return row?/Prazo|Atrasado/i.test(row.dataset.familyTaskStatus||''):false}
 function estaNaHora(a,agora){return !tarefaConcluida(a)&&deveDispararAgora(a,agora,JANELA_DISPARO_MS,ocorrenciasSilenciadas(a))}
-function verificarDisparo(){if(alarmeDisparado)return;const agora=new Date();const a=Object.values(alarmes).filter(x=>estaNaHora(x,agora)).sort((x,y)=>String(x.inicioEm||'').localeCompare(String(y.inicioEm||'')))[0];if(a)mostrarDisparo(a)}
-function mostrarDisparo(a){const silenciadas=ocorrenciasSilenciadas(a),ocorrencia=chaveOcorrencia(a,new Date(),JANELA_DISPARO_MS,silenciadas);if(!ocorrencia)return;alarmeDisparado=chaveAlarme(a);ocorrenciaDisparada=ocorrencia;const token=++notificacaoSolicitada;let o=document.getElementById('familyAlarmOverlay');if(!o){o=document.createElement('div');o.id='familyAlarmOverlay';o.style.cssText='position:fixed;inset:0;z-index:30000;background:radial-gradient(circle at top,#ef4444,#7f1d1d);color:#fff;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center';document.body.appendChild(o)}const bloqueado=travado(a),momento=momentoDaOcorrenciaAtual(a,new Date(),JANELA_DISPARO_MS,silenciadas),hora=momento==='fim'?a.horaSugeridaFim:a.horaSugeridaInicio;o.innerHTML=`<div><div style="font-size:72px">⏰</div><div style="font-size:16px;font-weight:800;letter-spacing:.12em">${momento==='fim'?'FIM':'INÍCIO'} DA TAREFA</div><h1 style="font-size:clamp(34px,9vw,58px);margin:10px 0">${esc(a.nomeTarefa||'Tarefa')}</h1><p style="font-size:24px;font-weight:800;margin:0 0 8px">${esc(formatarDataBR(a.dataAgendada))} · ${esc(hora||'')}</p><p id="familyAlarmClock" style="font-size:18px;margin:0 0 24px"></p>${bloqueado?'<div style="background:rgba(255,255,255,.16);padding:14px 18px;border-radius:14px;font-weight:800;margin-bottom:14px">🔒 Programado pelo responsável. Você pode parar o toque, mas não retirar o alarme.</div>':''}<button id="familyAlarmStop" type="button" style="padding:15px 28px;border-radius:14px;border:0;background:#fff;color:#991b1b;font-size:18px;font-weight:900;min-width:220px;min-height:54px">Parar despertador</button><p style="font-size:13px;margin:12px 0 0;opacity:.85">O toque encerra automaticamente em 2 minutos.</p></div>`;const clock=()=>{const e=document.getElementById('familyAlarmClock');if(e)e.textContent=new Date().toLocaleTimeString('pt-BR')};clock();relogioTimer=setInterval(clock,1000);o.querySelector('#familyAlarmStop').onclick=()=>silenciarOcorrencia(a,ocorrencia);iniciarSom();autoStopTimer=setTimeout(()=>silenciarOcorrencia(a,ocorrencia,'automatico'),LIMITE_TOQUE_MS);notificarTarefa(a,ocorrencia,token)}
-function silenciarOcorrencia(a,ocorrencia=ocorrenciaDisparada||chaveOcorrencia(a,new Date(),JANELA_DISPARO_MS,ocorrenciasSilenciadas(a)),origem='app'){if(ocorrencia){marcarSilencioLocal(a,ocorrencia);sincronizarSilencioCompartilhado(a,ocorrencia)}fecharNotificacao(a,ocorrencia);encerrarDisparo(false);toast(origem==='automatico'?'Despertador encerrado automaticamente.':'Toque parado também nos outros aparelhos conectados.')}
+function verificarDisparo(){if(alarmeDisparado||document.hidden)return;const agora=new Date();const a=Object.values(alarmes).filter(x=>estaNaHora(x,agora)).sort((x,y)=>String(x.inicioEm||'').localeCompare(String(y.inicioEm||'')))[0];if(a)mostrarDisparo(a)}
+function mostrarDisparo(a){const silenciadas=ocorrenciasSilenciadas(a),ocorrencia=chaveOcorrencia(a,new Date(),JANELA_DISPARO_MS,silenciadas);if(!ocorrencia)return;alarmeDisparado=chaveAlarme(a);ocorrenciaDisparada=ocorrencia;const token=++notificacaoSolicitada;let o=document.getElementById('familyAlarmOverlay');if(!o){o=document.createElement('div');o.id='familyAlarmOverlay';o.style.cssText='position:fixed;inset:0;z-index:30000;background:radial-gradient(circle at top,#ef4444,#7f1d1d);color:#fff;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center';document.body.appendChild(o)}const bloqueado=travado(a),momento=momentoDaOcorrenciaAtual(a,new Date(),JANELA_DISPARO_MS,silenciadas),hora=momento==='fim'?a.horaSugeridaFim:a.horaSugeridaInicio;o.innerHTML=`<div><div style="font-size:72px">⏰</div><div style="font-size:16px;font-weight:800;letter-spacing:.12em">${momento==='fim'?'FIM':'INÍCIO'} DA TAREFA</div><h1 style="font-size:clamp(34px,9vw,58px);margin:10px 0">${esc(a.nomeTarefa||'Tarefa')}</h1><p style="font-size:24px;font-weight:800;margin:0 0 8px">${esc(formatarDataBR(a.dataAgendada))} · ${esc(hora||'')}</p><p id="familyAlarmClock" style="font-size:18px;margin:0 0 24px"></p>${bloqueado?'<div style="background:rgba(255,255,255,.16);padding:14px 18px;border-radius:14px;font-weight:800;margin-bottom:14px">🔒 Programado pelo responsável. Você pode parar o toque, mas não retirar o alarme.</div>':''}<button id="familyAlarmStop" type="button" style="padding:15px 28px;border-radius:14px;border:0;background:#fff;color:#991b1b;font-size:18px;font-weight:900;min-width:220px;min-height:54px">Parar despertador</button><p style="font-size:13px;margin:12px 0 0;opacity:.85">O toque encerra automaticamente em 2 minutos.</p></div>`;const clock=()=>{const e=document.getElementById('familyAlarmClock');if(e)e.textContent=new Date().toLocaleTimeString('pt-BR')};clock();relogioTimer=setInterval(clock,1000);o.querySelector('#familyAlarmStop').onclick=()=>silenciarOcorrencia(a,ocorrencia);iniciarSom();autoStopTimer=setTimeout(()=>silenciarOcorrencia(a,ocorrencia,'automatico'),LIMITE_TOQUE_MS);notificarTarefa(a,ocorrencia,token);logAlarme('alarme.disparado',{tarefaId:a.tarefaId,ocorrencia,previstoEm:momento==='fim'?a.fimEm:a.inicioEm,disparadoEm:new Date().toISOString()})}
+function silenciarOcorrencia(a,ocorrencia=ocorrenciaDisparada||chaveOcorrencia(a,new Date(),JANELA_DISPARO_MS,ocorrenciasSilenciadas(a)),origem='app'){if(ocorrencia){marcarSilencioLocal(a,ocorrencia);sincronizarSilencioCompartilhado(a,ocorrencia)}fecharNotificacao(a,ocorrencia);encerrarDisparo(false);atualizarBotoes();logAlarme('alarme.toque_parado',{tarefaId:a?.tarefaId||'',ocorrencia:ocorrencia||'',origem,ativoPermanece:a?.ativo===true});toast(origem==='automatico'?'Despertador encerrado automaticamente.':'Toque parado. O alarme continua programado.')}
 function encerrarDisparo(reverificar=true){notificacaoSolicitada++;document.getElementById('familyAlarmOverlay')?.remove();alarmeDisparado='';ocorrenciaDisparada='';pararSom();if(relogioTimer){clearInterval(relogioTimer);relogioTimer=null}if(autoStopTimer){clearTimeout(autoStopTimer);autoStopTimer=null}if(reverificar)setTimeout(verificarDisparo,200)}
 
-function zerarViradaSemana(){const semana=semanaInicioISO(new Date());if(localStorage.getItem(KEY_WEEK)===semana)return false;alarmes=filtrarSemana(alarmes);silenciados={};salvar(KEY_STATE,alarmes);salvar(KEY_SILENCED,silenciados);salvar(KEY_PENDING,ler(KEY_PENDING,[]).filter(p=>naSemanaAtual(p)));salvar(KEY_STOP_PENDING,ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p)));localStorage.setItem(KEY_WEEK,semana);expirarAlarmesRemotos();encerrarDisparo();atualizarBotoes();window.dispatchEvent(new CustomEvent('rotina-family-alarm-week-reset',{detail:{semanaInicio:semana}}));return true}
-function boot(){zerarViradaSemana();decorarTarefas();const tbody=document.getElementById('tabelaCorpo');if(tbody)new MutationObserver(decorarTarefas).observe(tbody,{childList:true,subtree:true});document.addEventListener('pointerdown',()=>{const a=audio();a.resume?.().catch(()=>{})},{once:true});navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type!=='ROTINA_FAMILY_ALARM_STOP')return;const a=Object.values(alarmes).find(x=>x.tarefaId===e.data.tarefaId&&x.dataAgendada===e.data.dataAgendada)||Object.values(alarmes).find(x=>chaveAlarme(x)===alarmeDisparado);if(a)silenciarOcorrencia(a,e.data.ocorrencia||ocorrenciaDisparada,'notificacao');else encerrarDisparo(false)});window.addEventListener('rotina-client-session-ready',()=>escutar());escutar();setInterval(verificarDisparo,1000);setInterval(zerarViradaSemana,30000)}
-window.addEventListener('online',()=>{sincronizarTudo();expirarAlarmesRemotos()});document.addEventListener('visibilitychange',()=>{if(!document.hidden){zerarViradaSemana();sincronizarTudo();expirarAlarmesRemotos();decorarTarefas();verificarDisparo()}});
+function zerarViradaSemana(){const semana=semanaInicioISO(new Date());if(localStorage.getItem(KEY_WEEK)===semana)return false;alarmes=filtrarSemana(alarmes);silenciados={};salvar(KEY_STATE,alarmes);salvar(KEY_SILENCED,silenciados);salvar(KEY_PENDING,ler(KEY_PENDING,[]).filter(p=>naSemanaAtual(p)));salvar(KEY_STOP_PENDING,ler(KEY_STOP_PENDING,[]).filter(p=>naSemanaAtual(p)));localStorage.setItem(KEY_WEEK,semana);encerrarDisparo(false);atualizarBotoes();window.dispatchEvent(new CustomEvent('rotina-family-alarm-week-reset',{detail:{semanaInicio:semana}}));window.rotinaParticipantSyncScheduler?.run?.('alarm-week-reset');return true}
+function boot(){zerarViradaSemana();decorarTarefas();const tbody=document.getElementById('tabelaCorpo');if(tbody)new MutationObserver(decorarTarefas).observe(tbody,{childList:true,subtree:true});document.addEventListener('pointerdown',()=>{const a=audio();a.resume?.().catch(()=>{})},{once:true});navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type!=='ROTINA_FAMILY_ALARM_STOP')return;const a=Object.values(alarmes).find(x=>x.tarefaId===e.data.tarefaId&&x.dataAgendada===e.data.dataAgendada)||Object.values(alarmes).find(x=>chaveAlarme(x)===alarmeDisparado);if(a)silenciarOcorrencia(a,e.data.ocorrencia||ocorrenciaDisparada,'notificacao');else encerrarDisparo(false)});window.addEventListener('rotina-client-session-ready',()=>escutar());escutar();setInterval(verificarDisparo,500);setInterval(zerarViradaSemana,30000)}
+window.addEventListener('online',()=>sincronizarTudo());document.addEventListener('visibilitychange',()=>{if(!document.hidden){zerarViradaSemana();sincronizarTudo();decorarTarefas();verificarDisparo()}});
+logAlarme('alarme.runtime_carregado',{arquitetura:'repository-store-alarm-single-owner',janelaLocalMs:JANELA_DISPARO_MS});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();

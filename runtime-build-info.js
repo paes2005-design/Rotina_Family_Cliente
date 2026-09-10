@@ -3,14 +3,15 @@
   const INFO=Object.freeze({
     app:'PARTICIPANTE',
     appVersion:'1.0.0',
-    build:'20260909.2',
+    build:'20260910.3',
     htmlVersion:'index-CLIENTE-v6',
     rulesModuleVersion:'4',
     expectedServiceWorkerVersion:'84',
     initialSyncCompatVersion:'1',
     bootstrapVersion:'1',
     participantStoreVersion:'1',
-    firebaseRepositoryVersion:'1'
+    firebaseRepositoryVersion:'1',
+    alarmRuntimeVersion:'15'
   });
   window.ROTINA_BUILD_INFO=INFO;
   const emit=(event,details={})=>{try{window.rotinaLog?.(event,{...INFO,...details});}catch{}};

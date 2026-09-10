@@ -59,6 +59,8 @@ await assertSucceeds(updateDoc(doc(participantDb,'despertadores','p-own'),{momen
 await assertSucceeds(updateDoc(doc(participantDb,'despertadores','p-own'),{ativo:false,origem:'CLIENTE',bloqueado:false}));
 await assertFails(updateDoc(doc(participantDb,'despertadores','adm-lock'),{momentos:['fim']}));
 await assertFails(updateDoc(doc(participantDb,'despertadores','adm-lock'),{ativo:false}));
+await assertSucceeds(updateDoc(doc(participantDb,'despertadores','adm-lock'),{ocorrenciasSilenciadas:['t1__inicio__2026-09-10__09:00'],ultimoSilenciadoEm:new Date().toISOString(),ultimoSilenciadoPor:'Filho'}));
+await assertFails(updateDoc(doc(participantDb,'despertadores','adm-lock'),{ativo:false,ocorrenciasSilenciadas:['t1__inicio__2026-09-10__09:00']}));
 await assertSucceeds(updateDoc(doc(participantDb,'despertadores','adm-off'),{ativo:true,origem:'CLIENTE',bloqueado:false,momentos:['fim']}));
 
 // Integridade da ocorrência: Pendente -> Em andamento -> final apenas uma vez.
