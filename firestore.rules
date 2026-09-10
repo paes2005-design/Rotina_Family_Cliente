@@ -109,6 +109,19 @@ service cloud.firestore {
         && request.resource.data.bloqueado == false;
     }
 
+    // Parar o toque não é o mesmo que desativar o despertador.
+    // O participante pode silenciar somente uma ocorrência do próprio alarme,
+    // inclusive quando a configuração está bloqueada pelo ADM, sem alterar
+    // identidade, origem, bloqueio ou estado ativo da configuração.
+    function participantAlarmSilenceOnlyAllowed() {
+      return participantOwn(resource.data)
+        && participantOwn(request.resource.data)
+        && alarmIdentityUnchanged()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'ocorrenciasSilenciadas','ultimoSilenciadoEm','ultimoSilenciadoPor'
+        ]);
+    }
+
     match /authRoles/{uid} { allow read, write: if false; }
 
     match /administradores/{id} {
@@ -216,7 +229,8 @@ service cloud.firestore {
         || participantAlarmCreateAllowed();
       allow update: if isMaster()
         || ((isFamilyAdmin() || isGuestAdmin()) && resource.data.grupoId == myGroup() && request.resource.data.grupoId == myGroup())
-        || participantAlarmUpdateAllowed();
+        || participantAlarmUpdateAllowed()
+        || participantAlarmSilenceOnlyAllowed();
       allow delete: if isMaster()
         || (isFamilyAdmin() && resource.data.grupoId == myGroup())
         || (participantOwn(resource.data) && !alarmLockedByAdmin(resource.data));
