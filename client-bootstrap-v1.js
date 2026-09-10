@@ -1,14 +1,11 @@
 (()=>{
   'use strict';
-
   const BOOTSTRAP_VERSION=1;
-  const BUILD='20260910.3';
+  const BUILD='20260910.4';
   if(window.__rotinaBootstrapV1)return;
-
   const runtime={version:BOOTSTRAP_VERSION,build:BUILD,startedAt:Date.now(),modules:{},errors:[]};
   window.__rotinaBootstrapV1=runtime;
   const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{bootstrapVersion:BOOTSTRAP_VERSION,build:BUILD,...details},level)}catch{}};
-
   let resolveReady;
   const ready=window.__rotinaAuthBridgeReady||new Promise(resolve=>{resolveReady=resolve});
   if(!window.__rotinaAuthBridgeReady)window.__rotinaAuthBridgeReady=ready;
@@ -17,9 +14,8 @@
   window.conectarCliente=async function(){try{await Promise.race([window.__rotinaAuthBridgeReady,authTimeout()]);if(typeof window.rotinaLoginParticipanteSeguro!=='function')throw new Error('Login seguro indisponível.');return window.rotinaLoginParticipanteSeguro()}catch(error){alert(error?.message||'Não foi possível preparar o acesso.');return false}};
   window.rotinaRestaurarSessaoParticipante=async function(){const args=arguments;try{await Promise.race([window.__rotinaAuthBridgeReady,authTimeout()]);if(typeof window.__rotinaRestaurarSessaoParticipanteReal!=='function')throw new Error('Restauração segura indisponível.');return window.__rotinaRestaurarSessaoParticipanteReal.apply(window,args)}catch(error){console.warn('Ponte de autenticação não ficou pronta.',error);document.getElementById('telaApp')?.style.setProperty('display','none');document.getElementById('telaAuth')?.style.setProperty('display','block');return false}};
   window.__rotinaAuthGateVersion=1;
-
   const MODULES=Object.freeze([
-    {name:'participant-store',src:'./client-participant-store-v1.js?v=20260909.2',type:'module',owner:'Participant Data / Store',critical:true},
+    {name:'participant-store',src:'./client-participant-store-v1.js?v=20260910.4',type:'module',owner:'Participant Data / Persistent Store',critical:true},
     {name:'firebase-repository',src:'./client-firebase-repository-v1.js?v=20260909.2',type:'module',owner:'Participant Data / Firebase Repository',critical:true},
     {name:'sync-scheduler',src:'./client-sync-scheduler-v1.js?v=20260909.3',type:'classic',owner:'Participant Data / Sync Scheduler',critical:true},
     {name:'auth-session',src:'./client-auth-session-v1.js?v=6',type:'module',owner:'Session/Auth',critical:true},
@@ -43,9 +39,8 @@
     {name:'cat-layout-safe',src:'./client-cat-layout-safe-v5.js?v=5',type:'classic',owner:'Mascot UI',critical:false},
     {name:'mascot-fix',src:'./client-mascot-fix-v6.js?v=6',type:'classic',owner:'Mascot UI',critical:false},
     {name:'cat-container',src:'./client-cat-container-v7.js?v=9',type:'classic',owner:'Mascot UI',critical:false},
-    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260910.3',type:'classic',owner:'Runtime/Version',critical:false}
+    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260910.4',type:'classic',owner:'Runtime/Version',critical:false}
   ]);
-
   window.__ROTINA_RUNTIME_MANIFEST=Object.freeze({bootstrapVersion:BOOTSTRAP_VERSION,build:BUILD,uiOrchestrator:'./client-ui-pro.js?v=50',dataInfrastructure:{store:'client-participant-store-v1.js',repository:'client-firebase-repository-v1.js',scheduler:'client-sync-scheduler-v1.js'},modules:MODULES.map(({name,src,type,owner,critical})=>({name,src,type,owner,critical}))});
   function alreadyLoaded(src){const wanted=new URL(src,location.href).href;return [...document.scripts].some(script=>{if(!script.src)return false;try{return new URL(script.src,location.href).href===wanted}catch{return false}})}
   function loadScript(module){if(alreadyLoaded(module.src)){runtime.modules[module.name]={status:'already-loaded',at:Date.now()};return Promise.resolve(true)}return new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=module.src;if(module.type==='module')script.type='module';else script.async=false;script.dataset.rotinaBootstrap=String(BOOTSTRAP_VERSION);script.dataset.rotinaModule=module.name;script.onload=()=>{runtime.modules[module.name]={status:'loaded',at:Date.now()};log('bootstrap.modulo_carregado',{modulo:module.name,owner:module.owner,tipo:module.type});resolve(true)};script.onerror=()=>{const error=new Error(`Falha ao carregar ${module.name}`);runtime.modules[module.name]={status:'error',at:Date.now(),critical:module.critical};runtime.errors.push({module:module.name,critical:module.critical});log('bootstrap.modulo_erro',{modulo:module.name,owner:module.owner,critical:module.critical},module.critical?'error':'warning');reject(error)};document.head.appendChild(script)})}
