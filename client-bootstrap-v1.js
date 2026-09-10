@@ -2,7 +2,7 @@
   'use strict';
 
   const BOOTSTRAP_VERSION=1;
-  const BUILD='20260910.1';
+  const BUILD='20260910.2';
   if(window.__rotinaBootstrapV1)return;
 
   const runtime={version:BOOTSTRAP_VERSION,build:BUILD,startedAt:Date.now(),modules:{},errors:[]};
@@ -29,7 +29,7 @@
     {name:'early-start-ui',src:'./client-early-start-ui.js?v=2',type:'module',owner:'Task UI',critical:false},
     {name:'tolerance-timer',src:'./client-tolerance-timer.js?v=5',type:'module',owner:'Task UI / Tolerância',critical:false},
     {name:'week-nav',src:'./client-week-nav.js?v=4',type:'module',owner:'Week UI',critical:false},
-    {name:'task-alarm',src:'./family-alarm-client.js?v=13',type:'module',owner:'Alarm',critical:false},
+    {name:'task-alarm',src:'./family-alarm-loader-v14.js?v=1',type:'module',owner:'Alarm',critical:false},
     {name:'alarm-stop-retry',src:'./client-alarm-stop-retry-v1.js?v=1',type:'module',owner:'Alarm / Pending Stop Retry',critical:false},
     {name:'history-reconciler',src:'./client-history-reconciler.js?v=3',type:'module',owner:'History Repair',critical:false},
     {name:'mascot-v3',src:'./client-mascot-v3.js?v=1',type:'module',owner:'Mascot',critical:false},
