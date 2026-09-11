@@ -2,7 +2,7 @@ import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase
 import {arrayUnion,getFirestore,doc,serverTimestamp,setDoc,updateDoc} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import {agendaDaTarefa,alarmeVigente,chaveOcorrencia,dataLocal,deveDispararAgora,descreverProximaOcorrencia,momentoDaOcorrenciaAtual,semanaInicioISO} from './alarm-schedule-core.js?v=5';
 
-const ALARM_RUNTIME_VERSION=15;
+const ALARM_RUNTIME_VERSION=16;
 const KEY_PREF='rotina_family_alarm_pref_v2';
 const KEY_STATE='rotina_family_task_alarms_v3';
 const KEY_PENDING='rotina_family_task_alarm_pending_v3';
@@ -251,8 +251,29 @@ async function sincronizarTudo(){await sincronizarPendente();await sincronizarSi
 function aplicarAlarmesStore(items=[],origem='participant-store'){
   const g=grupo(),p=perfil(),remotos={},pendentes={};
   (Array.isArray(items)?items:[]).filter(a=>a?.grupoId===g&&a?.perfilId===p).forEach(a=>{if(a.tarefaId&&naSemanaAtual(a))remotos[a.tarefaId]=a});
-  ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{pendentes[a.tarefaId]=a});
+  let filaPendente=ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a));
   const origemServidor=/server|servidor/i.test(String(origem||''));
+  if(origemServidor&&filaPendente.length){
+    const mantidos=[];
+    for(const local of filaPendente){
+      const remoto=remotos[local.tarefaId];
+      if(remoto&&travado(remoto)){
+        logAlarme('alarme.config_conflito_adm_resolvido',{tarefaId:local.tarefaId,acao:'descartar-mutacao-local',origemRemota:remoto.origem||'',bloqueado:remoto.bloqueado===true});
+        continue;
+      }
+      const remotoAtualizado=Date.parse(remoto?.atualizadoEm||remoto?.schedulerSolicitadoEm||'')||0;
+      const localAtualizado=Date.parse(local?.atualizadoEm||local?.schedulerSolicitadoEm||'')||0;
+      const mesmoEstado=!!remoto&&remoto.ativo===local.ativo&&remoto.origem===local.origem&&remoto.bloqueado===local.bloqueado;
+      if(mesmoEstado&&remotoAtualizado>=localAtualizado){
+        logAlarme('alarme.config_confirmada_servidor',{tarefaId:local.tarefaId,ativo:local.ativo===true});
+        continue;
+      }
+      mantidos.push(local);
+    }
+    if(mantidos.length!==filaPendente.length)salvar(KEY_PENDING,mantidos);
+    filaPendente=mantidos;
+  }
+  filaPendente.forEach(a=>{pendentes[a.tarefaId]=a});
   const proximos=origemServidor?{}:filtrarSemana(alarmes);
   for(const [id,a] of Object.entries(remotos)){
     if(origemServidor||!proximos[id])proximos[id]=a;
