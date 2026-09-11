@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/triggers/fix-alarm-pending-conflict-v16.txt'
+      - '.github/workflows/fix-alarm-pending-conflict-v16.yml'
 
 permissions:
   contents: write
@@ -54,19 +54,11 @@ jobs:
             raise SystemExit('Alarm store reconciliation marker not found')
           s=s.replace(old,new,1)
           p.write_text(s,encoding='utf-8')
-
           p=Path('client-bootstrap-v1.js')
-          s=p.read_text(encoding='utf-8')
-          s=s.replace("const BUILD='20260910.4';", "const BUILD='20260910.5';", 1)
-          s=s.replace("src:'./family-alarm-client.js?v=15'", "src:'./family-alarm-client.js?v=16'", 1)
+          s=p.read_text(encoding='utf-8').replace("const BUILD='20260910.4';","const BUILD='20260910.5';",1).replace("src:'./family-alarm-client.js?v=15'","src:'./family-alarm-client.js?v=16'",1)
           p.write_text(s,encoding='utf-8')
-
           p=Path('index.html')
-          s=p.read_text(encoding='utf-8')
-          s=s.replace("const BUILD='20260910.4';", "const BUILD='20260910.5';", 1)
-          s=s.replace('client-bootstrap-v1.js?v=20260910.4','client-bootstrap-v1.js?v=20260910.5')
-          s=s.replace("release:'sprint2.1-alarm-persistent-store-v2'", "release:'sprint2.1-alarm-owner-reconciliation-v16'")
-          s=s.replace('alarmRuntime:15','alarmRuntime:16')
+          s=p.read_text(encoding='utf-8').replace("const BUILD='20260910.4';","const BUILD='20260910.5';",1).replace('client-bootstrap-v1.js?v=20260910.4','client-bootstrap-v1.js?v=20260910.5').replace("release:'sprint2.1-alarm-persistent-store-v2'","release:'sprint2.1-alarm-owner-reconciliation-v16'").replace('alarmRuntime:15','alarmRuntime:16')
           p.write_text(s,encoding='utf-8')
       - name: Validate
         run: |
