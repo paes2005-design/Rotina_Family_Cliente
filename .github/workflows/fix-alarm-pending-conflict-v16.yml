@@ -24,35 +24,10 @@ jobs:
           p=Path('family-alarm-client.js')
           s=p.read_text(encoding='utf-8')
           s=s.replace('const ALARM_RUNTIME_VERSION=15;', 'const ALARM_RUNTIME_VERSION=16;', 1)
-          marker="ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{pendentes[a.tarefaId]=a});"
-          replacement="""let filaPendente=ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a));
-  const origemServidor=/server|servidor/i.test(String(origem||''));
-  if(origemServidor&&filaPendente.length){
-    const mantidos=[];
-    for(const local of filaPendente){
-      const remoto=remotos[local.tarefaId];
-      if(remoto&&travado(remoto)){
-        logAlarme('alarme.config_conflito_adm_resolvido',{tarefaId:local.tarefaId,acao:'descartar-mutacao-local',origemRemota:remoto.origem||'',bloqueado:remoto.bloqueado===true});
-        continue;
-      }
-      const remotoAtualizado=Date.parse(remoto?.atualizadoEm||remoto?.schedulerSolicitadoEm||'')||0;
-      const localAtualizado=Date.parse(local?.atualizadoEm||local?.schedulerSolicitadoEm||'')||0;
-      const mesmoEstado=!!remoto&&remoto.ativo===local.ativo&&remoto.origem===local.origem&&remoto.bloqueado===local.bloqueado;
-      if(mesmoEstado&&remotoAtualizado>=localAtualizado){
-        logAlarme('alarme.config_confirmada_servidor',{tarefaId:local.tarefaId,ativo:local.ativo===true});
-        continue;
-      }
-      mantidos.push(local);
-    }
-    if(mantidos.length!==filaPendente.length)salvar(KEY_PENDING,mantidos);
-    filaPendente=mantidos;
-  }
-  filaPendente.forEach(a=>{pendentes[a.tarefaId]=a});"""
-          if marker not in s:
-              raise SystemExit('Pending marker not found')
-          s=s.replace(marker,replacement,1)
-          duplicate="  const origemServidor=/server|servidor/i.test(String(origem||''));\n  const origemServidor=/server|servidor/i.test(String(origem||''));"
-          s=s.replace(duplicate,"  const origemServidor=/server|servidor/i.test(String(origem||''));",1)
+          marker="  ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{pendentes[a.tarefaId]=a});\n  const origemServidor=/server|servidor/i.test(String(origem||''));"
+          lines=["  let filaPendente=ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a));","  const origemServidor=/server|servidor/i.test(String(origem||''));","  if(origemServidor&&filaPendente.length){","    const mantidos=[];","    for(const local of filaPendente){","      const remoto=remotos[local.tarefaId];","      if(remoto&&travado(remoto)){","        logAlarme('alarme.config_conflito_adm_resolvido',{tarefaId:local.tarefaId,acao:'descartar-mutacao-local',origemRemota:remoto.origem||'',bloqueado:remoto.bloqueado===true});","        continue;","      }","      const remotoAtualizado=Date.parse(remoto?.atualizadoEm||remoto?.schedulerSolicitadoEm||'')||0;","      const localAtualizado=Date.parse(local?.atualizadoEm||local?.schedulerSolicitadoEm||'')||0;","      const mesmoEstado=!!remoto&&remoto.ativo===local.ativo&&remoto.origem===local.origem&&remoto.bloqueado===local.bloqueado;","      if(mesmoEstado&&remotoAtualizado>=localAtualizado){","        logAlarme('alarme.config_confirmada_servidor',{tarefaId:local.tarefaId,ativo:local.ativo===true});","        continue;","      }","      mantidos.push(local);","    }","    if(mantidos.length!==filaPendente.length)salvar(KEY_PENDING,mantidos);","    filaPendente=mantidos;","  }","  filaPendente.forEach(a=>{pendentes[a.tarefaId]=a});"]
+          if marker not in s: raise SystemExit('Pending marker not found')
+          s=s.replace(marker,'\n'.join(lines),1)
           p.write_text(s,encoding='utf-8')
           p=Path('client-bootstrap-v1.js')
           s=p.read_text(encoding='utf-8').replace("const BUILD='20260910.4';","const BUILD='20260910.5';",1).replace("src:'./family-alarm-client.js?v=15'","src:'./family-alarm-client.js?v=16'",1)
