@@ -17,41 +17,42 @@ jobs:
         with:
           fetch-depth: 0
       - name: Reconcile pending participant alarm mutations with ADM ownership
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
           p=Path('family-alarm-client.js')
           s=p.read_text(encoding='utf-8')
           s=s.replace('const ALARM_RUNTIME_VERSION=15;', 'const ALARM_RUNTIME_VERSION=16;', 1)
           old="""  ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a)).forEach(a=>{pendentes[a.tarefaId]=a});
-  const origemServidor=/server|servidor/i.test(String(origem||''));
-  const proximos=origemServidor?{}:filtrarSemana(alarmes);"""
+          const origemServidor=/server|servidor/i.test(String(origem||''));
+          const proximos=origemServidor?{}:filtrarSemana(alarmes);"""
           new="""  let filaPendente=ler(KEY_PENDING,[]).filter(a=>a.grupoId===g&&a.perfilId===p&&naSemanaAtual(a));
-  const origemServidor=/server|servidor/i.test(String(origem||''));
-  if(origemServidor&&filaPendente.length){
-    const mantidos=[];
-    for(const local of filaPendente){
-      const remoto=remotos[local.tarefaId];
-      if(remoto&&travado(remoto)){
-        logAlarme('alarme.config_conflito_adm_resolvido',{tarefaId:local.tarefaId,acao:'descartar-mutacao-local',origemRemota:remoto.origem||'',bloqueado:remoto.bloqueado===true});
-        continue;
-      }
-      const remotoAtualizado=Date.parse(remoto?.atualizadoEm||remoto?.schedulerSolicitadoEm||'')||0;
-      const localAtualizado=Date.parse(local?.atualizadoEm||local?.schedulerSolicitadoEm||'')||0;
-      const mesmoEstado=!!remoto&&remoto.ativo===local.ativo&&remoto.origem===local.origem&&remoto.bloqueado===local.bloqueado;
-      if(mesmoEstado&&remotoAtualizado>=localAtualizado){
-        logAlarme('alarme.config_confirmada_servidor',{tarefaId:local.tarefaId,ativo:local.ativo===true});
-        continue;
-      }
-      mantidos.push(local);
-    }
-    if(mantidos.length!==filaPendente.length)salvar(KEY_PENDING,mantidos);
-    filaPendente=mantidos;
-  }
-  filaPendente.forEach(a=>{pendentes[a.tarefaId]=a});
-  const proximos=origemServidor?{}:filtrarSemana(alarmes);"""
+          const origemServidor=/server|servidor/i.test(String(origem||''));
+          if(origemServidor&&filaPendente.length){
+            const mantidos=[];
+            for(const local of filaPendente){
+              const remoto=remotos[local.tarefaId];
+              if(remoto&&travado(remoto)){
+                logAlarme('alarme.config_conflito_adm_resolvido',{tarefaId:local.tarefaId,acao:'descartar-mutacao-local',origemRemota:remoto.origem||'',bloqueado:remoto.bloqueado===true});
+                continue;
+              }
+              const remotoAtualizado=Date.parse(remoto?.atualizadoEm||remoto?.schedulerSolicitadoEm||'')||0;
+              const localAtualizado=Date.parse(local?.atualizadoEm||local?.schedulerSolicitadoEm||'')||0;
+              const mesmoEstado=!!remoto&&remoto.ativo===local.ativo&&remoto.origem===local.origem&&remoto.bloqueado===local.bloqueado;
+              if(mesmoEstado&&remotoAtualizado>=localAtualizado){
+                logAlarme('alarme.config_confirmada_servidor',{tarefaId:local.tarefaId,ativo:local.ativo===true});
+                continue;
+              }
+              mantidos.push(local);
+            }
+            if(mantidos.length!==filaPendente.length)salvar(KEY_PENDING,mantidos);
+            filaPendente=mantidos;
+          }
+          filaPendente.forEach(a=>{pendentes[a.tarefaId]=a});
+          const proximos=origemServidor?{}:filtrarSemana(alarmes);"""
           if old not in s:
-            raise SystemExit('Alarm store reconciliation marker not found')
+              raise SystemExit('Alarm store reconciliation marker not found')
           s=s.replace(old,new,1)
           p.write_text(s,encoding='utf-8')
           p=Path('client-bootstrap-v1.js')
@@ -60,6 +61,7 @@ jobs:
           p=Path('index.html')
           s=p.read_text(encoding='utf-8').replace("const BUILD='20260910.4';","const BUILD='20260910.5';",1).replace('client-bootstrap-v1.js?v=20260910.4','client-bootstrap-v1.js?v=20260910.5').replace("release:'sprint2.1-alarm-persistent-store-v2'","release:'sprint2.1-alarm-owner-reconciliation-v16'").replace('alarmRuntime:15','alarmRuntime:16')
           p.write_text(s,encoding='utf-8')
+          PY
       - name: Validate
         run: |
           node --check family-alarm-client.js
