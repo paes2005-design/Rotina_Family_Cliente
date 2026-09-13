@@ -5,7 +5,7 @@ import {
   updateDoc,setDoc,writeBatch,serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const REPOSITORY_VERSION=1;
+const REPOSITORY_VERSION=2;
 const clean=value=>String(value||'').trim();
 const group=value=>clean(value).toUpperCase();
 const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{...details,firebaseRepositoryVersion:REPOSITORY_VERSION},level);}catch{}};
@@ -36,6 +36,7 @@ function participantQueries(db,grupoId,perfilId){
   return{
     tarefas:query(collection(db,'tarefas'),where('grupoId','==',grupoId),where('perfilId','==',perfilId)),
     historico:query(collection(db,'historico'),where('grupoId','==',grupoId),where('perfilId','==',perfilId)),
+    execucoes:query(collection(db,'execucoes'),where('grupoId','==',grupoId),where('perfilId','==',perfilId)),
     recompensas:query(collection(db,'recompensas'),where('grupoId','==',grupoId)),
     resgates:query(collection(db,'resgates'),where('grupoId','==',grupoId),where('perfilId','==',perfilId)),
     desafiosPerfil:query(collection(db,'conquistas'),where('grupoId','==',grupoId),where('perfilId','==',perfilId)),
@@ -81,6 +82,16 @@ async function readParticipantBundle({grupoId,perfilId,source='cache',includeHis
   };
   log('repository.bundle_lido',{source,server:readers.server,includeHistory,includeAlarms,failures,tempoMs:bundle.elapsedMs});
   return bundle;
+}
+
+async function readParticipantExecutions({grupoId,perfilId,source='server'}={}){
+  const g=group(grupoId),p=clean(perfilId);
+  if(!g||!p)throw new Error('grupoId e perfilId são obrigatórios para ler as execuções do participante.');
+  const db=database(),readers=sourceReaders(source),q=participantQueries(db,g,p),started=performance.now();
+  const snapshot=await readers.collection(q.execucoes);
+  const items=docsToItems(snapshot),elapsedMs=Math.round(performance.now()-started);
+  log('repository.execucoes_lidas',{source,server:readers.server,total:items.length,tempoMs:elapsedMs});
+  return{grupoId:g,perfilId:p,source,server:readers.server,items,elapsedMs};
 }
 
 async function readTask(id,{source='cache',grupoId='',perfilId=''}={}){
@@ -178,6 +189,7 @@ async function touchAlarm(id,value,reason='alarm-write'){
 const api=Object.freeze({
   version:REPOSITORY_VERSION,
   readParticipantBundle,
+  readParticipantExecutions,
   readTask,
   readTaskCacheThenServer,
   readGroupConfig,
