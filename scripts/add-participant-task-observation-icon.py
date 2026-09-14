@@ -101,7 +101,6 @@ entry = entry.replace(f"./client-bootstrap-v1.js?v={BUILD_OLD}", f"./client-boot
 entry = entry.replace("release:'sprint2.1-history-gap-reconciliation-v1'", f"release:'{RELEASE}'")
 entry = entry.replace(f"serviceWorkerExpected:{SW_OLD}", f"serviceWorkerExpected:{SW_NEW}")
 entry = entry.replace(f"navigator.serviceWorker.register('./sw.js?v=30')\",\"navigator.serviceWorker.register('./sw.js?v={SW_OLD}',{{updateViaCache:'none'}})\"", f"navigator.serviceWorker.register('./sw.js?v=30')\",\"navigator.serviceWorker.register('./sw.js?v={SW_NEW}',{{updateViaCache:'none'}})\"")
-# Source HTML now already carries v85; keep loader compatible with older cached HTML too.
 entry = entry.replace(".replace(\"navigator.serviceWorker.register('./sw.js?v=30')\",\"navigator.serviceWorker.register('./sw.js?v=85',{updateViaCache:'none'})\");", ".replace(\"navigator.serviceWorker.register('./sw.js?v=30')\",\"navigator.serviceWorker.register('./sw.js?v=85',{updateViaCache:'none'})\").replace(\"navigator.serviceWorker.register('./sw.js?v=85')\",\"navigator.serviceWorker.register('./sw.js?v=85',{updateViaCache:'none'})\");")
 ENTRY.write_text(entry, encoding='utf-8')
 
@@ -122,7 +121,6 @@ bootstrap = bootstrap.replace("const BUILD='20260913.1'", "const BUILD='20260913
 bootstrap = bootstrap.replace("runtime-build-info.js?v=20260913.1", "runtime-build-info.js?v=20260913.2")
 BOOTSTRAP.write_text(bootstrap, encoding='utf-8')
 
-# Final safety assertions.
 html = HTML.read_text(encoding='utf-8')
 css = CSS.read_text(encoding='utf-8')
 entry = ENTRY.read_text(encoding='utf-8')
@@ -139,3 +137,4 @@ assert "ROTINA_SW_VERSION='85'" in sw and "ROTINA_BUILD_ID='20260913.2'" in sw
 assert "expectedServiceWorkerVersion:'85'" in runtime and "build:'20260913.2'" in runtime
 assert "const BUILD='20260913.2'" in bootstrap and 'runtime-build-info.js?v=20260913.2' in bootstrap
 print('PARTICIPANT_OBSERVATION_ICON_MIGRATION=OK')
+# trigger: 2026-09-13T21:40-03:00
