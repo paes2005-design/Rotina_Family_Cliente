@@ -1,4 +1,7 @@
 (()=>{
+  'use strict';
+  const UI_PRO_VERSION=51;
+  window.__rotinaUiProVersion=UI_PRO_VERSION;
   window.__rotinaTimeGuardReady=false;
   window.__rotinaMascoteLoaderVersion=13;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
@@ -73,14 +76,81 @@
     return regras.find(([r])=>r.test(n))?.[1]||'✅';
   };
   window.iconeTarefaRotina=iconeTarefa;
+
+  const clean=value=>String(value??'').trim();
+  function participantSnapshot(){
+    try{return window.rotinaParticipantStoreSnapshot?.()||window.rotinaParticipantStore?.snapshot?.()||null}catch{return null}
+  }
+  function observacaoDaTarefa(tarefa){
+    for(const campo of ['observacao','observacoes','observações','nota','descricao']){
+      const valor=clean(tarefa?.[campo]);
+      if(valor)return valor;
+    }
+    return'';
+  }
+  function tarefaNoStore(id){
+    const taskId=clean(id),snap=participantSnapshot();
+    if(!taskId||!snap)return null;
+    return [...(snap.tarefasHoje||[]),...(snap.tarefasTodas||[])].find(t=>clean(t?.id)===taskId)||null;
+  }
+  function garantirModalObservacao(){
+    let overlay=document.getElementById('modalObservacaoTarefa');
+    if(overlay)return overlay;
+    overlay=document.createElement('div');
+    overlay.id='modalObservacaoTarefa';
+    overlay.className='overlay observacao-tarefa-overlay';
+    overlay.setAttribute('role','dialog');
+    overlay.setAttribute('aria-modal','true');
+    overlay.setAttribute('aria-labelledby','tituloModalObservacaoTarefa');
+    overlay.innerHTML='<div class="modal-box observacao-tarefa-modal"><div class="observacao-tarefa-icone" aria-hidden="true">📝</div><h3 id="tituloModalObservacaoTarefa">Observação da tarefa</h3><strong id="tituloObservacaoTarefa" class="observacao-tarefa-titulo"></strong><div id="textoObservacaoTarefa" class="observacao-tarefa-texto"></div><button type="button" class="btn btn-observacao-fechar">Fechar</button></div>';
+    overlay.addEventListener('click',event=>{if(event.target===overlay)overlay.style.display='none'});
+    overlay.querySelector('.btn-observacao-fechar')?.addEventListener('click',()=>{overlay.style.display='none'});
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+  function abrirObservacao(tarefa){
+    const texto=observacaoDaTarefa(tarefa);if(!texto)return;
+    const modal=garantirModalObservacao();
+    modal.querySelector('#tituloObservacaoTarefa').textContent=clean(tarefa?.nome)||'Tarefa';
+    modal.querySelector('#textoObservacaoTarefa').textContent=texto;
+    modal.style.display='flex';
+    modal.querySelector('.btn-observacao-fechar')?.focus({preventScroll:true});
+    try{window.rotinaLog?.('tarefa.observacao_aberta',{tarefaId:clean(tarefa?.id),temObservacao:true,uiProVersion:UI_PRO_VERSION})}catch{}
+  }
+  function aplicarAcessoObservacao(row,td){
+    const tarefa=tarefaNoStore(row?.dataset?.familyTaskId);
+    const texto=observacaoDaTarefa(tarefa);
+    const existente=td.querySelector('.btn-observacao-tarefa');
+    if(!texto){existente?.remove();return}
+    let line=td.querySelector(':scope > .task-name-line');
+    const wrap=td.querySelector(':scope > .task-name-wrap');
+    if(!line&&wrap){
+      line=document.createElement('div');line.className='task-name-line';
+      wrap.parentNode.insertBefore(line,wrap);line.appendChild(wrap);
+    }
+    if(!line)return;
+    let btn=existente;
+    if(!btn){
+      btn=document.createElement('button');
+      btn.type='button';btn.className='btn-observacao-tarefa';btn.textContent='📝';btn.title='Ver observação';
+      btn.setAttribute('aria-label',`Ver observação da tarefa ${clean(tarefa?.nome)||'selecionada'}`);
+      line.appendChild(btn);
+    }
+    btn.onclick=event=>{event.preventDefault();event.stopPropagation();abrirObservacao(tarefa)};
+  }
+
   function decorar(){
     const tabela=document.querySelector('#telaApp table');if(tabela)tabela.classList.add('cliente-task-table');
     document.querySelectorAll('#tabelaCorpo tr').forEach(row=>{
-      const td=row.children?.[1];if(!td||td.querySelector('.task-icon-cliente'))return;
-      const strong=td.querySelector('strong');if(!strong)return;
-      const wrap=document.createElement('div');wrap.className='task-name-wrap';
-      const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=(strong.dataset.taskIcon||'').trim()||iconeTarefa(strong.textContent||'');
-      strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);
+      const td=row.children?.[1];if(!td)return;
+      let wrap=td.querySelector(':scope > .task-name-wrap');
+      if(!wrap){
+        const strong=td.querySelector('strong');if(!strong)return;
+        wrap=document.createElement('div');wrap.className='task-name-wrap';
+        const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=(strong.dataset.taskIcon||'').trim()||iconeTarefa(strong.textContent||'');
+        strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);
+      }
+      aplicarAcessoObservacao(row,td);
     });
     window.aplicarPontosRevisadosCliente?.();
     window.aplicarInicioAntecipadoCliente?.();
@@ -91,6 +161,9 @@
     decorar();
     const tbody=document.getElementById('tabelaCorpo');
     if(tbody)new MutationObserver(decorar).observe(tbody,{childList:true,subtree:false});
+    window.addEventListener('rotina-participant-store-updated',decorar);
+    window.addEventListener('rotina-participant-store-ready',decorar);
+    try{window.rotinaLog?.('ui.observacao_tarefa_pronta',{uiProVersion:UI_PRO_VERSION,fonte:'participant-store'})}catch{}
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciar,{once:true});else iniciar();
 })();
