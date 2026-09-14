@@ -1,7 +1,7 @@
 (()=>{
   'use strict';
   const BOOTSTRAP_VERSION=1;
-  const BUILD='20260913.1';
+  const BUILD='20260913.2';
   if(window.__rotinaBootstrapV1)return;
   const runtime={version:BOOTSTRAP_VERSION,build:BUILD,startedAt:Date.now(),modules:{},errors:[]};
   window.__rotinaBootstrapV1=runtime;
@@ -39,7 +39,7 @@
     {name:'cat-layout-safe',src:'./client-cat-layout-safe-v5.js?v=5',type:'classic',owner:'Mascot UI',critical:false},
     {name:'mascot-fix',src:'./client-mascot-fix-v6.js?v=6',type:'classic',owner:'Mascot UI',critical:false},
     {name:'cat-container',src:'./client-cat-container-v7.js?v=9',type:'classic',owner:'Mascot UI',critical:false},
-    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260913.1',type:'classic',owner:'Runtime/Version',critical:false}
+    {name:'runtime-build-info',src:'./runtime-build-info.js?v=20260913.2',type:'classic',owner:'Runtime/Version',critical:false}
   ]);
   window.__ROTINA_RUNTIME_MANIFEST=Object.freeze({bootstrapVersion:BOOTSTRAP_VERSION,build:BUILD,uiOrchestrator:'./client-ui-pro.js?v=50',dataInfrastructure:{store:'client-participant-store-v1.js',repository:'client-firebase-repository-v1.js',scheduler:'client-sync-scheduler-v1.js'},modules:MODULES.map(({name,src,type,owner,critical})=>({name,src,type,owner,critical}))});
   function alreadyLoaded(src){const wanted=new URL(src,location.href).href;return [...document.scripts].some(script=>{if(!script.src)return false;try{return new URL(script.src,location.href).href===wanted}catch{return false}})}
