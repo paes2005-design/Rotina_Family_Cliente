@@ -1,0 +1,108 @@
+name: Sprint 3 - aplicar runtime push participante v2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/sprint3-apply-participant-push-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Integrar runtime central de push e atualizar build
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          build_old = '20260915.3'
+          build_new = '20260915.4'
+          sw_old = '88'
+          sw_new = '89'
+
+          idx_path = Path('index-CLIENTE-v6.html')
+          idx = idx_path.read_text(encoding='utf-8')
+          pattern = re.compile(
+              r'(<script src="https://cdn\.onesignal\.com/sdks/web/v16/OneSignalSDK\.page\.js" defer></script>)\s*'
+              r'<script>\s*window\.OneSignalDeferred\s*=\s*window\.OneSignalDeferred\s*\|\|\s*\[\];.*?</script>',
+              re.S,
+          )
+          replacement = (
+              r'\1\n'
+              '    <script src="./participant-push-onesignal.js?v=20260915-sprint3-v2"></script>'
+          )
+          idx, count = pattern.subn(replacement, idx, count=1)
+          if count != 1:
+              raise SystemExit(f'Bloco inline OneSignal esperado não encontrado exatamente uma vez: {count}')
+          idx = idx.replace("navigator.serviceWorker.register('./sw.js?v=88')", "navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})")
+          idx = idx.replace("navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'},{updateViaCache:'none'})", "navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})")
+          idx_path.write_text(idx, encoding='utf-8')
+
+          entry_path = Path('index.html')
+          entry = entry_path.read_text(encoding='utf-8')
+          entry = entry.replace(build_old, build_new)
+          entry = entry.replace("sw.js?v=88", "sw.js?v=89")
+          entry = entry.replace("serviceWorkerExpected:88", "serviceWorkerExpected:89")
+          entry = entry.replace("release:'sprint2.0-central-sync-history-hardening-v1'", "release:'sprint3-participant-lock-push-v2'")
+          entry = entry.replace("alarmRuntime:16,authVersion", "alarmRuntime:16,participantPushRuntime:2,authVersion")
+          entry_path.write_text(entry, encoding='utf-8')
+
+          info_path = Path('runtime-build-info.js')
+          info = info_path.read_text(encoding='utf-8')
+          info = info.replace("build:'20260915.3'", "build:'20260915.4'")
+          info = info.replace("expectedServiceWorkerVersion:'88'", "expectedServiceWorkerVersion:'89'")
+          if "participantPushRuntimeVersion:'2'" not in info:
+              info = info.replace("alarmRuntimeVersion:'16'", "alarmRuntimeVersion:'16',participantPushRuntimeVersion:'2'")
+          info = info.replace("Alarme: v${INFO.alarmRuntimeVersion}", "Alarme: v${INFO.alarmRuntimeVersion}\\nPush Participante: v${INFO.participantPushRuntimeVersion}")
+          info_path.write_text(info, encoding='utf-8')
+
+          sw_path = Path('sw.js')
+          sw = sw_path.read_text(encoding='utf-8')
+          sw = sw.replace("rotina-family-participante-v88", "rotina-family-participante-v89")
+          sw = sw.replace("const ROTINA_SW_VERSION='88';", "const ROTINA_SW_VERSION='89';")
+          sw = sw.replace("const ROTINA_BUILD_ID='20260915.3';", "const ROTINA_BUILD_ID='20260915.4';")
+          sw = sw.replace("sw.js?v=88", "sw.js?v=89")
+          sw = sw.replace("client-bootstrap-v1.js?v=20260915.3", "client-bootstrap-v1.js?v=20260915.4")
+          if "'./participant-push-onesignal.js'" not in sw:
+              sw = sw.replace("'./family-alarm-client.js'", "'./family-alarm-client.js','./participant-push-onesignal.js'")
+          sw_path.write_text(sw, encoding='utf-8')
+
+          checks = {
+              'runtime push externo no HTML': 'participant-push-onesignal.js?v=20260915-sprint3-v2' in idx,
+              'inline OneSignal removido': 'window.OneSignalDeferred = window.OneSignalDeferred || [];' not in idx,
+              'entrada build novo': build_new in entry,
+              'entrada SW89': 'sw.js?v=89' in entry,
+              'runtime build novo': "build:'20260915.4'" in info,
+              'runtime espera SW89': "expectedServiceWorkerVersion:'89'" in info,
+              'SW89': "ROTINA_SW_VERSION='89'" in sw,
+              'SW cacheia push runtime': "'./participant-push-onesignal.js'" in sw,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          for name, ok in checks.items():
+              print(('PASS' if ok else 'FAIL'), '-', name)
+          if failed:
+              raise SystemExit('Integração inválida: ' + ', '.join(failed))
+          PY
+          node --check participant-push-onesignal.js
+          node --check sw.js
+      - name: Commit da integração
+        run: |
+          if git diff --quiet; then
+            echo 'Sem alterações.'
+            exit 0
+          fi
+          git config user.name 'paes2005-design'
+          git config user.email 'paes2005@gmail.com'
+          git add index-CLIENTE-v6.html index.html runtime-build-info.js sw.js
+          git commit -m 'Sprint 3: corrige push do participante em segundo plano'
+          git push
