@@ -16,10 +16,20 @@ function tarefaDaLinha(row){
   const h=horarioLinha(row);
   return tarefas.find(t=>t.nome===nome&&(!h.inicio||t.horaSugeridaInicio===h.inicio)&&(!h.fim||t.horaSugeridaFim===h.fim))||null;
 }
+function garantirLinhaMeta(td){
+  let linha=td.querySelector('.task-meta-line');
+  if(linha)return linha;
+  linha=document.createElement('div');
+  linha.className='task-meta-line';
+  const titulo=td.querySelector('.task-name-line');
+  if(titulo)titulo.insertAdjacentElement('afterend',linha);else td.prepend(linha);
+  return linha;
+}
+function limparLinhaMeta(td){const linha=td.querySelector('.task-meta-line');if(linha&&!linha.children.length)linha.remove();}
 function garantirEstilo(){
   if(document.getElementById('clientEarlyStartStyle'))return;
   const s=document.createElement('style');s.id='clientEarlyStartStyle';
-  s.textContent=`.early-start-client-badge{display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:4px 8px;border:1px solid #93c5fd;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:.78rem;font-weight:800;line-height:1.15;white-space:normal}`;
+  s.textContent=`.task-meta-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;margin-top:6px}.early-start-client-badge{display:inline-flex;align-items:center;gap:4px;margin-top:0;padding:4px 8px;border:1px solid #93c5fd;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:.78rem;font-weight:800;line-height:1.15;white-space:normal}`;
   document.head.appendChild(s);
 }
 function aplicar(){
@@ -30,8 +40,11 @@ function aplicar(){
     const t=tarefaDaLinha(row);
     const mostrar=t?.inicioAntecipado===true&&t?.dataExecucao===hoje;
     let badge=td.querySelector('.early-start-client-badge');
-    if(!mostrar){badge?.remove();return;}
-    if(!badge){badge=document.createElement('span');badge.className='early-start-client-badge';badge.textContent='🔵 Início antecipado';const ancora=td.querySelector('.task-name-wrap')||td.querySelector('strong');ancora?.insertAdjacentElement('afterend',badge);}
+    if(!mostrar){badge?.remove();limparLinhaMeta(td);return;}
+    const linha=garantirLinhaMeta(td);
+    if(!badge){badge=document.createElement('span');badge.className='early-start-client-badge';badge.textContent='🔵 Início antecipado';}
+    const timer=linha.querySelector('.client-tolerance-timer');
+    if(badge.parentElement!==linha||timer?.previousElementSibling!==badge)linha.insertBefore(badge,timer||linha.firstChild);
   });
 }
 function garantirEscuta(){
@@ -50,4 +63,3 @@ window.iniciarInicioAntecipadoCliente=garantirEscuta;
 window.addEventListener('rotina-client-cache-updated',()=>{garantirEscuta();aplicar();});
 window.addEventListener('rotina-client-session-ready',()=>{garantirEscuta();aplicar();});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{garantirEscuta();aplicar();},{once:true});else{garantirEscuta();aplicar();}
-
