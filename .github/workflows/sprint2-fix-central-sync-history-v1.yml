@@ -1,0 +1,51 @@
+name: Sprint 2.0 - corrigir sync central e histórico
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/sprint2_fix_central_sync_history_v1.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Aplicar correções
+        run: python scripts/sprint2_fix_central_sync_history_v1.py
+      - name: Validar JavaScript
+        run: |
+          node --check client-sync-scheduler-v1.js
+          node --check client-firebase-repository-v1.js
+          node --check client-history-reconciler.js
+          node --check client-bootstrap-v1.js
+          node --check runtime-build-info.js
+          node --check sw.js
+          node --check index.html || true
+      - name: Auditar invariantes
+        run: |
+          grep -q 'PARTICIPANT_SYNC_SCHEDULER_VERSION=3' client-sync-scheduler-v1.js
+          grep -q 'BOOT_COALESCE_WINDOW_MS' client-sync-scheduler-v1.js
+          grep -q 'readParticipantHistory' client-firebase-repository-v1.js
+          grep -q 'HISTORY_GAP_VERSION=2' client-history-reconciler.js
+          grep -q "function concluida(t){return /Prazo|Atrasado/i.test" client-history-reconciler.js
+          grep -q "build:'20260915.3'" runtime-build-info.js
+          grep -q "ROTINA_SW_VERSION='88'" sw.js
+      - name: Persistir produção
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client-sync-scheduler-v1.js client-firebase-repository-v1.js client-history-reconciler.js client-bootstrap-v1.js runtime-build-info.js index.html sw.js
+          if git diff --cached --quiet; then
+            echo 'Correções já aplicadas.'
+          else
+            git commit -m "Sprint 2.0: elimina sync duplicado e endurece reconciliação de histórico"
+            git push origin main
+          fi
