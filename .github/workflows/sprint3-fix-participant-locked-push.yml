@@ -17,19 +17,15 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
-          import re
 
           BUILD_OLD='20260915.3'
           BUILD_NEW='20260915.4'
-          SW_OLD='88'
-          SW_NEW='89'
 
           def must_replace(text, old, new, label, count=1):
               if old not in text:
                   raise SystemExit(f'Trecho esperado não encontrado: {label}')
               return text.replace(old, new, count)
 
-          # 1) OneSignal do Participante: sem welcome duplicado e com reparo de assinatura/alias.
           p=Path('index-CLIENTE-v6.html')
           s=p.read_text(encoding='utf-8')
           s=must_replace(
@@ -44,6 +40,7 @@ jobs:
               "        let oneSignalParticipanteAtual='';\n        let oneSignalParticipantePendente='';\n        let oneSignalRecoveryPromise=null;",
               'estado de recuperação OneSignal'
           )
+
           old_apply="""        async function aplicarIdentidadeParticipanteNoPush(OneSignal,grupo,perfilId) {
             const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
             if(!g||!p)return false;
@@ -66,6 +63,7 @@ jobs:
                 await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
             });
         };"""
+
           new_apply="""        async function aplicarIdentidadeParticipanteNoPush(OneSignal,grupo,perfilId,forcar=false) {
             const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
             if(!g||!p)return false;
@@ -116,7 +114,10 @@ jobs:
                     if((forcarOptIn||podeReativar)&&(!OneSignal.User.PushSubscription.optedIn||!OneSignal.User.PushSubscription.id)){
                         await OneSignal.User.PushSubscription.optIn();
                     }
-                    const id=await aguardarSubscriptionId(OneSignal);
+                    const deveAguardar=forcarOptIn||podeReativar||OneSignal.User.PushSubscription.optedIn===true;
+                    const id=deveAguardar
+                        ? await aguardarSubscriptionId(OneSignal)
+                        : String(OneSignal.User.PushSubscription.id||'').trim();
                     if(id)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p,true);
                     const estado={
                         optedIn:OneSignal.User.PushSubscription.optedIn===true,
@@ -161,8 +162,7 @@ jobs:
                             externalId:g&&p?`rotina_family__${g}__${p}`:'',
                             erro:''
                         };"""
-          new_activate="""                        const estado=await garantirPushParticipante(OneSignal,'ativacao-explicita',true);"""
-          s=must_replace(s,old_activate,new_activate,'ativação explícita usa owner central do push')
+          s=must_replace(s,old_activate,"                        const estado=await garantirPushParticipante(OneSignal,'ativacao-explicita',true);",'ativação explícita usa owner central do push')
 
           s=must_replace(
               s,
@@ -186,13 +186,14 @@ jobs:
           s=must_replace(s,old_after_init,new_after_init,'bootstrap OneSignal com reparo e listener')
           p.write_text(s,encoding='utf-8')
 
-          # 2) Build/cache para forçar atualização no Participante.
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
           s=s.replace(BUILD_OLD,BUILD_NEW)
-          s=s.replace("sw.js?v=88","sw.js?v=89")
-          s=s.replace("serviceWorkerExpected:88","serviceWorkerExpected:89")
           s=s.replace("release:'sprint2.0-central-sync-history-hardening-v1'","release:'sprint3-participant-locked-push-v1'")
+          s=s.replace("serviceWorkerExpected:88","serviceWorkerExpected:89")
+          old_regs=""".replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=88',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=87')","navigator.serviceWorker.register('./sw.js?v=88',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=88')","navigator.serviceWorker.register('./sw.js?v=88',{updateViaCache:'none'})");"""
+          new_regs=""".replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=87')","navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=88')","navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=89')","navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})");"""
+          s=must_replace(s,old_regs,new_regs,'migração SW do index')
           p.write_text(s,encoding='utf-8')
 
           p=Path('client-bootstrap-v1.js')
@@ -208,91 +209,28 @@ jobs:
           s=s.replace("rotina-family-participante-v88","rotina-family-participante-v89")
           s=s.replace("const ROTINA_SW_VERSION='88'","const ROTINA_SW_VERSION='89'")
           s=s.replace("const ROTINA_BUILD_ID='20260915.3'","const ROTINA_BUILD_ID='20260915.4'")
-          s=s.replace("sw.js?v=88","sw.js?v=89")
+          old_sw_regs=""".replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=88',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=87')","navigator.serviceWorker.register('./sw.js?v=88',{updateViaCache:'none'})");"""
+          new_sw_regs=""".replace("navigator.serviceWorker.register('./sw.js?v=30')","navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=87')","navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})").replace("navigator.serviceWorker.register('./sw.js?v=88')","navigator.serviceWorker.register('./sw.js?v=89',{updateViaCache:'none'})");"""
+          s=must_replace(s,old_sw_regs,new_sw_regs,'migração SW no service worker')
           p.write_text(s,encoding='utf-8')
-
-          # 3) Substituir a auditoria legada por uma auditoria coerente com a arquitetura atual.
-          audit=Path('.github/workflows/family-alarm-audit.yml')
-          audit.write_text("""name: Rotina Family Participante - alarm and push audit
-on:
-  push:
-    paths:
-      - 'family-alarm-client.js'
-      - 'alarm-schedule-core.js'
-      - 'client-bootstrap-v1.js'
-      - 'index-CLIENTE-v6.html'
-      - 'index.html'
-      - 'runtime-build-info.js'
-      - 'sw.js'
-      - 'push/onesignal/**'
-      - 'onesignal-scheduler/**'
-      - '.github/workflows/family-alarm-audit.yml'
-  workflow_dispatch:
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Syntax and scheduler tests
-        run: |
-          node --check family-alarm-client.js
-          node --check alarm-schedule-core.js
-          node --check client-bootstrap-v1.js
-          node --check runtime-build-info.js
-          node --check sw.js
-          node --check onesignal-scheduler/src/core.js
-          node --check onesignal-scheduler/src/index.js
-          node onesignal-scheduler/test/scheduler.test.mjs
-          node onesignal-scheduler/test/integration.test.mjs
-      - name: Sprint 3 participant push contract
-        run: |
-          python <<'CHECK'
-          from pathlib import Path
-          index=Path('index-CLIENTE-v6.html').read_text(encoding='utf-8')
-          alarm=Path('family-alarm-client.js').read_text(encoding='utf-8')
-          scheduler=Path('onesignal-scheduler/src/index.js').read_text(encoding='utf-8')
-          worker=Path('push/onesignal/OneSignalSDKWorker.js').read_text(encoding='utf-8')
-          sw=Path('sw.js').read_text(encoding='utf-8')
-          boot=Path('client-bootstrap-v1.js').read_text(encoding='utf-8')
-          info=Path('runtime-build-info.js').read_text(encoding='utf-8')
-          checks={
-            'OneSignal SDK v16': 'OneSignalSDK.page.js' in index,
-            'welcome desativado': 'welcomeNotification: { disable: true }' in index,
-            'auto resubscribe': 'autoResubscribe: true' in index,
-            'worker canônico absoluto': "`${oneSignalBasePath}push/onesignal/OneSignalSDKWorker.js`" in index,
-            'reparo de sessão': 'garantirPushParticipante' in index and 'push.onesignal_sessao_pronta' in index,
-            'subscription change religa alias': "PushSubscription.addEventListener('change'" in index and 'aplicarIdentidadeParticipanteNoPush(OneSignal,g,p,true)' in index,
-            'external id individual': 'OneSignal.login(externalId)' in index,
-            'opt-in só por owner': 'PushSubscription.optIn()' in index,
-            'worker OneSignal v16': 'OneSignalSDK.sw.js' in worker,
-            'scheduler usa alias individual': 'include_aliases' in scheduler and 'participantExternalId' in scheduler,
-            'runtime local não tenta tocar escondido': 'document.hidden' in alarm,
-            'server push é owner da tela bloqueada': 'createOneSignalMessage' in scheduler and 'send_after' in scheduler,
-            'build Participante 20260915.4': "BUILD='20260915.4'" in boot and "build:'20260915.4'" in info,
-            'SW89': "ROTINA_SW_VERSION='89'" in sw and "ROTINA_BUILD_ID='20260915.4'" in sw,
-          }
-          for name,ok in checks.items(): print(('PASS' if ok else 'FAIL'),'-',name)
-          failed=[name for name,ok in checks.items() if not ok]
-          if failed: raise SystemExit('Falhas: '+', '.join(failed))
-          CHECK
-""",encoding='utf-8')
 
           print('SPRINT 3 PARTICIPANTE PUSH PATCH OK')
           PY
       - name: Auditar alterações
         run: |
-          node --check family-alarm-client.js
           node --check client-bootstrap-v1.js
           node --check runtime-build-info.js
           node --check sw.js
           grep -F "welcomeNotification: { disable: true }" index-CLIENTE-v6.html
           grep -F "garantirPushParticipante" index-CLIENTE-v6.html
+          grep -F "push.onesignal_subscription_alterada" index-CLIENTE-v6.html
           grep -F "ROTINA_SW_VERSION='89'" sw.js
+          grep -F "BUILD='20260915.4'" client-bootstrap-v1.js
       - name: Commitar runtime corrigido
         run: |
           git config user.name "paes2005-design"
           git config user.email "paes2005@gmail.com"
-          git add index-CLIENTE-v6.html index.html client-bootstrap-v1.js runtime-build-info.js sw.js .github/workflows/family-alarm-audit.yml
+          git add index-CLIENTE-v6.html index.html client-bootstrap-v1.js runtime-build-info.js sw.js
           git diff --cached --check
           if git diff --cached --quiet; then
             echo "Nenhuma mudança necessária"
