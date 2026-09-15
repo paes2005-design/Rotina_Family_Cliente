@@ -1,0 +1,77 @@
+name: Sprint 3 - auditoria push Participante
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'index-CLIENTE-v6.html'
+      - 'index.html'
+      - 'participant-push-onesignal.js'
+      - 'push/onesignal/OneSignalSDKWorker.js'
+      - 'sw.js'
+      - 'runtime-build-info.js'
+      - 'family-alarm-client.js'
+      - 'onesignal-scheduler/**'
+      - '.github/workflows/sprint3-participant-push-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Auditar contrato Sprint 3 do Participante
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          html = Path('index-CLIENTE-v6.html').read_text(encoding='utf-8')
+          entry = Path('index.html').read_text(encoding='utf-8')
+          push = Path('participant-push-onesignal.js').read_text(encoding='utf-8')
+          worker = Path('push/onesignal/OneSignalSDKWorker.js').read_text(encoding='utf-8')
+          sw = Path('sw.js').read_text(encoding='utf-8')
+          info = Path('runtime-build-info.js').read_text(encoding='utf-8')
+          alarm = Path('family-alarm-client.js').read_text(encoding='utf-8')
+          scheduler = Path('onesignal-scheduler/src/index.js').read_text(encoding='utf-8')
+
+          checks = {
+            'SDK OneSignal v16 no HTML': 'OneSignalSDK.page.js' in html,
+            'owner push externo único': 'participant-push-onesignal.js?v=20260915-sprint3-v2' in html,
+            'owner inline removido': 'window.OneSignalDeferred = window.OneSignalDeferred || [];' not in html,
+            'welcome automático desabilitado': 'welcomeNotification: { disable: true }' in push,
+            'botão OneSignal automático desabilitado': 'notifyButton: { enable: false }' in push,
+            'auto resubscribe habilitado': 'autoResubscribe: true' in push,
+            'optIn condicionado à permissão e estado': "permissao === 'granted' && !antes" in push,
+            'listener de mudança da assinatura': "PushSubscription.addEventListener('change'" in push,
+            'reassociação de identidade após mudança': 'aplicarIdentidade(OneSignal, g, p, true)' in push,
+            'telemetria inclui token booleano': 'temToken: Boolean' in push,
+            'worker OneSignal canônico': 'OneSignalSDK.sw.js' in worker,
+            'build Participante 20260915.4': "const BUILD='20260915.4'" in entry,
+            'release Sprint 3': "release:'sprint3-participant-lock-push-v2'" in entry,
+            'runtime push v2 declarado': "participantPushRuntimeVersion:'2'" in info,
+            'SW89 esperado': "expectedServiceWorkerVersion:'89'" in info,
+            'SW89 ativo': "ROTINA_SW_VERSION='89'" in sw,
+            'SW build 20260915.4': "ROTINA_BUILD_ID='20260915.4'" in sw,
+            'SW cacheia runtime push': "'./participant-push-onesignal.js'" in sw,
+            'alarme local não tenta rodar oculto': 'if(alarmeDisparado||document.hidden)return' in alarm,
+            'backend agenda por alias do Participante': 'include_aliases: { external_id:' in scheduler,
+            'backend agenda push': "target_channel: 'push'" in scheduler,
+            'backend audita recebimento': "return 'RECEBIDO_NO_APARELHO'" in scheduler,
+          }
+
+          failed = [name for name, ok in checks.items() if not ok]
+          for name, ok in checks.items():
+              print(('PASS' if ok else 'FAIL'), '-', name)
+          if failed:
+              raise SystemExit('Auditoria Sprint 3 inválida: ' + ', '.join(failed))
+          PY
+          node --check participant-push-onesignal.js
+          node --check sw.js
+          node --check runtime-build-info.js
+          node --check family-alarm-client.js
+          node --check onesignal-scheduler/src/index.js
