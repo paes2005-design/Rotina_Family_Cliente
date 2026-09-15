@@ -1,5 +1,6 @@
-const PARTICIPANT_SYNC_SCHEDULER_VERSION=2;
+const PARTICIPANT_SYNC_SCHEDULER_VERSION=3;
 const DEFAULT_INTERVAL_MS=5*60*1000;
+const BOOT_COALESCE_WINDOW_MS=10*1000;
 
 let timer=null;
 let running=false;
@@ -13,6 +14,7 @@ let visibilityHandler=null;
 let requestSyncHandler=null;
 
 const clean=value=>String(value||'').trim();
+const isBootstrapReason=reason=>['start-initial','session-ready','alarm-store-initial'].includes(clean(reason));
 const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{...details,syncSchedulerVersion:PARTICIPANT_SYNC_SCHEDULER_VERSION},level);}catch{}};
 
 function scope(){
@@ -69,8 +71,13 @@ function applyBundle(bundle,reason){
 async function run(reason='timer'){
   if(!started)return false;
   if(running){
-    pendingReason=clean(reason)||'coalescido';
-    log('sync.coalescido',{reason:pendingReason});
+    const nextReason=clean(reason)||'coalescido';
+    if(isBootstrapReason(nextReason)){
+      log('sync.coalescido',{reason:nextReason,satisfeitoPelaExecucaoAtual:true,owner:'central'});
+      return false;
+    }
+    pendingReason=nextReason;
+    log('sync.coalescido',{reason:pendingReason,owner:'central'});
     return false;
   }
   if(navigator.onLine===false){log('sync.adiado_offline',{reason},'warning');schedule(DEFAULT_INTERVAL_MS,'offline-retry');return false;}
@@ -117,7 +124,13 @@ function start(){
   visibilityHandler=()=>{if(document.visibilityState==='visible'&&lastRunAt&&Date.now()-lastRunAt>=DEFAULT_INTERVAL_MS)schedule(1200,'visible-stale');};
   requestSyncHandler=event=>{
     const reason=clean(event?.detail?.motivo)||'solicitado';
-    if(running){pendingReason=reason;log('sync.coalescido',{reason});return;}
+    if(running){
+      if(isBootstrapReason(reason)){log('sync.coalescido',{reason,satisfeitoPelaExecucaoAtual:true,owner:'central'});return;}
+      pendingReason=reason;log('sync.coalescido',{reason,owner:'central'});return;
+    }
+    if(isBootstrapReason(reason)&&lastRunAt&&Date.now()-lastRunAt<BOOT_COALESCE_WINDOW_MS){
+      log('sync.ignorado_recente',{reason,idadeMs:Date.now()-lastRunAt,owner:'central'});return;
+    }
     run(reason);
   };
   window.addEventListener('online',onlineHandler);
@@ -150,7 +163,13 @@ window.rotinaParticipantSyncScheduler=api;
 window.__rotinaParticipantSyncSchedulerVersion=PARTICIPANT_SYNC_SCHEDULER_VERSION;
 
 window.addEventListener('rotina-participant-server-activity',event=>reset(event.detail?.reason||'server-activity'));
-window.addEventListener('rotina-client-session-ready',()=>{if(!started)start();else schedule(350,'session-ready');});
+window.addEventListener('rotina-client-session-ready',()=>{
+  if(!started){start();return;}
+  if(running){log('sync.coalescido',{reason:'session-ready',satisfeitoPelaExecucaoAtual:true,owner:'central'});return;}
+  const idadeMs=lastRunAt?Date.now()-lastRunAt:Number.POSITIVE_INFINITY;
+  if(idadeMs<BOOT_COALESCE_WINDOW_MS){log('sync.ignorado_recente',{reason:'session-ready',idadeMs,owner:'central'});return;}
+  schedule(350,'session-ready');
+});
 window.addEventListener('rotina-firebase-repository-ready',()=>{if(!started&&scope().grupoId&&scope().perfilId)start();});
 
 setTimeout(()=>{if(!started&&scope().grupoId&&scope().perfilId)start();},0);
