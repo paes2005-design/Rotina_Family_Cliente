@@ -1,0 +1,302 @@
+name: Sprint 3 - corrigir push Participante com tela bloqueada
+on:
+  push:
+    paths:
+      - '.github/workflows/sprint3-fix-participant-locked-push.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Aplicar correção limpa da Sprint 3
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          BUILD_OLD='20260915.3'
+          BUILD_NEW='20260915.4'
+          SW_OLD='88'
+          SW_NEW='89'
+
+          def must_replace(text, old, new, label, count=1):
+              if old not in text:
+                  raise SystemExit(f'Trecho esperado não encontrado: {label}')
+              return text.replace(old, new, count)
+
+          # 1) OneSignal do Participante: sem welcome duplicado e com reparo de assinatura/alias.
+          p=Path('index-CLIENTE-v6.html')
+          s=p.read_text(encoding='utf-8')
+          s=must_replace(
+              s,
+              "const oneSignalWorkerPath = `${oneSignalBasePath.replace(/^\\/+/, '')}push/onesignal/OneSignalSDKWorker.js`;",
+              "const oneSignalWorkerPath = `${oneSignalBasePath}push/onesignal/OneSignalSDKWorker.js`;",
+              'caminho absoluto canônico do worker OneSignal'
+          )
+          s=must_replace(
+              s,
+              "        let oneSignalParticipanteAtual='';\n        let oneSignalParticipantePendente='';",
+              "        let oneSignalParticipanteAtual='';\n        let oneSignalParticipantePendente='';\n        let oneSignalRecoveryPromise=null;",
+              'estado de recuperação OneSignal'
+          )
+          old_apply="""        async function aplicarIdentidadeParticipanteNoPush(OneSignal,grupo,perfilId) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return false;
+            const externalId=`rotina_family__${g}__${p}`;
+            if(oneSignalParticipanteAtual===externalId||oneSignalParticipantePendente===externalId)return true;
+            oneSignalParticipantePendente=externalId;
+            try{
+                await OneSignal.login(externalId);
+                await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'participante'});
+                oneSignalParticipanteAtual=externalId;
+                return true;
+            }finally{
+                if(oneSignalParticipantePendente===externalId)oneSignalParticipantePendente='';
+            }
+        }
+        window.identificarParticipanteNoPush = function(grupo,perfilId) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return;
+            window.OneSignalDeferred.push(async function(OneSignal) {
+                await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+            });
+        };"""
+          new_apply="""        async function aplicarIdentidadeParticipanteNoPush(OneSignal,grupo,perfilId,forcar=false) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return false;
+            const externalId=`rotina_family__${g}__${p}`;
+            const sdkExternalId=String(OneSignal.User.externalId||'').trim();
+            if(!forcar&&oneSignalParticipanteAtual===externalId&&sdkExternalId===externalId)return true;
+            if(oneSignalParticipantePendente===externalId)return true;
+            oneSignalParticipantePendente=externalId;
+            try{
+                if(forcar||sdkExternalId!==externalId)await OneSignal.login(externalId);
+                await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'participante'});
+                oneSignalParticipanteAtual=externalId;
+                return true;
+            }finally{
+                if(oneSignalParticipantePendente===externalId)oneSignalParticipantePendente='';
+            }
+        }
+        async function aguardarSubscriptionId(OneSignal,limiteMs=5000){
+            const inicio=Date.now();
+            while(Date.now()-inicio<limiteMs){
+                const id=String(OneSignal.User.PushSubscription.id||'').trim();
+                if(id)return id;
+                await new Promise(resolve=>setTimeout(resolve,120));
+            }
+            return String(OneSignal.User.PushSubscription.id||'').trim();
+        }
+        async function auditarWorkerOneSignal(origem){
+            try{
+                const regs=await navigator.serviceWorker.getRegistrations();
+                const canonico=`${location.origin}${oneSignalBasePath}push/onesignal/`;
+                const oneSignalRegs=regs.filter(reg=>String(reg.active?.scriptURL||reg.waiting?.scriptURL||reg.installing?.scriptURL||'').includes('OneSignalSDKWorker.js'));
+                window.rotinaLog?.('push.onesignal_worker_estado',{origem,registros:oneSignalRegs.length,escopoCanonico:oneSignalRegs.some(reg=>reg.scope===canonico)});
+            }catch(e){
+                window.rotinaLog?.('push.onesignal_worker_auditoria_erro',{origem,mensagem:String(e?.message||e)},'warning');
+            }
+        }
+        async function garantirPushParticipante(OneSignal,origem='sessao',forcarOptIn=false){
+            if(oneSignalRecoveryPromise)return oneSignalRecoveryPromise;
+            oneSignalRecoveryPromise=(async()=>{
+                const g=String(localStorage.getItem('cliente_grupo')||'').trim();
+                const p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+                if(!g||!p)return{optedIn:false,id:'',externalId:'',erro:'sessao-sem-identidade'};
+                const externalId=`rotina_family__${g}__${p}`;
+                try{
+                    await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+                    const permissao=('Notification'in window)?Notification.permission:'indisponivel';
+                    const podeReativar=permissao==='granted';
+                    if((forcarOptIn||podeReativar)&&(!OneSignal.User.PushSubscription.optedIn||!OneSignal.User.PushSubscription.id)){
+                        await OneSignal.User.PushSubscription.optIn();
+                    }
+                    const id=await aguardarSubscriptionId(OneSignal);
+                    if(id)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p,true);
+                    const estado={
+                        optedIn:OneSignal.User.PushSubscription.optedIn===true,
+                        id,
+                        externalId,
+                        erro:''
+                    };
+                    window.rotinaLog?.('push.onesignal_sessao_pronta',{
+                        origem,
+                        permissao,
+                        optedIn:estado.optedIn,
+                        temSubscriptionId:!!estado.id,
+                        externalIdConfere:String(OneSignal.User.externalId||'')===externalId
+                    },estado.optedIn&&estado.id?'info':'warning');
+                    await auditarWorkerOneSignal(origem);
+                    return estado;
+                }catch(e){
+                    const erro=String(e?.message||e);
+                    window.rotinaLog?.('push.onesignal_sessao_erro',{origem,mensagem:erro},'warning');
+                    return{optedIn:false,id:'',externalId,erro};
+                }
+            })();
+            try{return await oneSignalRecoveryPromise}finally{oneSignalRecoveryPromise=null}
+        }
+        window.identificarParticipanteNoPush = function(grupo,perfilId) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return;
+            window.OneSignalDeferred.push(async function(OneSignal) {
+                await garantirPushParticipante(OneSignal,'sessao-ready');
+            });
+        };"""
+          s=must_replace(s,old_apply,new_apply,'identidade e recuperação do push')
+
+          old_activate="""                        const g=String(localStorage.getItem('cliente_grupo')||'').trim();
+                        const p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+                        if(g&&p)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+                        await OneSignal.User.PushSubscription.optIn();
+                        if(g&&p)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+                        const estado={
+                            optedIn:OneSignal.User.PushSubscription.optedIn===true,
+                            id:OneSignal.User.PushSubscription.id||'',
+                            externalId:g&&p?`rotina_family__${g}__${p}`:'',
+                            erro:''
+                        };"""
+          new_activate="""                        const estado=await garantirPushParticipante(OneSignal,'ativacao-explicita',true);"""
+          s=must_replace(s,old_activate,new_activate,'ativação explícita usa owner central do push')
+
+          s=must_replace(
+              s,
+              "                notifyButton: {",
+              "                welcomeNotification: { disable: true },\n                autoResubscribe: true,\n                notifyButton: {",
+              'desabilitar welcome e habilitar resubscribe'
+          )
+
+          old_after_init="""            const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+            if(g&&p)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+        });"""
+          new_after_init="""            OneSignal.User.PushSubscription.addEventListener('change',async event=>{
+                const atual=event?.current||{};
+                window.rotinaLog?.('push.onesignal_subscription_alterada',{optedIn:atual.optedIn===true,temSubscriptionId:!!atual.id});
+                const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+                if(g&&p&&atual.id)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p,true);
+            });
+            const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+            if(g&&p)await garantirPushParticipante(OneSignal,'onesignal-init');
+        });"""
+          s=must_replace(s,old_after_init,new_after_init,'bootstrap OneSignal com reparo e listener')
+          p.write_text(s,encoding='utf-8')
+
+          # 2) Build/cache para forçar atualização no Participante.
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace(BUILD_OLD,BUILD_NEW)
+          s=s.replace("sw.js?v=88","sw.js?v=89")
+          s=s.replace("serviceWorkerExpected:88","serviceWorkerExpected:89")
+          s=s.replace("release:'sprint2.0-central-sync-history-hardening-v1'","release:'sprint3-participant-locked-push-v1'")
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('client-bootstrap-v1.js')
+          s=p.read_text(encoding='utf-8').replace(BUILD_OLD,BUILD_NEW)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('runtime-build-info.js')
+          s=p.read_text(encoding='utf-8').replace(BUILD_OLD,BUILD_NEW).replace("expectedServiceWorkerVersion:'88'","expectedServiceWorkerVersion:'89'")
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('sw.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("rotina-family-participante-v88","rotina-family-participante-v89")
+          s=s.replace("const ROTINA_SW_VERSION='88'","const ROTINA_SW_VERSION='89'")
+          s=s.replace("const ROTINA_BUILD_ID='20260915.3'","const ROTINA_BUILD_ID='20260915.4'")
+          s=s.replace("sw.js?v=88","sw.js?v=89")
+          p.write_text(s,encoding='utf-8')
+
+          # 3) Substituir a auditoria legada por uma auditoria coerente com a arquitetura atual.
+          audit=Path('.github/workflows/family-alarm-audit.yml')
+          audit.write_text("""name: Rotina Family Participante - alarm and push audit
+on:
+  push:
+    paths:
+      - 'family-alarm-client.js'
+      - 'alarm-schedule-core.js'
+      - 'client-bootstrap-v1.js'
+      - 'index-CLIENTE-v6.html'
+      - 'index.html'
+      - 'runtime-build-info.js'
+      - 'sw.js'
+      - 'push/onesignal/**'
+      - 'onesignal-scheduler/**'
+      - '.github/workflows/family-alarm-audit.yml'
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and scheduler tests
+        run: |
+          node --check family-alarm-client.js
+          node --check alarm-schedule-core.js
+          node --check client-bootstrap-v1.js
+          node --check runtime-build-info.js
+          node --check sw.js
+          node --check onesignal-scheduler/src/core.js
+          node --check onesignal-scheduler/src/index.js
+          node onesignal-scheduler/test/scheduler.test.mjs
+          node onesignal-scheduler/test/integration.test.mjs
+      - name: Sprint 3 participant push contract
+        run: |
+          python <<'CHECK'
+          from pathlib import Path
+          index=Path('index-CLIENTE-v6.html').read_text(encoding='utf-8')
+          alarm=Path('family-alarm-client.js').read_text(encoding='utf-8')
+          scheduler=Path('onesignal-scheduler/src/index.js').read_text(encoding='utf-8')
+          worker=Path('push/onesignal/OneSignalSDKWorker.js').read_text(encoding='utf-8')
+          sw=Path('sw.js').read_text(encoding='utf-8')
+          boot=Path('client-bootstrap-v1.js').read_text(encoding='utf-8')
+          info=Path('runtime-build-info.js').read_text(encoding='utf-8')
+          checks={
+            'OneSignal SDK v16': 'OneSignalSDK.page.js' in index,
+            'welcome desativado': 'welcomeNotification: { disable: true }' in index,
+            'auto resubscribe': 'autoResubscribe: true' in index,
+            'worker canônico absoluto': "`${oneSignalBasePath}push/onesignal/OneSignalSDKWorker.js`" in index,
+            'reparo de sessão': 'garantirPushParticipante' in index and 'push.onesignal_sessao_pronta' in index,
+            'subscription change religa alias': "PushSubscription.addEventListener('change'" in index and 'aplicarIdentidadeParticipanteNoPush(OneSignal,g,p,true)' in index,
+            'external id individual': 'OneSignal.login(externalId)' in index,
+            'opt-in só por owner': 'PushSubscription.optIn()' in index,
+            'worker OneSignal v16': 'OneSignalSDK.sw.js' in worker,
+            'scheduler usa alias individual': 'include_aliases' in scheduler and 'participantExternalId' in scheduler,
+            'runtime local não tenta tocar escondido': 'document.hidden' in alarm,
+            'server push é owner da tela bloqueada': 'createOneSignalMessage' in scheduler and 'send_after' in scheduler,
+            'build Participante 20260915.4': "BUILD='20260915.4'" in boot and "build:'20260915.4'" in info,
+            'SW89': "ROTINA_SW_VERSION='89'" in sw and "ROTINA_BUILD_ID='20260915.4'" in sw,
+          }
+          for name,ok in checks.items(): print(('PASS' if ok else 'FAIL'),'-',name)
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed: raise SystemExit('Falhas: '+', '.join(failed))
+          CHECK
+""",encoding='utf-8')
+
+          print('SPRINT 3 PARTICIPANTE PUSH PATCH OK')
+          PY
+      - name: Auditar alterações
+        run: |
+          node --check family-alarm-client.js
+          node --check client-bootstrap-v1.js
+          node --check runtime-build-info.js
+          node --check sw.js
+          grep -F "welcomeNotification: { disable: true }" index-CLIENTE-v6.html
+          grep -F "garantirPushParticipante" index-CLIENTE-v6.html
+          grep -F "ROTINA_SW_VERSION='89'" sw.js
+      - name: Commitar runtime corrigido
+        run: |
+          git config user.name "paes2005-design"
+          git config user.email "paes2005@gmail.com"
+          git add index-CLIENTE-v6.html index.html client-bootstrap-v1.js runtime-build-info.js sw.js .github/workflows/family-alarm-audit.yml
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Nenhuma mudança necessária"
+            exit 0
+          fi
+          git commit -m "Sprint 3: corrige push do Participante com tela bloqueada"
+          git push origin HEAD:main
