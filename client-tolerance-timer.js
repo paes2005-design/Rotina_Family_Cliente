@@ -43,11 +43,21 @@ function tarefaDaLinha(row,agora=new Date()){
   const h=horarioLinha(row),dia=DIAS[agora.getDay()];
   return tarefas.find(t=>t.diaSemana===dia&&t.nome===nome&&(!h.inicio||t.horaSugeridaInicio===h.inicio)&&(!h.fim||t.horaSugeridaFim===h.fim))||null;
 }
+function garantirLinhaMeta(td){
+  let linha=td.querySelector('.task-meta-line');
+  if(linha)return linha;
+  linha=document.createElement('div');
+  linha.className='task-meta-line';
+  const titulo=td.querySelector('.task-name-line');
+  if(titulo)titulo.insertAdjacentElement('afterend',linha);else td.prepend(linha);
+  return linha;
+}
+function limparLinhaMeta(td){const linha=td.querySelector('.task-meta-line');if(linha&&!linha.children.length)linha.remove();}
 
 function garantirEstilo(){
   if(document.getElementById('clientToleranceTimerStyle'))return;
   const s=document.createElement('style');s.id='clientToleranceTimerStyle';
-  s.textContent=`.client-tolerance-timer{display:inline-flex;align-items:center;margin-top:6px;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:800;line-height:1.15;white-space:nowrap;background:#e0f2fe;color:#075985;border:1px solid #7dd3fc;cursor:pointer}.client-tolerance-timer:focus{outline:3px solid rgba(37,99,235,.25);outline-offset:2px}.client-tolerance-timer[data-band="leve"]{background:#fef9c3;color:#854d0e;border-color:#fde047}.client-tolerance-timer[data-band="maior"]{background:#ffedd5;color:#9a3412;border-color:#fdba74}.client-tolerance-timer[data-band="estourado"]{background:#fee2e2;color:#991b1b;border-color:#fca5a5}`;
+  s.textContent=`.task-meta-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;margin-top:6px}.client-tolerance-timer{display:inline-flex;align-items:center;margin-top:0;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:800;line-height:1.15;white-space:nowrap;background:#e0f2fe;color:#075985;border:1px solid #7dd3fc;cursor:pointer}.client-tolerance-timer:focus{outline:3px solid rgba(37,99,235,.25);outline-offset:2px}.client-tolerance-timer[data-band="leve"]{background:#fef9c3;color:#854d0e;border-color:#fde047}.client-tolerance-timer[data-band="maior"]{background:#ffedd5;color:#9a3412;border-color:#fdba74}.client-tolerance-timer[data-band="estourado"]{background:#fee2e2;color:#991b1b;border-color:#fca5a5}`;
   document.head.appendChild(s);
 }
 
@@ -79,8 +89,9 @@ export function prepararLinhasCronometro(){
     const td=row.children?.[1];if(!td)return;
     const t=tarefaDaLinha(row,agora);
     let el=td.querySelector('.client-tolerance-timer');
-    if(!t){el?.remove();return;}
+    if(!t){el?.remove();limparLinhaMeta(td);return;}
     aplicarSegundosHorario(row,t);
+    const linha=garantirLinhaMeta(td);
     if(!el){
       el=document.createElement('span');
       el.className='client-tolerance-timer';
@@ -90,9 +101,9 @@ export function prepararLinhasCronometro(){
       el.setAttribute('aria-label','Ver como funciona a tolerância desta tarefa');
       el.addEventListener('click',()=>{const atual=tarefas.find(x=>x.id===el.dataset.taskTimerId);if(atual)abrirAjudaRegra(atual);});
       el.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();el.click();}});
-      const ancora=td.querySelector('.early-start-client-badge')||td.querySelector('.task-name-wrap')||td.querySelector('strong');
-      ancora?.insertAdjacentElement('afterend',el);
     }
+    if(el.parentElement!==linha)linha.appendChild(el);
+    else if(linha.lastElementChild!==el)linha.appendChild(el);
     el.dataset.taskTimerId=t.id;
   });
   atualizarSomenteTextoCronometro(agora);
@@ -129,7 +140,6 @@ function iniciarTimerUnico(){
   timerId=setInterval(tick,1000);
   tick();
 }
-
 
 window.prepararCronometrosTolerancia=prepararLinhasCronometro;
 window.atualizarCronometrosTolerancia=atualizarSomenteTextoCronometro;
