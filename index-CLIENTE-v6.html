@@ -582,6 +582,35 @@
             };
         }
         window.rotinaClientCacheSnapshot = snapshotClienteCompartilhado;
+        window.rotinaParticipantApplyStoreToLegacy=function(snapshot,origem='store-central'){
+            const estado=snapshot||window.rotinaParticipantStore?.snapshot?.();
+            if(!estado||typeof estado!=='object')return false;
+            const grupoStore=String(estado.grupoId||'').trim().toUpperCase();
+            const perfilStore=String(estado.perfilId||'').trim();
+            if(grupoStore&&codigoGrupo&&grupoStore!==String(codigoGrupo).trim().toUpperCase())return false;
+            if(perfilStore&&clientePerfilId&&perfilStore!==String(clientePerfilId).trim())return false;
+            if(Array.isArray(estado.tarefasTodas)){
+                cacheTarefasGrupo=estado.tarefasTodas.map(x=>({...x}));
+                cacheTarefasTodas=cacheTarefasGrupo.filter(tarefaVisivelParticipante);
+                cacheTarefasHoje=cacheTarefasTodas.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+            }
+            if(Array.isArray(estado.historico))cacheHistorico=estado.historico.map(x=>({...x})).filter(h=>(h.perfilId?h.perfilId===clientePerfilId:h.perfilNome===clienteNome));
+            if(Array.isArray(estado.recompensas))recompensasCache=estado.recompensas.map(x=>({...x})).filter(r=>r.ativa!==false);
+            if(Array.isArray(estado.resgates))resgatesCache=estado.resgates.map(x=>({...x})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));
+            if(Array.isArray(estado.desafios))desafiosCache=estado.desafios.map(x=>({...x})).filter(c=>c.ativa!==false&&!c.encerrada&&(c.perfilId===clientePerfilId||c.perfilId==='__ALL__'));
+            if(estado.regraAtraso)regraAtrasoAtual=normalizarRegraAtraso(estado.regraAtraso);
+            ultimaSincronizacaoClienteServidor=Math.max(Number(ultimaSincronizacaoClienteServidor)||0,Number(estado.ultimaSincronizacaoServidor)||0);
+            renderizarTarefasHoje();
+            atualizarPainelPontos();
+            atualizarConquistas();
+            renderizarRecompensasCliente();
+            renderizarJustificativasCliente();
+            verificarRetornosResgates();
+            const regraEl=document.getElementById('textoRegraAtrasoCliente');if(regraEl)regraEl.innerHTML=textoRegraAtrasoCliente();
+            window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem}}));
+            window.rotinaLog?.('sync.store_central_aplicado_ui',{origem,owner:'participant-sync-scheduler-v2',tarefas:cacheTarefasTodas.length,historico:cacheHistorico.length,recompensas:recompensasCache.length,resgates:resgatesCache.length});
+            return true;
+        };
         function tarefaVisivelParticipante(t){
             return !(t?.ativa===false || t?.ativo===false || t?.active===false || String(t?.status||'').trim().toLowerCase()==='inativa');
         }
@@ -627,7 +656,16 @@
         function aplicarDesafiosSnapshots(snapshots=[]){const mapa=new Map();snapshots.filter(Boolean).forEach(snapshot=>snapshot.docs.forEach(d=>mapa.set(d.id,{id:d.id,...d.data()})));desafiosCache=[...mapa.values()].filter(c=>c.ativa!==false&&!c.encerrada&&(c.perfilId===clientePerfilId||c.perfilId==='__ALL__'));renderizarRecompensasCliente();}
         function aplicarConfigSnapshot(snapshot){if(snapshot){regraAtrasoAtual=normalizarRegraAtraso(snapshot.exists()?snapshot.data():{});const el=document.getElementById('textoRegraAtrasoCliente');if(el)el.innerHTML=textoRegraAtrasoCliente();}}
 
-        async function sincronizarDadosCliente(origem='intervalo-5min', servidor=true) {
+        async function sincronizarDadosCliente(origem='cache-local', servidor=false) {
+            if(servidor){
+                const scheduler=window.rotinaParticipantSyncScheduler;
+                if(scheduler?.run){
+                    window.rotinaLog?.('sync.cliente_delegado_central',{origem,owner:'participant-sync-scheduler-v2'});
+                    return scheduler.run(origem);
+                }
+                window.rotinaLog?.('sync.cliente_central_indisponivel',{origem},'warning');
+                return false;
+            }
             if(sincronizacaoClienteEmCurso || !codigoGrupo || !clientePerfilId)return false;
             sincronizacaoClienteEmCurso=true;
             const inicio=performance.now();
@@ -653,7 +691,7 @@
                 if(config.status==='fulfilled')aplicarConfigSnapshot(config.value);
                 const falhas=resultados.filter(x=>x.status==='rejected').length;
                 if(servidor && falhas<resultados.length)ultimaSincronizacaoClienteServidor=Date.now();
-                window.rotinaLog?.('sync.cliente_ciclo',{origem,servidor,tempoMs:Math.round(performance.now()-inicio),falhas,intervaloMin:5},falhas?'warning':'info');
+                window.rotinaLog?.('sync.cliente_cache_local',{origem,servidor:false,tempoMs:Math.round(performance.now()-inicio),falhas},falhas?'warning':'info');
                 window.dispatchEvent(new CustomEvent('rotina-client-cache-updated',{detail:{origem,servidor,falhas,intervaloMs:SINCRONIZACAO_CLIENTE_MS}}));
                 return falhas<resultados.length;
             }catch(e){
@@ -671,16 +709,10 @@
             [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u());
             encerrarSincronizacaoCliente();
             unsubscribeTarefas=encerrarSincronizacaoCliente;unsubscribeTarefasTodas=null;unsubscribeHistorico=null;unsubscribeRecompensas=null;unsubscribeResgates=null;unsubscribeConfigGrupo=null;
+            // O legado restaura somente o cache local. Toda leitura de servidor pertence ao Scheduler central.
             const cargaInicial=sincronizarDadosCliente('cache-inicial',false)
-                .then(()=>sincronizarDadosCliente('servidor-inicial',true))
                 .catch(e=>{window.rotinaLog?.('sync.cliente_inicial_erro',{mensagem:String(e?.message||e)},'warning');return false;});
-            sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);
-            if(!eventosSincronizacaoInstalados){
-                eventosSincronizacaoInstalados=true;
-                document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-ultimaSincronizacaoClienteServidor>=SINCRONIZACAO_CLIENTE_MS)sincronizarDadosCliente('retorno-visivel-stale',true);});
-                window.addEventListener('online',()=>{if(Date.now()-ultimaSincronizacaoClienteServidor>=SINCRONIZACAO_CLIENTE_MS)sincronizarDadosCliente('reconectado-stale',true);});
-                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
-            }
+            window.rotinaLog?.('sync.cliente_owner_central',{owner:'participant-sync-scheduler-v2',legacyTimer:false,legacyServerReads:false});
             return cargaInicial;
         }
 

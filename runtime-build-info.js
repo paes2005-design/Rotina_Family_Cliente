@@ -1,6 +1,6 @@
 (()=>{
   'use strict';
-  const INFO=Object.freeze({app:'PARTICIPANTE',appVersion:'1.0.0',build:'20260913.2',htmlVersion:'index-CLIENTE-v6',rulesModuleVersion:'4',expectedServiceWorkerVersion:'85',initialSyncCompatVersion:'1',bootstrapVersion:'1',participantStoreVersion:'2',firebaseRepositoryVersion:'2',historyGapReconcilerVersion:'1',alarmRuntimeVersion:'16'});
+  const INFO=Object.freeze({app:'PARTICIPANTE',appVersion:'1.0.0',build:'20260915.1',htmlVersion:'index-CLIENTE-v6',rulesModuleVersion:'4',expectedServiceWorkerVersion:'86',initialSyncCompatVersion:'1',bootstrapVersion:'1',participantStoreVersion:'2',firebaseRepositoryVersion:'2',syncSchedulerVersion:'2',historyGapReconcilerVersion:'1',alarmRuntimeVersion:'16'});
   window.ROTINA_BUILD_INFO=INFO;
   const emit=(event,details={})=>{try{window.rotinaLog?.(event,{...INFO,...details})}catch{}};
   if(typeof window.inicializarEscutasFirebase!=='function'){window.inicializarEscutasFirebase=function(){if(typeof window.iniciarEscutasFirebase==='function'){emit('sync.cliente_entrada_imediata',{origem:'compat-runtime'});return window.iniciarEscutasFirebase()}if(typeof window.rotinaSincronizarClienteAgora==='function'){emit('sync.cliente_entrada_fallback',{origem:'compat-runtime'},'warning');return window.rotinaSincronizarClienteAgora('entrada-imediata-fallback')}emit('sync.cliente_inicializador_indisponivel',{origem:'compat-runtime'},'error');return Promise.resolve(false)}}
