@@ -5,7 +5,7 @@ import {
   updateDoc,setDoc,writeBatch,serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const REPOSITORY_VERSION=2;
+const REPOSITORY_VERSION=3;
 const clean=value=>String(value||'').trim();
 const group=value=>clean(value).toUpperCase();
 const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{...details,firebaseRepositoryVersion:REPOSITORY_VERSION},level);}catch{}};
@@ -91,6 +91,16 @@ async function readParticipantExecutions({grupoId,perfilId,source='server'}={}){
   const snapshot=await readers.collection(q.execucoes);
   const items=docsToItems(snapshot),elapsedMs=Math.round(performance.now()-started);
   log('repository.execucoes_lidas',{source,server:readers.server,total:items.length,tempoMs:elapsedMs});
+  return{grupoId:g,perfilId:p,source,server:readers.server,items,elapsedMs};
+}
+
+async function readParticipantHistory({grupoId,perfilId,source='server'}={}){
+  const g=group(grupoId),p=clean(perfilId);
+  if(!g||!p)throw new Error('grupoId e perfilId são obrigatórios para ler o histórico do participante.');
+  const db=database(),readers=sourceReaders(source),q=participantQueries(db,g,p),started=performance.now();
+  const snapshot=await readers.collection(q.historico);
+  const items=docsToItems(snapshot),elapsedMs=Math.round(performance.now()-started);
+  log('repository.historico_lido',{source,server:readers.server,total:items.length,tempoMs:elapsedMs});
   return{grupoId:g,perfilId:p,source,server:readers.server,items,elapsedMs};
 }
 
@@ -190,6 +200,7 @@ const api=Object.freeze({
   version:REPOSITORY_VERSION,
   readParticipantBundle,
   readParticipantExecutions,
+  readParticipantHistory,
   readTask,
   readTaskCacheThenServer,
   readGroupConfig,
