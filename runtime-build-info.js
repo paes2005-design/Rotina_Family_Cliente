@@ -1,11 +1,30 @@
 (()=>{
   'use strict';
-  const INFO=Object.freeze({app:'PARTICIPANTE',appVersion:'1.0.0',build:'20260915.4',htmlVersion:'index-CLIENTE-v6',rulesModuleVersion:'4',expectedServiceWorkerVersion:'89',initialSyncCompatVersion:'1',bootstrapVersion:'1',participantStoreVersion:'2',firebaseRepositoryVersion:'3',syncSchedulerVersion:'3',earlyStartUiVersion:'3',toleranceTimerUiVersion:'6',historyGapReconcilerVersion:'2',alarmRuntimeVersion:'16',participantPushRuntimeVersion:'2'});
+  const INFO=Object.freeze({app:'PARTICIPANTE',appVersion:'1.0.0',build:'20260915.4',htmlVersion:'index-CLIENTE-v6',rulesModuleVersion:'4',expectedServiceWorkerVersion:'90',initialSyncCompatVersion:'1',bootstrapVersion:'1',participantStoreVersion:'2',firebaseRepositoryVersion:'3',syncSchedulerVersion:'3',earlyStartUiVersion:'3',toleranceTimerUiVersion:'6',historyGapReconcilerVersion:'2',alarmRuntimeVersion:'16',participantPushRuntimeVersion:'2'});
   window.ROTINA_BUILD_INFO=INFO;
   const emit=(event,details={})=>{try{window.rotinaLog?.(event,{...INFO,...details})}catch{}};
   if(typeof window.inicializarEscutasFirebase!=='function'){window.inicializarEscutasFirebase=function(){if(typeof window.iniciarEscutasFirebase==='function'){emit('sync.cliente_entrada_imediata',{origem:'compat-runtime'});return window.iniciarEscutasFirebase()}if(typeof window.rotinaSincronizarClienteAgora==='function'){emit('sync.cliente_entrada_fallback',{origem:'compat-runtime'},'warning');return window.rotinaSincronizarClienteAgora('entrada-imediata-fallback')}emit('sync.cliente_inicializador_indisponivel',{origem:'compat-runtime'},'error');return Promise.resolve(false)}}
-  function badge(){if(document.getElementById('rotinaBuildBadge'))return;const el=document.createElement('button');el.id='rotinaBuildBadge';el.type='button';el.textContent=`Participante v${INFO.appVersion} • ${INFO.build}`;el.title='Toque para ver a versão em execução';el.style.cssText='position:fixed;right:8px;bottom:82px;z-index:9998;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.94);color:#64748b;border-radius:999px;padding:4px 8px;font:600 10px/1.2 system-ui;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:.86';el.onclick=()=>alert(`Rotina Family Participante\nVersão: ${INFO.appVersion}\nBuild: ${INFO.build}\nHTML: ${INFO.htmlVersion}\nBootstrap: v${INFO.bootstrapVersion}\nStore: v${INFO.participantStoreVersion}\nRepository: v${INFO.firebaseRepositoryVersion}\nScheduler: v${INFO.syncSchedulerVersion}\nInício antecipado UI: v${INFO.earlyStartUiVersion}\nTolerância UI: v${INFO.toleranceTimerUiVersion}\nReconciliador de histórico: v${INFO.historyGapReconcilerVersion}\nRegras: v${INFO.rulesModuleVersion}\nService Worker esperado: v${INFO.expectedServiceWorkerVersion}\nService Worker ativo: ${window.ROTINA_SW_VERSION||'sem resposta'}`);document.body.appendChild(el)}
+  function footer(){
+    document.getElementById('rotinaBuildBadge')?.remove();
+    const candidates=[...document.querySelectorAll('#rotinaBuildFooter,.version,[data-version-footer]')];
+    const legacy=candidates.find(el=>/Rotina\s+Family/i.test(el.textContent||'')&&/Build/i.test(el.textContent||''))||candidates.find(el=>el.classList?.contains('version'))||null;
+    const legacyVersion=String(legacy?.textContent||'').match(/Vers(?:ão|ao)\s*([0-9.]+)/i)?.[1]||INFO.appVersion;
+    let el=document.getElementById('rotinaBuildFooter')||legacy;
+    if(!el){el=document.createElement('div');el.id='rotinaBuildFooter';}
+    if(!el.id)el.id='rotinaBuildFooter';
+    el.classList.remove('version');
+    el.classList.add('rotina-build-footer');
+    el.removeAttribute('type');
+    el.textContent=`Rotina Family Participante · Versão ${legacyVersion} · Build ${INFO.build}`;
+    el.title=`HTML ${INFO.htmlVersion} · Bootstrap v${INFO.bootstrapVersion} · Store v${INFO.participantStoreVersion} · Repository v${INFO.firebaseRepositoryVersion} · Scheduler v${INFO.syncSchedulerVersion} · Service Worker esperado v${INFO.expectedServiceWorkerVersion}`;
+    el.style.cssText='position:static;inset:auto;display:block;width:100%;margin:28px 0 4px;padding:0;text-align:center;background:transparent;border:0;border-radius:0;box-shadow:none;color:#9aa0ad;font:500 11px/1.4 system-ui;opacity:1;pointer-events:none;';
+    const host=document.getElementById('telaApp')||document.querySelector('.app-container')||document.body;
+    if(el.parentElement!==host)host.appendChild(el);
+    for(const node of candidates){
+      if(node!==el&&(node.id==='rotinaBuildBadge'||node.classList?.contains('version')||(/Rotina\s+Family/i.test(node.textContent||'')&&/Build/i.test(node.textContent||''))))node.remove();
+    }
+  }
   async function checkSw(){try{if(!('serviceWorker' in navigator)){emit('build.sw_indisponivel');return}const reg=await navigator.serviceWorker.ready,worker=navigator.serviceWorker.controller||reg.active;if(!worker){emit('build.sw_sem_controlador');return}const token=Math.random().toString(36).slice(2),listener=e=>{if(e.data?.type!=='ROTINA_BUILD_INFO'||e.data?.token!==token)return;navigator.serviceWorker.removeEventListener('message',listener);window.ROTINA_SW_VERSION=String(e.data.swVersion||'');emit('build.runtime',{serviceWorkerVersion:window.ROTINA_SW_VERSION,serviceWorkerCache:e.data.cacheName||'',serviceWorkerBuild:e.data.build||'',swMatchesExpected:String(e.data.swVersion)===INFO.expectedServiceWorkerVersion})};navigator.serviceWorker.addEventListener('message',listener);worker.postMessage({type:'ROTINA_GET_BUILD_INFO',token});setTimeout(()=>{navigator.serviceWorker.removeEventListener('message',listener);if(!window.ROTINA_SW_VERSION)emit('build.sw_sem_resposta')},1800)}catch(e){emit('build.sw_erro',{mensagem:String(e?.message||e)})}}
-  const boot=()=>{badge();emit('build.html_carregado',{href:location.href,userAgent:navigator.userAgent});setTimeout(checkSw,150);if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('controllerchange',()=>setTimeout(checkSw,120));setTimeout(()=>emit('build.regra_modulo_esperado',{rulesModuleVersion:INFO.rulesModuleVersion}),400)};
+  const boot=()=>{footer();setTimeout(footer,700);setTimeout(footer,1800);emit('build.html_carregado',{href:location.href,userAgent:navigator.userAgent});setTimeout(checkSw,150);if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('controllerchange',()=>setTimeout(checkSw,120));setTimeout(()=>emit('build.regra_modulo_esperado',{rulesModuleVersion:INFO.rulesModuleVersion}),400)};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
