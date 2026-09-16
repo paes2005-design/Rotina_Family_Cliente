@@ -3,6 +3,16 @@
   window.__rotinaMascoteLoaderVersion=13;
   window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
 
+  // UI de notificações é um módulo independente. O orquestrador apenas o carrega.
+  if(!document.querySelector('script[data-rotina-notification-settings]')){
+    const script=document.createElement('script');
+    script.src='./client-notification-settings-v1.js?v=1';
+    script.async=false;
+    script.dataset.rotinaNotificationSettings='1';
+    script.onerror=()=>window.rotinaLog?.('push.configuracao_modulo_erro',{versao:1},'warning');
+    document.head.appendChild(script);
+  }
+
   // Impede a comemoração legada. As reações de cachorro/gato são controladas
   // exclusivamente por client-mascot-v3.js, carregado pelo bootstrap central.
   const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
