@@ -14,11 +14,11 @@
   function estilo(){
     if(document.getElementById('rfNotificationSettingsStyle'))return;
     const s=document.createElement('style');s.id='rfNotificationSettingsStyle';s.textContent=`
-      .rf-notification-button{position:absolute;top:20px;right:92px;width:38px;height:38px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;color:#475569;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:19px;padding:0}
+      .rf-notification-button{position:absolute;top:20px;left:20px;width:38px;height:38px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;color:#475569;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:19px;padding:0;z-index:2}
       .rf-notification-button[data-state="on"]{color:#15803d;border-color:#bbf7d0;background:#f0fdf4}.rf-notification-button[data-state="off"]{color:#64748b}.rf-notification-button[data-state="warning"]{color:#b45309;border-color:#fde68a;background:#fffbeb}
       .rf-notification-overlay{position:fixed;inset:0;background:rgba(15,23,42,.42);display:none;align-items:center;justify-content:center;padding:16px;z-index:30000}.rf-notification-overlay.is-open{display:flex}
       .rf-notification-panel{width:min(420px,100%);background:#fff;border-radius:18px;padding:20px;box-shadow:0 18px 50px rgba(15,23,42,.22);color:#334155}.rf-notification-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.rf-notification-head h2{font-size:1.15rem;margin:0;color:#334155}.rf-notification-close{border:0;background:transparent;font-size:22px;cursor:pointer;color:#64748b;padding:4px 8px}.rf-notification-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:18px;padding-top:16px;border-top:1px solid #e2e8f0}.rf-notification-copy strong{display:block;font-size:.95rem}.rf-notification-copy small{display:block;color:#64748b;margin-top:4px;line-height:1.35}.rf-notification-toggle{border:0;border-radius:999px;padding:9px 14px;font-weight:700;cursor:pointer;background:#e2e8f0;color:#475569;min-width:88px}.rf-notification-toggle[data-on="true"]{background:#16a34a;color:#fff}.rf-notification-status{margin-top:14px;font-size:.82rem;color:#64748b}.rf-notification-status.is-error{color:#b91c1c}
-      @media(max-width:700px){.rf-notification-button{top:12px;right:78px;width:36px;height:36px;border-radius:11px}.rf-notification-panel{padding:18px}}
+      @media(max-width:700px){.rf-notification-button{top:12px;left:10px;width:36px;height:36px;border-radius:11px}.rf-notification-panel{padding:18px}}
     `;document.head.appendChild(s);
   }
   function criar(){
