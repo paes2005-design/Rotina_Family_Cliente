@@ -1,0 +1,114 @@
+name: Sprint 3 - Push E2E trace v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sprint3-push-e2e-trace-v1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Instrumentar envio OneSignal do alarme
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('onesignal-scheduler/src/index.js')
+          s=p.read_text()
+          old="""  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.id) {
+    throw new Error(`Agendamento OneSignal recusado (${response.status}): ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  return {
+    chave: occurrence.key,
+    momento: occurrence.type,
+    mensagemId: body.id,
+    idempotencyKey,
+    envioEm: occurrence.sendAfter || new Date().toISOString()
+  };
+}"""
+          new="""  const body = await response.json().catch(() => ({}));
+  const targetExternalId = participantExternalId(alarm.grupoId, alarm.perfilId);
+  await storeSecureLog(env, {
+    aplicativo: 'participante',
+    evento: response.ok && body.id ? 'push.onesignal_envio_aceito' : 'push.onesignal_envio_recusado',
+    nivel: response.ok && body.id ? 'info' : 'warning',
+    detalhes: {
+      tipo: 'alarme',
+      momento: occurrence.type,
+      tarefaId: alarm.tarefaId || '',
+      ocorrencia: occurrence.key,
+      targetExternalId,
+      httpStatus: response.status,
+      messageId: body.id || '',
+      recipients: Number(body.recipients || 0),
+      externalIdTargetCount: 1,
+      sendAfter: occurrence.sendAfter || '',
+      respostaTemErros: Boolean(body.errors)
+    },
+    grupoId: alarm.grupoId,
+    perfilId: alarm.perfilId,
+    sessaoId: '',
+    clienteEm: new Date().toISOString(),
+    pagina: 'worker',
+    navegador: 'onesignal-api',
+    online: true,
+    visibilidade: 'servidor-push',
+    instalado: false
+  }, fetchImpl, new Date()).catch(error => console.error('Falha ao registrar trace OneSignal:', cleanError(error)));
+  if (!response.ok || !body.id) {
+    throw new Error(`Agendamento OneSignal recusado (${response.status}): ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  return {
+    chave: occurrence.key,
+    momento: occurrence.type,
+    mensagemId: body.id,
+    idempotencyKey,
+    targetExternalId,
+    recipients: Number(body.recipients || 0),
+    envioEm: occurrence.sendAfter || new Date().toISOString()
+  };
+}"""
+          if old not in s:
+              raise SystemExit('Bloco createOneSignalMessage esperado não encontrado; patch abortado com segurança.')
+          p.write_text(s.replace(old,new,1))
+          PY
+
+      - name: Validar sintaxe e rastreamento
+        run: |
+          set -euo pipefail
+          node --check onesignal-scheduler/src/index.js
+          grep -q "push.onesignal_envio_aceito" onesignal-scheduler/src/index.js
+          grep -q "targetExternalId" onesignal-scheduler/src/index.js
+          grep -q "recipients: Number(body.recipients" onesignal-scheduler/src/index.js
+          grep -q "messageId: body.id" onesignal-scheduler/src/index.js
+          grep -q "include_aliases: { external_id" onesignal-scheduler/src/index.js
+
+      - name: Rodar regressões do scheduler
+        working-directory: onesignal-scheduler
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add onesignal-scheduler/src/index.js
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'Sem alteração necessária.'
+            exit 0
+          fi
+          git commit -m 'Sprint 3: rastrear envio E2E do push de alarme'
+          git push origin HEAD:main
