@@ -1,0 +1,31 @@
+name: Deploy Native Alarm Test PWA
+
+on:
+  push:
+    branches:
+      - test/sprint3-native-alarm-build
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-pwa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native alarm test integration
+        run: |
+          grep -q "native-alarm-bridge-v1.js" index-CLIENTE-v6.html
+          grep -q "rotinafamily" native-alarm-bridge-v1.js
+      - name: Build isolated test package
+        run: |
+          mkdir -p test-pwa
+          rsync -a --exclude '.git' --exclude '.github' --exclude 'experiments' ./ test-pwa/
+          printf '%s\n' '<!doctype html><meta charset="utf-8"><title>Rotina Family - Teste Alarme Nativo</title><script>location.replace("./index.html?nativeAlarmTest=1")</script>' > test-pwa/teste-alarme.html
+      - name: Upload test PWA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rotina-Family-PWA-Teste-Alarme
+          path: test-pwa
+          retention-days: 14
