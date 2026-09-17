@@ -6,14 +6,18 @@ import android.net.Uri
 import android.os.*
 import android.provider.Settings
 import android.widget.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 class MainActivity : Activity() {
     private lateinit var info: TextView
+    private lateinit var audit: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermission()
         render()
+        record("APP_OPEN", "Rotina Family Alarm v3-audit")
         handleCommand(intent)
     }
 
@@ -25,33 +29,43 @@ class MainActivity : Activity() {
 
     private fun render() {
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48,48,48,48) }
-        val title = TextView(this).apply { text = "Rotina Family — Alarme Android v3"; textSize = 22f }
-        info = TextView(this).apply { text = "Integração de teste pronta. Configure um despertador na PWA e use o botão Sincronizar no celular."; textSize = 16f }
-        val button = Button(this).apply { text = "TESTE LOCAL +2 MINUTOS" }
-        layout.addView(title); layout.addView(info); layout.addView(button); setContentView(layout)
-        button.setOnClickListener { scheduleLocalTest() }
+        layout.addView(TextView(this).apply { text = "Rotina Family — Integração nativa v3-audit"; textSize = 22f })
+        info = TextView(this).apply { text = "Esta versão não possui teste local. Ela aceita somente alarmes enviados pela PWA."; textSize = 16f }
+        audit = TextView(this).apply { textSize = 13f; setPadding(0,24,0,24) }
+        val clear = Button(this).apply { text = "LIMPAR AUDITORIA" }
+        layout.addView(info); layout.addView(audit); layout.addView(clear); setContentView(layout)
+        clear.setOnClickListener { AuditLog.clear(this); refreshAudit() }
+        refreshAudit()
     }
 
     private fun handleCommand(source: Intent?) {
         val data: Uri = source?.data ?: return
-        if (data.scheme != "rotinafamily" || data.host != "alarm") return
+        if (data.scheme != "rotinafamily" || data.host != "alarm") {
+            record("COMMAND_REJECTED", data.toString())
+            return
+        }
         val action = data.pathSegments.firstOrNull() ?: return
         val key = data.getQueryParameter("key").orEmpty()
         val title = data.getQueryParameter("title").orEmpty().ifBlank { "Tarefa" }
         val moment = data.getQueryParameter("moment").orEmpty()
+        val taskId = data.getQueryParameter("taskId").orEmpty()
+        val date = data.getQueryParameter("date").orEmpty()
+        record("COMMAND_RECEIVED", "action=$action key=$key task=$taskId date=$date moment=$moment")
         when (action) {
             "schedule" -> {
                 val at = data.getQueryParameter("at")?.toLongOrNull() ?: 0L
                 if (ensureExactAlarmPermission()) return
                 val ok = AlarmScheduler.schedule(this, key, title, moment, at)
-                info.text = if (ok) "Alarme nativo sincronizado: $title." else "Não foi possível sincronizar este horário."
+                info.text = if (ok) "Alarme da PWA sincronizado: $title." else "Falha ao sincronizar alarme da PWA."
+                record(if (ok) "SCHEDULE_OK" else "SCHEDULE_FAIL", "key=$key at=$at title=$title")
                 Toast.makeText(this, info.text, Toast.LENGTH_LONG).show()
             }
             "cancel" -> {
                 AlarmScheduler.cancel(this, key)
-                info.text = "Alarme nativo removido: $title."
-                Toast.makeText(this, info.text, Toast.LENGTH_SHORT).show()
+                info.text = "Alarme da PWA removido: $title."
+                record("CANCEL_OK", "key=$key title=$title")
             }
+            else -> record("ACTION_REJECTED", action)
         }
     }
 
@@ -64,16 +78,39 @@ class MainActivity : Activity() {
     private fun ensureExactAlarmPermission(): Boolean {
         val manager = getSystemService(AlarmManager::class.java)
         if (Build.VERSION.SDK_INT >= 31 && !manager.canScheduleExactAlarms()) {
+            record("PERMISSION_REQUIRED", "SCHEDULE_EXACT_ALARM")
             startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply { data = Uri.parse("package:$packageName") })
-            info.text = "Autorize Alarmes e lembretes e depois sincronize novamente pela PWA."
+            info.text = "Autorize Alarmes e lembretes e sincronize novamente pela PWA."
             return true
         }
         return false
     }
 
-    private fun scheduleLocalTest() {
-        if (ensureExactAlarmPermission()) return
-        val ok = AlarmScheduler.schedule(this, "local-test", "Teste Rotina Family", "inicio", System.currentTimeMillis() + 120000L)
-        info.text = if (ok) "Teste local agendado para +2 minutos." else "Não foi possível agendar o teste local."
+    private fun record(event: String, detail: String) {
+        AuditLog.add(this, event, detail)
+        if (::audit.isInitialized) refreshAudit()
     }
+
+    private fun refreshAudit() {
+        audit.text = "AUDITORIA LOCAL\n" + AuditLog.read(this).joinToString("\n")
+    }
+}
+
+object AuditLog {
+    private const val PREF = "rf_alarm_audit"
+    private const val KEY = "events"
+    private val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+
+    fun add(context: Context, event: String, detail: String) {
+        val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val list = read(context).toMutableList()
+        list.add("${formatter.format(Date())} | $event | $detail")
+        while (list.size > 100) list.removeAt(0)
+        prefs.edit().putString(KEY, list.joinToString("\n")).apply()
+    }
+
+    fun read(context: Context): List<String> = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        .getString(KEY, "").orEmpty().lines().filter { it.isNotBlank() }
+
+    fun clear(context: Context) = context.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().remove(KEY).apply()
 }
