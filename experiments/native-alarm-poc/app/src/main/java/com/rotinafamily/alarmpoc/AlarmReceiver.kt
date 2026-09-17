@@ -1,11 +1,11 @@
 package com.rotinafamily.alarmpoc
 
 import android.content.*
+import android.os.Build
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        context.startActivity(Intent(context, AlarmActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        })
+        val serviceIntent = Intent(context, AlarmService::class.java).setAction(AlarmService.ACTION_START)
+        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent) else context.startService(serviceIntent)
     }
 }

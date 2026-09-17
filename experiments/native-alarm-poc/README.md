@@ -1,32 +1,27 @@
-# Rotina Family — Native Alarm POC
+# Rotina Family — Native Alarm POC v2
 
 Status: EXPERIMENTAL / TEST ONLY
 
-This directory is an isolated Sprint 3 proof of concept. It does not replace the Rotina Family PWA and it is not loaded by the production web application.
+Esta versão continua isolada da PWA de produção. Firebase, OneSignal e a aplicação web não dependem deste experimento.
 
-## Goal
+## Objetivo
 
-Validate one capability only:
+Validar se um alarme explicitamente agendado pelo usuário inicia o áudio no Android com o app e a PWA fechados e o aparelho bloqueado, sem depender de toque no Push.
 
-> With the Rotina Family PWA closed and the Android device locked, an alarm explicitly scheduled by the user must be able to start at the scheduled time without requiring a Push notification click.
+## Arquitetura v2
 
-## Architectural boundary
+`AlarmManager.setAlarmClock()` → `AlarmReceiver` → `AlarmService` foreground → áudio de alarme.
 
-- The PWA remains the primary Rotina Family application.
-- Firebase remains the authoritative application data source.
-- Existing OneSignal Push behavior is unchanged.
-- Production PWA files, service worker and Push runtime must not depend on this experiment.
-- Native alarm code lives only inside this experimental boundary until the proof is approved.
+A `AlarmActivity` é somente interface de alarme/controle. O áudio pertence ao `AlarmService` e não depende da Activity abrir em segundo plano.
 
-## Acceptance test
+## Teste de aceitação
 
-1. Schedule a test alarm for a few minutes in the future.
-2. Close the PWA completely.
-3. Lock the Android device.
-4. Wait without touching the Push notification.
-5. PASS: Android starts the alarm at the scheduled time and provides a stop action.
-6. FAIL: the alarm requires reopening the PWA or tapping Push before it can start.
+1. Instale/atualize o APK experimental.
+2. Autorize notificações e **Alarmes e lembretes** quando solicitado.
+3. Toque em **AGENDAR TESTE PARA +2 MINUTOS**.
+4. Feche completamente o app experimental e a PWA Rotina Family.
+5. Bloqueie o aparelho e não toque no Push.
+6. PASS: o áudio inicia sozinho no horário e pode ser parado pela ação **PARAR**.
+7. FAIL: o áudio só inicia depois de abrir/tocar no app ou no Push, ou não inicia.
 
-## Decision after the POC
-
-Only after the acceptance test passes will we design the production integration contract. If the POC fails, this experimental code is discarded without changing the production PWA.
+Nenhuma integração com `main` deve ser feita antes deste teste passar.
