@@ -8,8 +8,8 @@ android {
         applicationId = "com.rotinafamily.alarmpoc"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1-test"
+        versionCode = 3
+        versionName = "0.3-integration-test"
     }
 
     compileOptions {
@@ -17,7 +17,5 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
 }
