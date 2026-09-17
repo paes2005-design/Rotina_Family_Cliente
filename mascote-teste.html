@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#fff4f6" />
+  <title>Rotina Family — Teste do Mascote</title>
+  <style>
+    :root{
+      --bg:#fff7f8;
+      --card:#ffffff;
+      --ink:#4a1220;
+      --muted:#7a5b63;
+      --brand:#d7264f;
+      --brand2:#ff6b7f;
+      --line:#f2d7dd;
+      --shadow:0 18px 55px rgba(89,13,34,.14);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      min-height:100vh;
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+      color:var(--ink);
+      background:
+        radial-gradient(circle at 12% 10%,#ffe6eb 0 15%,transparent 34%),
+        radial-gradient(circle at 88% 86%,#fff0d8 0 13%,transparent 32%),
+        var(--bg);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:22px;
+    }
+    .shell{width:min(980px,100%)}
+    .header{display:flex;justify-content:space-between;gap:18px;align-items:flex-end;margin:0 0 14px}
+    .eyebrow{font-size:.78rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--brand)}
+    h1{font-size:clamp(1.45rem,4vw,2.35rem);line-height:1.05;margin:.35rem 0 .4rem}
+    .subtitle{margin:0;color:var(--muted);font-size:.98rem}
+    .badge{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 11px;font-size:.78rem;color:var(--muted);white-space:nowrap}
+    .card{
+      background:rgba(255,255,255,.92);
+      border:1px solid rgba(255,255,255,.8);
+      box-shadow:var(--shadow);
+      border-radius:28px;
+      overflow:hidden;
+    }
+    .stage{
+      position:relative;
+      min-height:470px;
+      display:grid;
+      place-items:center;
+      overflow:hidden;
+      background:
+        linear-gradient(to bottom,#f9fbff 0 64%,#f6e8dc 64% 100%);
+      isolation:isolate;
+    }
+    .stage::before{
+      content:"";
+      position:absolute;inset:0;
+      background:
+        radial-gradient(circle at 20% 25%,rgba(176,214,255,.45),transparent 30%),
+        radial-gradient(circle at 78% 22%,rgba(255,231,164,.5),transparent 24%);
+      z-index:-2;
+    }
+    .ground{
+      position:absolute;left:8%;right:8%;bottom:54px;height:24px;border-radius:50%;
+      background:rgba(83,52,41,.11);filter:blur(7px);transform:scaleX(.95)
+    }
+    .speech{
+      position:absolute;
+      left:50%;top:50%;
+      transform:translate(95px,-150px) scale(.7) rotate(-8deg);
+      background:white;border:3px solid var(--ink);border-radius:22px;
+      padding:9px 14px;font-weight:1000;font-size:1.35rem;letter-spacing:.04em;
+      opacity:0;pointer-events:none;z-index:10;
+      box-shadow:0 8px 18px rgba(30,15,20,.12)
+    }
+    .speech::after{content:"";position:absolute;left:14px;bottom:-12px;width:18px;height:18px;background:white;border-right:3px solid var(--ink);border-bottom:3px solid var(--ink);transform:rotate(45deg)}
+    .speech.show{animation:speechPop .9s ease both}
+    @keyframes speechPop{0%{opacity:0;transform:translate(95px,-135px) scale(.2) rotate(-8deg)}20%,70%{opacity:1;transform:translate(95px,-150px) scale(1) rotate(-8deg)}100%{opacity:0;transform:translate(102px,-160px) scale(.88) rotate(-8deg)}}
+
+    .dog-wrap{width:min(370px,76vw);aspect-ratio:1/1;display:grid;place-items:center;transform-origin:50% 82%;will-change:transform}
+    .dog-wrap.idle{animation:idle 2.9s ease-in-out infinite}
+    @keyframes idle{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+    .dog-wrap.jump{animation:jump .95s cubic-bezier(.3,.75,.25,1) both}
+    @keyframes jump{0%{transform:translateY(0) scale(1)}16%{transform:translateY(14px) scale(1.06,.93)}48%{transform:translateY(-145px) scale(.96,1.05)}68%{transform:translateY(-120px) rotate(2deg)}88%{transform:translateY(8px) scale(1.07,.9)}100%{transform:translateY(0) scale(1)}}
+    .dog-wrap.roll{animation:roll 1.25s ease-in-out both}
+    @keyframes roll{0%{transform:translateX(0) rotate(0)}24%{transform:translateX(84px) rotate(90deg)}52%{transform:translateX(135px) rotate(195deg)}78%{transform:translateX(70px) rotate(305deg)}100%{transform:translateX(0) rotate(360deg)}}
+    .dog-wrap.flip{animation:flip 1.15s cubic-bezier(.3,.65,.25,1) both}
+    @keyframes flip{0%{transform:translateY(0) rotate(0) scale(1)}18%{transform:translateY(8px) scale(1.04,.94)}52%{transform:translateY(-165px) rotate(190deg) scale(.95)}76%{transform:translateY(-65px) rotate(315deg)}93%{transform:translateY(7px) rotate(360deg) scale(1.07,.9)}100%{transform:translateY(0) rotate(360deg) scale(1)}}
+    .dog-wrap.bark{animation:barkBody .55s ease-in-out 2}
+    @keyframes barkBody{0%,100%{transform:translateY(0) rotate(0)}25%{transform:translateY(-10px) rotate(-2deg)}55%{transform:translateY(2px) rotate(2deg)}75%{transform:translateY(-7px) rotate(-1deg)}}
+
+    svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 14px 12px rgba(64,37,28,.16))}
+    #tail{transform-origin:222px 252px;animation:wag .62s ease-in-out infinite alternate}
+    @keyframes wag{from{transform:rotate(-12deg)}to{transform:rotate(17deg)}}
+    #leftEar{transform-origin:128px 93px} #rightEar{transform-origin:236px 93px}
+    .dog-wrap.bark #leftEar{animation:earL .25s ease-in-out 4}.dog-wrap.bark #rightEar{animation:earR .25s ease-in-out 4}
+    @keyframes earL{0%,100%{transform:rotate(0)}50%{transform:rotate(-10deg)}}
+    @keyframes earR{0%,100%{transform:rotate(0)}50%{transform:rotate(10deg)}}
+    #jaw{transform-origin:181px 164px}
+    .dog-wrap.bark #jaw{animation:jaw .22s ease-in-out 5}
+    @keyframes jaw{0%,100%{transform:translateY(0) scaleY(1)}50%{transform:translateY(7px) scaleY(1.16)}}
+    #eyes{transform-origin:center}
+    .blink #eyes{animation:blink .18s linear}
+    @keyframes blink{50%{transform:scaleY(.12)}}
+
+    .controls{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:18px;background:#fff;border-top:1px solid var(--line)}
+    button{
+      appearance:none;border:none;border-radius:16px;padding:12px 10px;min-height:52px;
+      font:inherit;font-weight:800;cursor:pointer;color:var(--ink);background:#fff4f6;border:1px solid #f5d3da;
+      transition:transform .16s ease,box-shadow .16s ease,background .16s ease;
+      -webkit-tap-highlight-color:transparent;
+    }
+    button:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(89,13,34,.09)}
+    button:active{transform:translateY(0) scale(.98)}
+    button.primary{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border-color:transparent}
+    .foot{padding:0 18px 18px;background:#fff;color:var(--muted);font-size:.82rem;text-align:center}
+    .mini{display:inline-flex;gap:6px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 10px}
+    @media(max-width:690px){
+      .header{align-items:flex-start;flex-direction:column}.badge{display:none}
+      .stage{min-height:410px}.controls{grid-template-columns:repeat(2,1fr)}.controls .primary{grid-column:1/-1}
+    }
+    @media(prefers-reduced-motion:reduce){.dog-wrap.idle,#tail{animation:none}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Área isolada de teste</div>
+        <h1>Mascote do Rotina Family</h1>
+        <p class="subtitle">Caricatura inspirada no filhote da foto: cabeça marrom, faixa branca, corpo claro e coleira vermelha.</p>
+      </div>
+      <div class="badge">Não altera as telas do app</div>
+    </header>
+
+    <section class="card" aria-label="Teste de animação do mascote">
+      <div class="stage">
+        <div class="ground" aria-hidden="true"></div>
+        <div id="speech" class="speech" aria-hidden="true">AU! AU!</div>
+
+        <div id="dog" class="dog-wrap idle" role="img" aria-label="Caricatura animada de um filhote branco e marrom com coleira vermelha">
+          <svg viewBox="0 0 360 360" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="furWhite" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffdf9"/><stop offset="1" stop-color="#eadfd7"/></linearGradient>
+              <linearGradient id="furBrown" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b75d2e"/><stop offset="1" stop-color="#7d351d"/></linearGradient>
+              <linearGradient id="collar" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#e52f46"/><stop offset="1" stop-color="#b9102d"/></linearGradient>
+            </defs>
+
+            <g id="tail">
+              <path d="M245 243 C292 222 302 257 276 267" fill="none" stroke="#f5ece5" stroke-width="24" stroke-linecap="round"/>
+              <path d="M275 267 C286 270 291 264 292 256" fill="none" stroke="#8b3b20" stroke-width="14" stroke-linecap="round"/>
+            </g>
+
+            <ellipse cx="182" cy="264" rx="78" ry="70" fill="url(#furWhite)"/>
+            <path d="M138 248 C126 275 126 310 140 326 C151 333 168 328 173 315 L174 270 Z" fill="url(#furWhite)"/>
+            <path d="M224 248 C239 277 241 310 229 327 C218 335 201 329 197 316 L194 270 Z" fill="url(#furWhite)"/>
+            <ellipse cx="144" cy="324" rx="28" ry="13" fill="#e8dbd2"/>
+            <ellipse cx="222" cy="324" rx="28" ry="13" fill="#e8dbd2"/>
+            <path d="M156 323 l-8 2 M164 325 l-7 3 M212 325 l8 2 M205 326 l8 3" stroke="#a98573" stroke-width="3" stroke-linecap="round"/>
+
+            <g id="head">
+              <g id="leftEar"><path d="M125 95 C94 74 62 82 61 111 C62 134 84 154 107 145 C121 133 129 113 125 95 Z" fill="url(#furBrown)"/><path d="M105 105 C86 94 77 101 78 115 C81 128 91 135 103 132" fill="#8f4124" opacity=".6"/></g>
+              <g id="rightEar"><path d="M236 95 C267 75 298 83 298 111 C296 134 276 153 253 145 C239 133 232 113 236 95 Z" fill="url(#furBrown)"/><path d="M256 105 C276 94 284 101 283 115 C280 128 270 135 258 132" fill="#8f4124" opacity=".6"/></g>
+
+              <ellipse cx="181" cy="130" rx="78" ry="72" fill="url(#furBrown)"/>
+              <path d="M164 61 C174 57 187 57 197 61 L209 116 C204 139 195 155 181 168 C167 154 157 138 153 116 Z" fill="#fffaf6"/>
+              <path d="M146 145 C153 127 165 117 181 117 C198 117 210 127 217 145 C220 166 207 186 181 190 C155 186 143 166 146 145 Z" fill="#fffaf6"/>
+
+              <g id="eyes">
+                <ellipse cx="146" cy="126" rx="15" ry="17" fill="#18151a"/>
+                <ellipse cx="216" cy="126" rx="15" ry="17" fill="#18151a"/>
+                <circle cx="141" cy="120" r="5" fill="#fff"/><circle cx="211" cy="120" r="5" fill="#fff"/>
+                <circle cx="149" cy="131" r="2.5" fill="#6f4a33"/><circle cx="219" cy="131" r="2.5" fill="#6f4a33"/>
+              </g>
+
+              <path d="M166 150 C173 142 190 142 197 150 C196 162 187 168 181 168 C175 168 166 162 166 150 Z" fill="#1b171a"/>
+              <ellipse cx="176" cy="151" rx="5" ry="3" fill="#fff" opacity=".7"/>
+              <g id="jaw">
+                <path d="M164 167 C170 176 192 176 198 167 C198 184 190 193 181 193 C172 193 164 184 164 167 Z" fill="#f7f1ec"/>
+                <path d="M174 178 C178 181 185 181 189 178" fill="none" stroke="#51242c" stroke-width="3" stroke-linecap="round"/>
+                <path d="M176 182 C180 187 184 187 188 182" fill="#ef7181" opacity=".9"/>
+              </g>
+            </g>
+
+            <path d="M123 192 C147 205 213 205 239 192 L232 219 C207 229 155 229 130 219 Z" fill="url(#collar)"/>
+            <rect x="172" y="205" width="20" height="20" rx="4" fill="#d2a33c" stroke="#9b7222" stroke-width="3"/>
+            <rect x="177" y="210" width="10" height="10" rx="2" fill="#fff1b0"/>
+
+            <path d="M114 235 C106 263 107 288 123 306" fill="none" stroke="#f7eee8" stroke-width="26" stroke-linecap="round"/>
+            <path d="M246 236 C255 261 253 289 239 307" fill="none" stroke="#f7eee8" stroke-width="26" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button type="button" data-action="bark">🐶 Latir</button>
+        <button type="button" data-action="jump">⬆️ Pular</button>
+        <button type="button" data-action="roll">🌀 Rolar</button>
+        <button type="button" data-action="flip">🤸 Cambalhota</button>
+        <button type="button" class="primary" data-action="demo">▶ Ver sequência</button>
+      </div>
+      <div class="foot"><span class="mini">🔊 O latido usa áudio gerado no próprio navegador</span></div>
+    </section>
+  </main>
+
+  <script>
+    const dog = document.getElementById('dog');
+    const speech = document.getElementById('speech');
+    let busy = false;
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function barkSound(){
+      try{
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AC();
+        const now = ctx.currentTime;
+        const master = ctx.createGain();
+        master.gain.setValueAtTime(0.0001, now);
+        master.gain.exponentialRampToValueAtTime(0.42, now + 0.015);
+        master.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        master.connect(ctx.destination);
+
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(82, now + 0.17);
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(900, now);
+        gain.gain.setValueAtTime(.55, now);
+        gain.gain.exponentialRampToValueAtTime(.001, now + .2);
+        osc.connect(filter).connect(gain).connect(master);
+        osc.start(now); osc.stop(now + .21);
+
+        const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * .2, ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for(let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*(1-i/data.length);
+        const noise = ctx.createBufferSource();
+        const nfilter = ctx.createBiquadFilter();
+        const ngain = ctx.createGain();
+        noise.buffer = noiseBuffer;
+        nfilter.type='bandpass'; nfilter.frequency.value=450; nfilter.Q.value=.7;
+        ngain.gain.value=.18;
+        noise.connect(nfilter).connect(ngain).connect(master);
+        noise.start(now); noise.stop(now+.2);
+        setTimeout(()=>ctx.close(),500);
+      }catch(e){/* áudio é opcional; a animação continua */}
+    }
+
+    function blink(){
+      dog.classList.add('blink');
+      setTimeout(()=>dog.classList.remove('blink'),190);
+    }
+    setInterval(()=>{ if(!busy && Math.random()>.35) blink(); }, 2600);
+
+    async function perform(action){
+      if(busy) return;
+      busy = true;
+      dog.classList.remove('idle','jump','roll','flip','bark');
+      void dog.offsetWidth;
+
+      const durations = {bark:1150,jump:980,roll:1280,flip:1180};
+      if(action==='bark'){
+        speech.classList.remove('show'); void speech.offsetWidth; speech.classList.add('show');
+        dog.classList.add('bark');
+        barkSound();
+        setTimeout(barkSound,310);
+      }else{
+        dog.classList.add(action);
+      }
+      await sleep(durations[action] || 1000);
+      dog.classList.remove(action);
+      dog.classList.add('idle');
+      busy = false;
+    }
+
+    async function demo(){
+      if(busy) return;
+      busy=true;
+      const sequence=['bark','jump','roll','flip'];
+      for(const action of sequence){
+        dog.classList.remove('idle','jump','roll','flip','bark');
+        void dog.offsetWidth;
+        if(action==='bark'){
+          speech.classList.remove('show'); void speech.offsetWidth; speech.classList.add('show');
+          dog.classList.add('bark'); barkSound(); setTimeout(barkSound,310);
+        } else dog.classList.add(action);
+        await sleep({bark:1150,jump:980,roll:1280,flip:1180}[action]);
+        dog.classList.remove(action);
+        await sleep(170);
+      }
+      dog.classList.add('idle');
+      busy=false;
+    }
+
+    document.querySelectorAll('button[data-action]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const action=btn.dataset.action;
+        if(action==='demo') demo(); else perform(action);
+      });
+    });
+  </script>
+</body>
+</html>

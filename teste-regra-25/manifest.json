@@ -1,0 +1,37 @@
+{
+  "name": "Meu Espaço de Metas",
+  "short_name": "Metas",
+  "description": "Acompanhe suas tarefas e metas diárias",
+  "start_url": "./index-CLIENTE-v6.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff0f3",
+  "theme_color": "#ff4d6d",
+  "icons": [
+    {
+      "src": "icon-cliente-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-cliente-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-cliente-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-cliente-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

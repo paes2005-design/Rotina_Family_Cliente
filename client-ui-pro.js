@@ -1,0 +1,106 @@
+(()=>{
+  window.__rotinaTimeGuardReady=false;
+  window.__rotinaMascoteLoaderVersion=13;
+  window.addEventListener('rotina-time-guard-ready',()=>{window.__rotinaTimeGuardReady=true;},{once:true});
+
+  // UI de notificações é um módulo independente. O orquestrador apenas o carrega.
+  if(!document.querySelector('script[data-rotina-notification-settings]')){
+    const script=document.createElement('script');
+    script.src='./client-notification-settings-v1.js?v=1';
+    script.async=false;
+    script.dataset.rotinaNotificationSettings='1';
+    script.onerror=()=>window.rotinaLog?.('push.configuracao_modulo_erro',{versao:1},'warning');
+    document.head.appendChild(script);
+  }
+
+  // Impede a comemoração legada. As reações de cachorro/gato são controladas
+  // exclusivamente por client-mascot-v3.js, carregado pelo bootstrap central.
+  const diasLegado=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const chave100Legado=`parabens_mostrado_${diasLegado[new Date().getDay()]}`;
+  sessionStorage.setItem(chave100Legado,'mascote-v3');
+
+  let guardNoticeTimer=null;
+  function mostrarPreparacaoGuard(){
+    let el=document.getElementById('rotinaGuardPreparingToast');
+    if(!el){
+      el=document.createElement('div');el.id='rotinaGuardPreparingToast';
+      el.style.cssText='position:fixed;left:16px;right:16px;bottom:88px;z-index:25000;background:#173a5e;color:#fff;padding:11px 14px;border-radius:12px;font-weight:700;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.18)';
+      document.body.appendChild(el);
+    }
+    el.textContent='Preparando as tarefas… tente novamente em um instante.';
+    clearTimeout(guardNoticeTimer);guardNoticeTimer=setTimeout(()=>el?.remove(),2600);
+  }
+
+  // Enquanto a regra temporal nova ainda está inicializando, impede que um toque
+  // muito rápido caia nas funções legadas do HTML. O primeiro toque é repetido
+  // automaticamente quando o guardião fica pronto, em vez de desaparecer sem resposta.
+  document.addEventListener('click',e=>{
+    const btn=e.target.closest?.('.btn-iniciar,.btn-finalizar');
+    if(!btn||window.__rotinaTimeGuardReady===true)return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if(btn.dataset.rfGuardQueued==='1')return;
+    btn.dataset.rfGuardQueued='1';
+    mostrarPreparacaoGuard();
+    let finished=false;
+    const release=()=>{
+      if(finished)return;finished=true;delete btn.dataset.rfGuardQueued;
+      if(window.__rotinaTimeGuardReady===true&&btn.isConnected)setTimeout(()=>btn.click(),0);
+    };
+    window.addEventListener('rotina-time-guard-ready',release,{once:true});
+    setTimeout(()=>{
+      if(finished)return;
+      finished=true;delete btn.dataset.rfGuardQueued;
+      window.rotinaLog?.('perf.time_guard_inicio_demorado',{limiteMs:8000},'warning');
+      mostrarPreparacaoGuard();
+    },8000);
+  },true);
+
+  const iconeTarefa=(nome='')=>{
+    const n=String(nome).toLowerCase();
+    const regras=[
+      [/videogame|video game|jogar game|jogar jogo|game/, '🎮'],
+      [/televis[aã]o|assistir tv|ver tv|tv/, '📺'],
+      [/brincar|brincadeira|brinquedo/, '🧸'],
+      [/celular|smartphone|telefone|mexer no celular|ficar no celular/, '📱'],
+      [/computador|notebook|pc/, '💻'],
+      [/cama|dormir|quarto/, '🛏️'],
+      [/dente|escovar|higiene bucal/, '🪥'],
+      [/banho|chuveiro/, '🚿'],
+      [/leitura|ler|livro/, '📖'],
+      [/mochila|material escolar/, '🎒'],
+      [/estud|dever|lição|licao|prova|escola|ingl[eê]s/, '📚'],
+      [/limp|varrer|arrumar|organizar|faxina/, '🧹'],
+      [/louça|louca|prato|cozinha/, '🍽️'],
+      [/roupa|uniforme|lavar roupa/, '👕'],
+      [/lixo/, '🗑️'],
+      [/pet|cachorro|gato|ração|racao/, '🐾'],
+      [/rem[eé]dio|medica/, '💊'],
+      [/exerc|treino|correr|caminhar|academia/, '🏃'],
+      [/comer|almo|jantar|caf[eé]|lanche|aliment/, '🍴'],
+      [/oração|oracao|rezar/, '🙏']
+    ];
+    return regras.find(([r])=>r.test(n))?.[1]||'✅';
+  };
+  window.iconeTarefaRotina=iconeTarefa;
+  function decorar(){
+    const tabela=document.querySelector('#telaApp table');if(tabela)tabela.classList.add('cliente-task-table');
+    document.querySelectorAll('#tabelaCorpo tr').forEach(row=>{
+      const td=row.children?.[1];if(!td||td.querySelector('.task-icon-cliente'))return;
+      const strong=td.querySelector('strong');if(!strong)return;
+      const wrap=document.createElement('div');wrap.className='task-name-wrap';
+      const icon=document.createElement('span');icon.className='task-icon-cliente';icon.setAttribute('aria-hidden','true');icon.textContent=(strong.dataset.taskIcon||'').trim()||iconeTarefa(strong.textContent||'');
+      strong.parentNode.insertBefore(wrap,strong);wrap.appendChild(icon);wrap.appendChild(strong);
+    });
+    window.aplicarPontosRevisadosCliente?.();
+    window.aplicarInicioAntecipadoCliente?.();
+    window.prepararCronometrosTolerancia?.();
+    window.avaliarMetaDiariaMascote?.();
+  }
+  function iniciar(){
+    decorar();
+    const tbody=document.getElementById('tabelaCorpo');
+    if(tbody)new MutationObserver(decorar).observe(tbody,{childList:true,subtree:false});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',iniciar,{once:true});else iniciar();
+})();

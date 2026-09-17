@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Rotina Family — Sprint 2 • Teste Participante</title>
+
+    <link rel="manifest" href="manifest.json?v=25">
+    <meta name="theme-color" content="#ff4d6d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Rotina Family">
+    <link rel="apple-touch-icon" href="icon-cliente-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-cliente-192.png">
+    <link rel="stylesheet" href="./client-ui-pro.css">
+
+    <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+    <script>
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        const oneSignalBasePath = new URL('./', window.location.href).pathname;
+        const oneSignalWorkerPath = `${oneSignalBasePath.replace(/^\/+/, '')}push/onesignal/OneSignalSDKWorker.js`;
+        let oneSignalParticipanteAtual='';
+        let oneSignalParticipantePendente='';
+        async function aplicarIdentidadeParticipanteNoPush(OneSignal,grupo,perfilId) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return false;
+            const externalId=`rotina_family__${g}__${p}`;
+            if(oneSignalParticipanteAtual===externalId||oneSignalParticipantePendente===externalId)return true;
+            oneSignalParticipantePendente=externalId;
+            try{
+                await OneSignal.login(externalId);
+                await OneSignal.User.addTags({grupoId:g,perfilId:p,aplicativo:'participante'});
+                oneSignalParticipanteAtual=externalId;
+                return true;
+            }finally{
+                if(oneSignalParticipantePendente===externalId)oneSignalParticipantePendente='';
+            }
+        }
+        window.identificarParticipanteNoPush = function(grupo,perfilId) {
+            const g=String(grupo||'').trim(),p=String(perfilId||'').trim();
+            if(!g||!p)return;
+            window.OneSignalDeferred.push(async function(OneSignal) {
+                await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+            });
+        };
+        // Compatibilidade interna temporária para módulos antigos.
+        window.identificarClienteNoPush = window.identificarParticipanteNoPush;
+        window.ativarPushRotina = function() {
+            return new Promise(resolve=>{
+                let concluido=false;
+                const concluir=estado=>{if(!concluido){concluido=true;resolve(estado)}};
+                window.OneSignalDeferred.push(async function(OneSignal) {
+                    try{await OneSignal.User.PushSubscription.optIn();concluir({optedIn:OneSignal.User.PushSubscription.optedIn,id:OneSignal.User.PushSubscription.id||''})}
+                    catch(e){concluir({optedIn:false,id:'',erro:String(e?.message||e)})}
+                });
+                setTimeout(()=>concluir({optedIn:false,id:'',erro:'tempo-esgotado'}),6000);
+            });
+        };
+        window.obterStatusPushRotina = function(callback) {
+            window.OneSignalDeferred.push(function(OneSignal) { callback?.({optedIn:OneSignal.User.PushSubscription.optedIn,id:OneSignal.User.PushSubscription.id||''}); });
+        };
+        window.desvincularParticipanteDoPush = function() {
+            oneSignalParticipanteAtual='';oneSignalParticipantePendente='';
+            window.OneSignalDeferred.push(async function(OneSignal) { await OneSignal.logout(); });
+        };
+        window.desvincularClienteDoPush = window.desvincularParticipanteDoPush;
+        window.addEventListener('rotina-client-session-ready',e=>window.identificarParticipanteNoPush(e.detail?.grupo,e.detail?.perfilId));
+        window.OneSignalDeferred.push(async function(OneSignal) {
+            await OneSignal.init({
+                appId: "356292b3-a763-4a89-b0e5-21bf54bf0424",
+                safari_web_id: "web.onesignal.auto.3a07767d-f8c5-4ebf-965b-cb322da40f9f",
+                serviceWorkerPath: oneSignalWorkerPath,
+                serviceWorkerParam: {
+                    scope: `${oneSignalBasePath}push/onesignal/`
+                },
+                notifyButton: {
+                    enable: true,
+                    size: 'medium',
+                    position: 'bottom-right',
+                    offset: { bottom: '88px', right: '14px' },
+                    showCredit: false,
+                    text: {
+                        'launcher.button.aria-label': 'Gerenciar notificações',
+                        'tip.state.unsubscribed': 'Ativar notificações',
+                        'tip.state.subscribed': 'Notificações ativadas',
+                        'tip.state.blocked': 'Notificações bloqueadas',
+                        'message.prenotify': 'Clique para receber os lembretes da rotina',
+                        'message.action.subscribed': 'Notificações ativadas com sucesso!',
+                        'message.action.resubscribed': 'Notificações ativadas novamente',
+                        'message.action.unsubscribed': 'Você não receberá mais notificações',
+                        'dialog.main.title': 'Notificações do Rotina Family',
+                        'dialog.main.button.subscribe': 'ATIVAR',
+                        'dialog.main.button.unsubscribe': 'DESATIVAR',
+                        'dialog.blocked.title': 'Desbloquear notificações',
+                        'dialog.blocked.message': 'Siga estas instruções para permitir notificações:'
+                    }
+                }
+            });
+            const pushDetails = event => {
+                const notification = event?.notification || {};
+                const data = notification.additionalData || notification.data || {};
+                return {
+                    tipo: String(data.tipo || 'push').slice(0, 60),
+                    momento: String(data.momento || '').slice(0, 20),
+                    paginaVisivel: document.visibilityState === 'visible'
+                };
+            };
+            OneSignal.Notifications.addEventListener('foregroundWillDisplay', event => {
+                window.rotinaLog?.('push.onesignal_primeiro_plano', pushDetails(event));
+            });
+            OneSignal.Notifications.addEventListener('click', event => {
+                window.rotinaLog?.('push.onesignal_clicado', pushDetails(event));
+            });
+            OneSignal.Notifications.addEventListener('dismiss', event => {
+                window.rotinaLog?.('push.onesignal_dispensado', pushDetails(event));
+            });
+            const g=String(localStorage.getItem('cliente_grupo')||'').trim(),p=String(localStorage.getItem('cliente_perfil_id')||'').trim();
+            if(g&&p)await aplicarIdentidadeParticipanteNoPush(OneSignal,g,p);
+        });
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --cor-primaria: #ff4d6d;
+            --cor-secundaria: #ff758f;
+            --cor-clara: #ffb3c1;
+            --cor-fundo: #fff0f3;
+            --cor-texto: #590d22;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--cor-fundo); color: var(--cor-texto); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; transition: all 0.5s ease; }
+        .auth-container { width: 100%; max-width: 400px; background: white; padding: 30px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; margin-top: 50px; }
+        .auth-container input, .auth-container button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 12px; border: 2px solid #ddd; box-sizing: border-box; font-size: 1rem; }
+        .auth-container button { background-color: #4a4e69; color: white; border: none; font-weight: bold; cursor: pointer; }
+        .app-container { display: none; width: 100%; max-width: 950px; background: white; padding: 30px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative; }
+        .btn-sair-top { position: absolute; top: 20px; right: 20px; background: #e63946; color: white; border: none; padding: 8px 16px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        h1 { font-size: 2.3rem; color: var(--cor-primaria); text-align: center; margin-bottom: 5px; padding-right: 60px; }
+        .subtitulo { text-align: center; color: var(--cor-secundaria); margin-bottom: 25px; font-size: 1.1rem; }
+        .dash-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px; }
+        .card { background: var(--cor-fundo); padding: 15px; border-radius: 16px; text-align: center; border: 1px solid var(--cor-clara); }
+        .card span { font-size: 0.85rem; color: var(--cor-secundaria); display: block; font-weight: 600; text-transform: uppercase; }
+        .card strong { font-size: 1.5rem; color: var(--cor-primaria); }
+        .card strong small { font-size: 0.95rem; color: #999; font-weight: 500; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { background-color: var(--cor-secundaria); color: white; font-weight: 600; padding: 15px; text-align: left; border-radius: 12px 12px 0 0; }
+        td { padding: 18px 15px; border-bottom: 1px solid var(--cor-clara); font-size: 1.05rem; }
+        .horario-container { display: flex; flex-direction: column; }
+        .horario-sugerido { font-weight: 600; }
+        .horario-real { font-size: 0.85rem; color: #666; margin-top: 4px; }
+        .btn { border: none; padding: 10px 20px; border-radius: 50px; font-weight: 600; cursor: pointer; }
+        .btn-iniciar { background-color: var(--cor-secundaria); color: white; }
+        .btn-finalizar { background-color: #ffb703; color: #212529; }
+        .status-badge { padding: 6px 14px; border-radius: 30px; font-size: 0.9rem; font-weight: 600; display: inline-block; }
+        .status-pendente { background: #e9ecef; color: #495057; }
+        .status-andamento { background: #cce5ff; color: #004085; }
+        .status-prazo { background: #d4edda; color: #155724; }
+        .status-prazo-75 { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+        .status-prazo-50 { background: #ffedd5; color: #9a3412; border: 1px solid #fdba74; }
+        .status-atrasado { background: #f8d7da; color: #721c24; }
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 999; }
+        .modal-box { background: white; padding: 40px; border-radius: 24px; text-align: center; max-width: 450px; width: 90%; position: relative; }
+
+        .avatar-box { height: 120px; display: flex; justify-content: center; align-items: flex-end; margin-bottom: 25px; position: relative; }
+
+        .boneca-container { display: flex; flex-direction: column; align-items: center; animation: dancaFem 0.8s infinite alternate ease-in-out; }
+        .boneca-emoji { font-size: 55px; }
+        .status-texto { margin-top: 6px; font-size: 13px; font-weight: bold; color: #db2777; }
+        @keyframes dancaFem { 
+            0% { transform: translateY(0) rotate(-6deg); } 
+            100% { transform: translateY(-10px) rotate(6deg); } 
+        }
+    </style>
+</head>
+<body>
+    <div id="telaAuth" class="auth-container">
+        <h2>Bem-vindo(a) ao Metas!</h2>
+        <input type="text" id="authNome" placeholder="Seu Nome Cadastrado">
+        <input type="text" id="authCodigo" placeholder="Código do Grupo (ex: CLI-1234)">
+        <input type="password" inputmode="numeric" maxlength="6" id="authPin" placeholder="Seu PIN (4 a 6 dígitos)">
+        <button onclick="conectarCliente()">Entrar no Meu Espaço</button>
+    </div>
+
+    <div id="modalFeedback" class="overlay">
+        <div class="modal-box">
+            <div style="font-size:3.5rem">😢</div>
+            <h3 style="font-size:1.6rem; margin:10px 0;">Ah, puxa vida...</h3>
+            <p style="font-size:1.1rem; color:#555; margin-bottom: 15px;">Infelizmente, você estourou o tempo limite planejado.</p>
+            <p id="textoPerguntaJustificativa" style="font-size:0.95rem; color:#444; text-align:left; margin-bottom:6px;"><strong>Qual foi o motivo do atraso?</strong> Você pode escrever ou tocar no microfone e falar. A fala será convertida em texto para você revisar antes de confirmar.</p>
+            <div id="blocoCamposJustificativa">
+            <textarea id="textoJustificativaAtraso" rows="3" style="width:100%; box-sizing:border-box; padding:10px; border-radius:12px; border:2px solid #ddd; font-family:inherit; font-size:0.95rem; resize:vertical;" placeholder="Escreva pelo menos 5 palavras ou use o microfone..."></textarea>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;justify-content:center">
+                <button class="btn" id="btnFalarJustificativa" onclick="falarJustificativa()" style="background:#4a4e69;color:white">🎙️ Falar justificativa</button>
+            </div>
+            <div id="statusReconhecimentoVoz" style="font-size:.9rem;color:#666;margin-top:8px"></div>
+            <p id="erroJustificativaAtraso" style="color:#d90429; font-size:0.85rem; margin-top:6px; display:none; text-align:left;">A justificativa precisa ter pelo menos 5 palavras.</p>
+            <button class="btn" onclick="confirmarJustificativaAtraso()" style="background-color: var(--cor-primaria); color:white; width:100%; margin-top:15px; padding:12px;">Confirmar justificativa</button>
+            </div>
+            <div id="acoesJustificativaOpcional" style="display:none;gap:10px;margin-top:15px;justify-content:center;flex-wrap:wrap">
+                <button class="btn" onclick="optarJustificarAtraso(true)" style="background:var(--cor-primaria);color:white">Sim, quero justificar</button>
+                <button class="btn" onclick="optarJustificarAtraso(false)" style="background:#6c757d;color:white">Não quero justificar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Trava de Ordem de Tarefas -->
+    <div id="modalTrava" class="overlay" onclick="fecharModal('modalTrava')">
+        <div class="modal-box">
+            <div style="font-size:3.5rem">✋ Ops!</div>
+            <h3 style="font-size:1.6rem; margin:10px 0;">Calma lá, um passo de cada vez! 🛑</h3>
+            <p style="font-size:1.1rem; color:#555;"><strong>Tarefa anterior ainda não terminada.</strong><br><br>Garanta que as tarefas estejam em ordem de horários e que não possam ser puladas ou executadas juntas!</p>
+        </div>
+    </div>
+
+    <div id="modalCelebracao" class="overlay" onclick="fecharModal('modalCelebracao')">
+        <div class="modal-box">
+            <div class="avatar-box" id="avatarCelebracaoContainer"></div>
+            <h2 style="color:#2a9d8f; font-size:2rem; margin:5px 0;">Uhu! Dia 100% Concluído!</h2>
+            <p style="font-size:1.2rem; font-weight:bold;" id="txtParabens100">Parabéns!</p>
+        </div>
+    </div>
+
+    <div id="modalRecompensaStatus" class="overlay" onclick="fecharModal('modalRecompensaStatus')">
+        <div class="modal-box"><div id="iconeRecompensaStatus" style="font-size:4rem">🎁</div><h2 id="tituloRecompensaStatus"></h2><p id="textoRecompensaStatus" style="font-size:1.1rem"></p><button class="btn" onclick="fecharModal('modalRecompensaStatus')" style="background:var(--cor-primaria);color:white">Entendi</button></div>
+    </div>
+
+    <div id="modalInfoRegraAtraso" class="overlay" onclick="if(event.target===this) fecharModal('modalInfoRegraAtraso')">
+        <div class="modal-box" style="text-align:left;max-width:520px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                <h2 style="margin:0;color:var(--cor-primaria)">ℹ️ Regra de pontuação</h2>
+                <button class="btn" onclick="fecharModal('modalInfoRegraAtraso')" style="padding:5px 10px">✕</button>
+            </div>
+            <div id="textoRegraAtrasoCliente" style="margin-top:15px;color:#444;line-height:1.55"></div>
+        </div>
+    </div>
+
+    <div id="telaApp" class="app-container">
+        <button class="btn-sair-top" onclick="sairCliente()">Sair 🚪</button>
+        <h1 id="tituloSaudacao">Carregando...</h1>
+        <p class="subtitulo" id="txtDiaSemana">Hoje</p>
+        <div style="display:flex;justify-content:flex-end;margin:-6px 0 10px">
+            <button class="btn" onclick="abrirInfoRegraAtraso()" style="padding:7px 12px;background:#eef2ff;color:#334155;border:1px solid #c7d2fe">ℹ️ Como funciona a pontuação</button>
+        </div>
+        <div class="dash-cards">
+            <div class="card"><span>Hoje</span><strong><span id="ptsHoje">0</span><small id="possivelHoje"> / 0 pts</small></strong></div>
+            <div class="card"><span>Semana</span><strong><span id="ptsSemana">0</span><small id="possivelSemana"> / 0 pts</small></strong></div>
+            <div class="card"><span>Mês</span><strong><span id="ptsMes">0</span><small id="possivelMes"> / 0 pts</small></strong></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px">
+            <div class="card" style="text-align:left"><span>🔥 Sequência / Conquistas</span><div id="conquistasCliente" style="margin-top:8px"></div></div>
+            <div class="card" style="text-align:left"><span>🎁 Recompensas e Resgates</span><div id="recompensasCliente" style="margin-top:8px"></div></div>
+        </div>
+        <div class="card" style="text-align:left;margin-bottom:20px"><span>📝 Minhas justificativas</span><div id="justificativasCliente" style="margin-top:8px"></div></div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Horário Sugerido / Real</th>
+                    <th style="width: 45%;">Tarefa</th>
+                    <th style="width: 15%;">Status</th>
+                    <th style="width: 10%;">Ação</th>
+                </tr>
+            </thead>
+            <tbody id="tabelaCorpo"></tbody>
+        </table>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, updateDoc, doc, getDocs, getDocsFromCache, getDocsFromServer, addDoc, writeBatch, getDoc, getDocFromCache, getDocFromServer, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCP9odEV8TJGOM4lflHk64BbPyXXVjGcYg",
+            authDomain: "sistema-de-metas-diarias.firebaseapp.com",
+            projectId: "sistema-de-metas-diarias",
+            storageBucket: "sistema-de-metas-diarias.firebasestorage.app",
+            messagingSenderId: "576624564310",
+            appId: "1:576624564310:web:fb2115a0c21659fefb83f7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+
+        async function hashPin(pin) {
+            const data = new TextEncoder().encode(pin);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        let clienteNome = "";
+        let clienteSexo = "Feminino";
+        let clientePerfilId = "";
+        let codigoGrupo = "";
+        let unsubscribeTarefas = null;
+        let unsubscribeTarefasTodas = null;
+        let unsubscribeHistorico = null;
+        let cacheTarefasHoje = [];
+        let cacheTarefasTodas = [];
+        let cacheHistorico = [];
+        let pendenteJustificativaAtraso = null;
+        let reconhecimentoVoz = null;
+        let justificativaFoiDitada = false;
+        let recompensasCache = [];
+        let resgatesCache = [];
+        let unsubscribeRecompensas = null;
+        let unsubscribeResgates = null;
+        let unsubscribeConfigGrupo = null;
+        const SINCRONIZACAO_CLIENTE_MS = 5 * 60 * 1000;
+        let sincronizacaoClienteTimer = null;
+        let sincronizacaoClienteEmCurso = false;
+        let ultimaSincronizacaoClienteServidor = 0;
+        let eventosSincronizacaoInstalados = false;
+        const REGRA_ATRASO_PADRAO = { dentroLimites:100, atrasoLeve:75, atrasoMaior:50, estourado:0 };
+        let regraAtrasoAtual = { ...REGRA_ATRASO_PADRAO };
+
+        function normalizarRegraAtraso(valor={}) {
+            const r=valor.regraAtraso || valor || {};
+            const n=(v,p)=>Number.isFinite(Number(v))?Math.max(0,Math.min(100,Number(v))):p;
+            return {dentroLimites:n(r.dentroLimites,100),atrasoLeve:n(r.atrasoLeve,75),atrasoMaior:n(r.atrasoMaior,50),estourado:0};
+        }
+        function textoRegraAtrasoCliente(){
+            const r=regraAtrasoAtual;
+            return `<strong>Como funciona o saldo de tolerância</strong><br><br>`+
+            `Cada tarefa tem um saldo de tolerância. Se você começar depois do horário, usa uma parte. Se terminar depois do horário, usa mais uma parte do mesmo saldo.<br><br>`+
+            `✅ <strong>${r.dentroLimites}%</strong>: o atraso total consumiu até 100% do saldo de tolerância.<br>`+
+            `🟡 <strong>${r.atrasoLeve}%</strong>: o atraso total passou do saldo, mas ficou até 25% além dele.<br>`+
+            `🟠 <strong>${r.atrasoMaior}%</strong>: o atraso total passou mais, mas ficou até 50% além do saldo.<br>`+
+            `🔴 <strong>${r.estourado}%</strong>: o atraso total passou de 50% além do saldo de tolerância.<br><br>`+
+            `<small>O atraso total é a soma do atraso no início com o atraso no término. Os horários são avaliados em minutos completos.</small>`;
+        }
+        window.abrirInfoRegraAtraso=()=>{ const el=document.getElementById('textoRegraAtrasoCliente'); if(el) el.innerHTML=textoRegraAtrasoCliente(); document.getElementById('modalInfoRegraAtraso').style.display='flex'; };
+
+
+        const diasSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+        const diaAtualTexto = diasSemana[new Date().getDay()];
+
+        // Sábado e Domingo não levam o sufixo "-feira" em português; os demais dias levam
+        const diasSemanaExibicao = {
+            "Domingo": "Domingo",
+            "Segunda": "Segunda-feira",
+            "Terça": "Terça-feira",
+            "Quarta": "Quarta-feira",
+            "Quinta": "Quinta-feira",
+            "Sexta": "Sexta-feira",
+            "Sábado": "Sábado"
+        };
+        const diaAtualExibicao = diasSemanaExibicao[diaAtualTexto];
+
+        const somFogos = new Audio("https://assets.mixkit.co/active_storage/sfx/2000/2000-84.wav");
+        const somMusica100 = new Audio("https://assets.mixkit.co/active_storage/sfx/123/123-84.wav");
+        const somErroQuak = new Audio("https://assets.mixkit.co/active_storage/sfx/2749/2749-84.wav");
+
+        function converterHoraParaMinutos(stringHora) {
+            if(!stringHora) return 0;
+            const [h, m] = stringHora.split(':').map(Number);
+            return (h * 60) + m;
+        }
+
+        function formatarDataISO(d) {
+            const ano = d.getFullYear();
+            const mes = String(d.getMonth() + 1).padStart(2, '0');
+            const dia = String(d.getDate()).padStart(2, '0');
+            return `${ano}-${mes}-${dia}`;
+        }
+
+        function escaparHtml(texto) { return String(texto ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        function execucaoId(tarefaId,data=new Date()){ return `${formatarDataISO(data)}__${tarefaId}`; }
+
+        function obterInicioSemana(dataRef = new Date()) {
+            const d = new Date(dataRef);
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() - d.getDay()); // volta até o Domingo
+            return d;
+        }
+
+        function contarOcorrenciasNoMes(diaSemanaTexto, ano, mes) {
+            const indiceDia = diasSemana.indexOf(diaSemanaTexto);
+            const totalDiasNoMes = new Date(ano, mes + 1, 0).getDate();
+            let contagem = 0;
+            for (let dia = 1; dia <= totalDiasNoMes; dia++) {
+                if (new Date(ano, mes, dia).getDay() === indiceDia) contagem++;
+            }
+            return contagem;
+        }
+
+        // Calcula e exibe Hoje/Semana/Mês (ganho a partir do histórico com data real, possível a partir das tarefas atuais)
+        function atualizarPainelPontos() {
+            const hojeISO = formatarDataISO(new Date());
+            const inicioSemanaISO = formatarDataISO(obterInicioSemana());
+            const anoAtual = new Date().getFullYear();
+            const mesAtual = new Date().getMonth();
+
+            let ganhoHoje = 0, ganhoSemana = 0, ganhoMes = 0;
+            cacheHistorico.forEach((h) => {
+                const pts = Number(h.pontosGanhos) || 0;
+                if(h.data === hojeISO) ganhoHoje += pts;
+                if(h.data >= inicioSemanaISO) ganhoSemana += pts;
+                const [anoH, mesH] = (h.data || "0-0-0").split('-').map(Number);
+                if(anoH === anoAtual && (mesH - 1) === mesAtual) ganhoMes += pts;
+            });
+
+            let possivelHoje = 0;
+            cacheTarefasHoje.forEach((t) => { possivelHoje += t.pontosMaximos || 0; });
+
+            let possivelSemana = 0, possivelMes = 0;
+            cacheTarefasTodas.forEach((t) => {
+                possivelSemana += t.pontosMaximos || 0;
+                possivelMes += (t.pontosMaximos || 0) * contarOcorrenciasNoMes(t.diaSemana, anoAtual, mesAtual);
+            });
+
+            document.getElementById("ptsHoje").innerText = ganhoHoje;
+            document.getElementById("possivelHoje").innerText = ` / ${possivelHoje} pts`;
+            document.getElementById("ptsSemana").innerText = ganhoSemana;
+            document.getElementById("possivelSemana").innerText = ` / ${possivelSemana} pts`;
+            document.getElementById("ptsMes").innerText = ganhoMes;
+            document.getElementById("possivelMes").innerText = ` / ${possivelMes} pts`;
+        }
+
+        // Reflete imediatamente uma conclusão feita sem internet. Quando o snapshot
+        // local/remoto chegar, o mesmo id substitui este registro e não duplica pontos.
+        window.registrarHistoricoLocal = (id, historico) => {
+            if(!id || !historico) return;
+            const pertenceAoPerfil = historico.perfilId ? historico.perfilId === clientePerfilId : historico.perfilNome === clienteNome;
+            if(!pertenceAoPerfil) return;
+            const registro = { id, ...historico };
+            const indice = cacheHistorico.findIndex(h => h.id === id);
+            if(indice >= 0) cacheHistorico[indice] = { ...cacheHistorico[indice], ...registro };
+            else cacheHistorico.push(registro);
+            atualizarPainelPontos();
+            atualizarConquistas();
+            renderizarRecompensasCliente();
+        };
+
+        // Reset semanal (aos domingos): o histórico já guardou tudo permanentemente antes disso,
+        // então aqui é seguro só devolver as tarefas para "Pendente".
+        async function verificarEExecutarResetSemanal(grupoId) {
+            // O reset semanal agora é executado pelo Worker com credenciais de servidor.
+            return;
+            try {
+                const refConfig = doc(db, "configGrupos", grupoId);
+                const snapConfig = await getDoc(refConfig);
+                const dadosConfig = snapConfig.exists() ? snapConfig.data() : {};
+
+                const inicioSemanaAtual = obterInicioSemana();
+                const ultimoReset = dadosConfig.ultimoReset ? new Date(dadosConfig.ultimoReset) : new Date(0);
+
+                if(ultimoReset < inicioSemanaAtual) {
+                    const qTarefas = query(collection(db, "tarefas"), where("grupoId", "==", grupoId));
+                    const snapTarefas = await getDocs(qTarefas);
+
+                    const batch = writeBatch(db);
+                    snapTarefas.forEach((docSnap) => {
+                        const t = docSnap.data();
+                        if(t.status && t.status !== "Pendente") {
+                            batch.update(docSnap.ref, {
+                                status: "Pendente",
+                                horarioInicio: "",
+                                horarioTermino: "",
+                                pontosGanhos: 0,
+                                iniciouComAtraso: false,
+                                iniciouAposLimiteFinal: false,
+                                percentualAplicado: null,
+                                faixaAtraso: "",
+                                minutosAlemTolerancia: null,
+                                faixaLeveMinutos: null,
+                                justificativaAtraso: "",
+                                tipoJustificativa: "",
+                                justificativaRecusada: false
+                            });
+                        }
+                    });
+                    batch.set(refConfig, { grupoId, ultimoReset: inicioSemanaAtual.toISOString() }, { merge: true });
+                    await batch.commit();
+                }
+            } catch (erro) {
+                console.error("Erro ao verificar reset semanal:", erro);
+            }
+        }
+
+        function aplicarTemaVisual(sexo) {
+            if(sexo === "Masculino") {
+                document.documentElement.style.setProperty('--cor-primaria', '#1e6091');
+                document.documentElement.style.setProperty('--cor-secundaria', '#1a759f');
+                document.documentElement.style.setProperty('--cor-clara', '#b5e2fa');
+                document.documentElement.style.setProperty('--cor-fundo', '#e8f1f5');
+                document.documentElement.style.setProperty('--cor-texto', '#012a4a');
+            } else {
+                document.documentElement.style.setProperty('--cor-primaria', '#ff4d6d');
+                document.documentElement.style.setProperty('--cor-secundaria', '#ff758f');
+                document.documentElement.style.setProperty('--cor-clara', '#ffb3c1');
+                document.documentElement.style.setProperty('--cor-fundo', '#fff0f3');
+                document.documentElement.style.setProperty('--cor-texto', '#590d22');
+            }
+        }
+
+        window.conectarCliente = async () => {
+            const nomeInput=document.getElementById('authNome').value.trim();
+            const codInput=document.getElementById('authCodigo').value.trim().toUpperCase();
+            const pinInput=document.getElementById('authPin').value.trim();
+            if(!nomeInput||!codInput) return alert('Preencha nome e código do grupo.');
+            const nomeFormatado=nomeInput.charAt(0).toUpperCase()+nomeInput.slice(1);
+            const snap=await getDocs(query(collection(db,'perfis'),where('grupoId','==',codInput),where('nome','==',nomeFormatado)));
+            if(snap.empty) return alert('Cliente não cadastrado neste grupo.');
+            const perfilDoc=snap.docs[0], dados=perfilDoc.data();
+            if(dados.pinHash) {
+                const informadoHash=await hashPin(pinInput);
+                if(informadoHash!==dados.pinHash) return alert('PIN incorreto.');
+            } else if(dados.pin) {
+                if(dados.pin!==pinInput) return alert('PIN incorreto.');
+                const pinHash=await hashPin(pinInput);
+                updateDoc(perfilDoc.ref,{pinHash,pinVersion:2,pin:deleteField(),pinMigradoEm:new Date().toISOString()}).catch(console.error);
+            } else {
+                return alert('Este perfil ainda não possui PIN. Peça ao administrador para definir um PIN.');
+            }
+            clientePerfilId=dados.perfilId || perfilDoc.id;
+            localStorage.setItem('cliente_nome',nomeFormatado); localStorage.setItem('cliente_grupo',codInput); localStorage.setItem('cliente_sexo',dados.sexo||'Feminino'); localStorage.setItem('cliente_perfil_id',clientePerfilId);
+            iniciarSessaoCliente(nomeFormatado,codInput,dados.sexo||'Feminino',clientePerfilId);
+        };
+
+        async function iniciarSessaoCliente(nome,grupo,sexo,perfilId=''){
+            clienteNome=nome; codigoGrupo=grupo; clienteSexo=sexo; clientePerfilId=perfilId; aplicarTemaVisual(clienteSexo);
+            document.getElementById('telaAuth').style.display='none'; document.getElementById('telaApp').style.display='block';
+            document.getElementById('tituloSaudacao').innerText=`${clienteNome}, hoje é ${diaAtualExibicao}!`;
+            document.getElementById('txtDiaSemana').innerText='Acompanhe suas janelas de prazos diários!';
+            await iniciarEscutasFirebase();
+            window.dispatchEvent(new CustomEvent('rotina-client-session-ready',{detail:{grupo:codigoGrupo,perfilId:clientePerfilId}}));
+            verificarEExecutarResetSemanal(codigoGrupo).catch(e=>console.error('Falha ao conferir a virada semanal',e));
+        }
+
+        window.rotinaIniciarSessaoCliente=(...args)=>iniciarSessaoCliente(...args);
+
+        window.sairCliente=()=>{ encerrarSincronizacaoCliente(); [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u()); window.desvincularClienteDoPush?.(); ['cliente_nome','cliente_grupo','cliente_sexo','cliente_perfil_id'].forEach(k=>localStorage.removeItem(k)); document.getElementById('telaApp').style.display='none';document.getElementById('telaAuth').style.display='block'; };
+
+        window.addEventListener('DOMContentLoaded',async()=>{ const n=localStorage.getItem('cliente_nome'),g=localStorage.getItem('cliente_grupo'),s=localStorage.getItem('cliente_sexo'),p=localStorage.getItem('cliente_perfil_id'); if(n&&g){ if(typeof window.rotinaRestaurarSessaoParticipante==='function') await window.rotinaRestaurarSessaoParticipante(n,g,s,p||''); else iniciarSessaoCliente(n,g,s,p||''); } });
+
+        function snapshotClienteCompartilhado() {
+            return {
+                grupoId: codigoGrupo,
+                perfilId: clientePerfilId,
+                tarefasTodas: cacheTarefasTodas.map(x=>({...x})),
+                tarefasHoje: cacheTarefasHoje.map(x=>({...x})),
+                historico: cacheHistorico.map(x=>({...x})),
+                recompensas: recompensasCache.map(x=>({...x})),
+                resgates: resgatesCache.map(x=>({...x})),
+                regraAtraso: {...regraAtrasoAtual},
+                ultimaSincronizacaoServidor: ultimaSincronizacaoClienteServidor
+            };
+        }
+        window.rotinaClientCacheSnapshot = snapshotClienteCompartilhado;
+        window.rotinaAtualizarTarefaLocal = (id, patch={}) => {
+            const tarefaId=String(id||'').trim(); if(!tarefaId)return;
+            cacheTarefasTodas=cacheTarefasTodas.map(t=>t.id===tarefaId?{...t,...patch}:t);
+            cacheTarefasHoje=cacheTarefasHoje.map(t=>t.id===tarefaId?{...t,...patch}:t);
+            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
+            window.dispatchEvent(new CustomEvent('rotina-client-cache-updated',{detail:{origem:'acao-local',servidor:false,colecoes:['tarefas']}}));
+        };
+
+        function aplicarTarefasSnapshot(snapshot, origem) {
+            if(!snapshot)return;
+            const tarefaVisivel=t=>!(t?.ativa===false||t?.ativo===false||t?.active===false||String(t?.status||'').trim().toLowerCase()==='inativa');
+            const lista=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.perfilId ? t.perfilId===clientePerfilId : t.perfilNome===clienteNome)).filter(tarefaVisivel);
+            cacheTarefasTodas=lista;
+            cacheTarefasHoje=lista.filter(t=>t.diaSemana===diaAtualTexto).sort((a,b)=>(a.horaSugeridaInicio||'').localeCompare(b.horaSugeridaInicio||''));
+            renderizarTarefasHoje(); atualizarPainelPontos(); atualizarConquistas();
+            window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem}}));
+        }
+        function aplicarHistoricoSnapshot(snapshot){
+            if(!snapshot)return;
+            cacheHistorico=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(h=>(h.perfilId ? h.perfilId===clientePerfilId : h.perfilNome===clienteNome));
+            atualizarPainelPontos(); atualizarConquistas(); renderizarRecompensasCliente(); renderizarJustificativasCliente();
+        }
+        function aplicarRecompensasSnapshot(snapshot){if(snapshot){recompensasCache=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(r=>r.ativa!==false);renderizarRecompensasCliente();}}
+        function aplicarResgatesSnapshot(snapshot){if(snapshot){resgatesCache=snapshot.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.perfilId?r.perfilId===clientePerfilId:r.perfilNome===clienteNome));renderizarRecompensasCliente();verificarRetornosResgates();}}
+        function aplicarConfigSnapshot(snapshot){if(snapshot){regraAtrasoAtual=normalizarRegraAtraso(snapshot.exists()?snapshot.data():{});const el=document.getElementById('textoRegraAtrasoCliente');if(el)el.innerHTML=textoRegraAtrasoCliente();}}
+
+        async function sincronizarDadosCliente(origem='intervalo-5min', servidor=true) {
+            if(sincronizacaoClienteEmCurso || !codigoGrupo || !clientePerfilId)return false;
+            sincronizacaoClienteEmCurso=true;
+            const inicio=performance.now();
+            try{
+                const qTarefas=query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const qHistorico=query(collection(db,'historico'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const qRecompensas=query(collection(db,'recompensas'),where('grupoId','==',codigoGrupo));
+                const qResgates=query(collection(db,'resgates'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const refConfig=doc(db,'configGrupos',codigoGrupo);
+                const lerColecao=servidor?getDocsFromServer:getDocsFromCache;
+                const lerDocumento=servidor?getDocFromServer:getDocFromCache;
+                const resultados=await Promise.allSettled([
+                    lerColecao(qTarefas),lerColecao(qHistorico),lerColecao(qRecompensas),lerColecao(qResgates),lerDocumento(refConfig)
+                ]);
+                const [tarefas,historico,recompensas,resgates,config]=resultados;
+                if(tarefas.status==='fulfilled')aplicarTarefasSnapshot(tarefas.value,servidor?'servidor-5min':'cache-persistente');
+                if(historico.status==='fulfilled')aplicarHistoricoSnapshot(historico.value);
+                if(recompensas.status==='fulfilled')aplicarRecompensasSnapshot(recompensas.value);
+                if(resgates.status==='fulfilled')aplicarResgatesSnapshot(resgates.value);
+                if(config.status==='fulfilled')aplicarConfigSnapshot(config.value);
+                const falhas=resultados.filter(x=>x.status==='rejected').length;
+                if(servidor && falhas<resultados.length)ultimaSincronizacaoClienteServidor=Date.now();
+                window.rotinaLog?.('sync.cliente_ciclo',{origem,servidor,tempoMs:Math.round(performance.now()-inicio),falhas,intervaloMin:5},falhas?'warning':'info');
+                window.dispatchEvent(new CustomEvent('rotina-client-cache-updated',{detail:{origem,servidor,falhas,intervaloMs:SINCRONIZACAO_CLIENTE_MS}}));
+                return falhas<resultados.length;
+            }catch(e){
+                window.rotinaLog?.('sync.cliente_erro',{origem,servidor,mensagem:String(e?.message||e)},'warning');
+                return false;
+            }finally{sincronizacaoClienteEmCurso=false;}
+        }
+        window.rotinaSincronizarClienteAgora=(motivo='manual')=>sincronizarDadosCliente(motivo,true);
+
+        function encerrarSincronizacaoCliente(){
+            if(sincronizacaoClienteTimer){clearInterval(sincronizacaoClienteTimer);sincronizacaoClienteTimer=null;}
+        }
+        function iniciarEscutasFirebase() {
+            // Arquitetura cache-first: nenhuma coleção funcional fica em onSnapshot permanente.
+            [unsubscribeTarefas,unsubscribeTarefasTodas,unsubscribeHistorico,unsubscribeRecompensas,unsubscribeResgates,unsubscribeConfigGrupo].forEach(u=>u&&u());
+            encerrarSincronizacaoCliente();
+            unsubscribeTarefas=encerrarSincronizacaoCliente;unsubscribeTarefasTodas=null;unsubscribeHistorico=null;unsubscribeRecompensas=null;unsubscribeResgates=null;unsubscribeConfigGrupo=null;
+            const cargaInicial=sincronizarDadosCliente('cache-inicial',false)
+                .then(()=>sincronizarDadosCliente('servidor-inicial',true))
+                .catch(e=>{window.rotinaLog?.('sync.cliente_inicial_erro',{mensagem:String(e?.message||e)},'warning');return false;});
+            sincronizacaoClienteTimer=setInterval(()=>{if(!document.hidden)sincronizarDadosCliente('intervalo-5min',true);},SINCRONIZACAO_CLIENTE_MS);
+            if(!eventosSincronizacaoInstalados){
+                eventosSincronizacaoInstalados=true;
+                document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-ultimaSincronizacaoClienteServidor>=SINCRONIZACAO_CLIENTE_MS)sincronizarDadosCliente('retorno-visivel-stale',true);});
+                window.addEventListener('online',()=>{if(Date.now()-ultimaSincronizacaoClienteServidor>=SINCRONIZACAO_CLIENTE_MS)sincronizarDadosCliente('reconectado-stale',true);});
+                window.addEventListener('rotina-request-sync',e=>sincronizarDadosCliente(e.detail?.motivo||'solicitado',true));
+            }
+            return cargaInicial;
+        }
+
+        function horaSugeridaComSegundos(valor,fim=false){
+            const s=String(valor||'').trim();
+            if(/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s;
+            if(/^\d{1,2}:\d{2}$/.test(s)) return `${s}:${fim?'59':'00'}`;
+            return s;
+        }
+
+        function renderizarTarefasHoje(){
+            const tbody=document.getElementById('tabelaCorpo'); tbody.innerHTML='';
+            if(!cacheTarefasHoje.length){tbody.innerHTML='<tr><td colspan="4" style="text-align:center">Nenhuma tarefa cadastrada para hoje.</td></tr>';return;}
+            let concluidas=0;
+            cacheTarefasHoje.forEach(dados=>{
+                const status=dados.status||'Pendente'; if(status.includes('Prazo')||status.includes('Atrasado')) concluidas++;
+                let cls='status-pendente',acao=''; if(status==='Pendente')acao=`<button class="btn btn-iniciar" onclick="iniciarTarefa('${dados.id}')">Iniciar</button>`; else if(status==='Em andamento'){cls='status-andamento';acao=`<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}')">Finalizar</button>`;} else if(dados.faixaAtraso==='atraso-maior'||status.includes('50%')){cls='status-prazo-50';acao='🎉';} else if(dados.faixaAtraso==='atraso-leve'||status.includes('75%')){cls='status-prazo-75';acao='🎉';} else if(status.includes('Prazo')){cls='status-prazo';acao='🎉';} else {cls='status-atrasado';acao='⏰';}
+                let horario=`<div class="horario-container"><span class="horario-sugerido">⏰ ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaInicio,false))} - ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaFim,true))}</span>`; if(dados.horarioInicio) horario+=`<span class="horario-real">▶️ ${escaparHtml(dados.horarioInicio)}${dados.horarioTermino?` / ⏹️ ${escaparHtml(dados.horarioTermino)}`:''}</span>`; horario+='</div>';
+                tbody.insertAdjacentHTML('beforeend',`<tr data-family-task-id="${escaparHtml(dados.id)}" data-family-task-group="${escaparHtml(dados.tarefaGrupoId||'')}" data-family-task-name="${escaparHtml(dados.nome)}" data-family-task-day="${escaparHtml(dados.diaSemana||diaAtualTexto)}" data-family-task-date="${formatarDataISO(new Date())}" data-family-task-time="${escaparHtml(dados.horaSugeridaInicio||'')}" data-family-task-end="${escaparHtml(dados.horaSugeridaFim||'')}" data-family-task-status="${escaparHtml(status)}"><td>${horario}</td><td><strong data-task-icon="${escaparHtml(dados.icone||'')}">${escaparHtml(dados.nome)}</strong>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
+            });
+            const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
+        }
+
+        window.iniciarTarefa = async (id) => {
+            const tarefa=cacheTarefasHoje.find(t=>t.id===id); if(!tarefa)return;
+            const idx=cacheTarefasHoje.findIndex(t=>t.id===id);
+            if(cacheTarefasHoje.some(t=>t.status==='Em andamento') || cacheTarefasHoje.slice(0,idx).some(t=>['Pendente','Em andamento'].includes(t.status))){ somErroQuak.play().catch(()=>{}); document.getElementById('modalTrava').style.display='flex'; return; }
+            const agora=new Date(),hora=agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+            const minInicio=converterHoraParaMinutos(hora);
+            const tolerancia=Number(tarefa.tempoLimite)||0;
+            const limiteInicio=converterHoraParaMinutos(tarefa.horaSugeridaInicio)+tolerancia;
+            const limiteFinal=converterHoraParaMinutos(tarefa.horaSugeridaFim)+tolerancia;
+            const atraso=minInicio > limiteInicio;
+            const iniciouAposLimiteFinal=minInicio > limiteFinal;
+            const dadosExec={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,data:formatarDataISO(agora),status:'Em andamento',horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,percentualMaximoPrevisto:iniciouAposLimiteFinal?regraAtrasoAtual.estourado:null};
+            await updateDoc(doc(db,'tarefas',id),{horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,status:'Em andamento'});
+            await setDoc(doc(db,'execucoes',execucaoId(id,agora)),dadosExec,{merge:true});
+        };
+
+        window.finalizarTarefa = async (id) => {
+            const tarefa=cacheTarefasHoje.find(t=>t.id===id); if(!tarefa)return;
+            const agora=new Date(), hora=agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}), data=formatarDataISO(agora);
+            const tolerancia=Number(tarefa.tempoLimite)||0;
+            const minTermino=converterHoraParaMinutos(hora);
+            const minInicioReal=converterHoraParaMinutos(tarefa.horarioInicio||hora);
+            const limiteInicio=converterHoraParaMinutos(tarefa.horaSugeridaInicio)+tolerancia;
+            const limiteFinal=converterHoraParaMinutos(tarefa.horaSugeridaFim)+tolerancia;
+            // Mede o atraso REAL além da tolerância. Ex.: tolerância 2 min, 1 min além => faixa de 75%.
+            const minutosAlemTolerancia=Math.max(0,minInicioReal-limiteInicio);
+            const faixaLeveMinutos=tolerancia>0?Math.max(1,Math.ceil(tolerancia/2)):0;
+            const estourouFinal=minTermino>limiteFinal || minInicioReal>limiteFinal || tarefa.iniciouAposLimiteFinal===true;
+            if(!estourouFinal){
+                let percentual=regraAtrasoAtual.dentroLimites;
+                let faixa='dentro-limites';
+                if(minutosAlemTolerancia>0 && minutosAlemTolerancia<=faixaLeveMinutos){ percentual=regraAtrasoAtual.atrasoLeve; faixa='atraso-leve'; }
+                else if(minutosAlemTolerancia>faixaLeveMinutos){ percentual=regraAtrasoAtual.atrasoMaior; faixa='atraso-maior'; }
+                const pts=Math.round((Number(tarefa.pontosMaximos)||0)*(percentual/100));
+                const status=faixa==='dentro-limites'?`No Prazo (${percentual}%)`:faixa==='atraso-leve'?`No Prazo — pequeno atraso (${percentual}%)`:`No Prazo — início atrasado (${percentual}%)`;
+                confetti({particleCount:45,spread:60,origin:{y:.75}});
+                await updateDoc(doc(db,'tarefas',id),{horarioTermino:hora,status,pontosGanhos:pts,percentualAplicado:percentual,faixaAtraso:faixa,minutosAlemTolerancia,faixaLeveMinutos});
+                const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,diaSemana:tarefa.diaSemana,data,horaSugeridaInicio:tarefa.horaSugeridaInicio,horaSugeridaFim:tarefa.horaSugeridaFim,horarioInicio:tarefa.horarioInicio||'',horarioTermino:hora,tempoLimite:tolerancia,pontosMaximos:Number(tarefa.pontosMaximos)||0,pontosGanhos:pts,status,iniciouComAtraso:!!tarefa.iniciouComAtraso,minutosAlemTolerancia,faixaLeveMinutos,percentualAplicado:percentual,faixaAtraso:faixa,regraAtrasoAplicada:{...regraAtrasoAtual}};
+                await setDoc(doc(db,'historico',`${clientePerfilId}_${id}_${data}`),hist,{merge:true}); await setDoc(doc(db,'execucoes',execucaoId(id,agora)),hist,{merge:true});
+            }else{
+                pendenteJustificativaAtraso={id,horaFinalTexto:hora,dataHojeISO:data,tarefa};
+                document.getElementById('textoJustificativaAtraso').value=''; justificativaFoiDitada=false;
+                const sv=document.getElementById('statusReconhecimentoVoz'); if(sv) sv.innerText='';
+                document.getElementById('erroJustificativaAtraso').style.display='none';
+                const obrigatoria=tarefa.justificativaObrigatoria !== false;
+                const bloco=document.getElementById('blocoCamposJustificativa');
+                const acoes=document.getElementById('acoesJustificativaOpcional');
+                const pergunta=document.getElementById('textoPerguntaJustificativa');
+                bloco.style.display=obrigatoria?'block':'none';
+                acoes.style.display=obrigatoria?'none':'flex';
+                pergunta.innerHTML=obrigatoria?'<strong>Qual foi o motivo do atraso?</strong> Você pode escrever ou tocar no microfone e falar. A fala será convertida em texto para você revisar antes de confirmar.':'<strong>Você se atrasou. Quer justificar?</strong>';
+                somErroQuak.play().catch(()=>{}); document.getElementById('modalFeedback').style.display='flex';
+            }
+        };
+
+        window.falarJustificativa = () => {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if(!SpeechRecognition) {
+                alert('O reconhecimento de voz não está disponível neste navegador. Você pode escrever a justificativa normalmente.');
+                return;
+            }
+
+            if(reconhecimentoVoz) {
+                try { reconhecimentoVoz.stop(); } catch(e) {}
+                reconhecimentoVoz = null;
+                return;
+            }
+
+            const campo = document.getElementById('textoJustificativaAtraso');
+            const status = document.getElementById('statusReconhecimentoVoz');
+            const botao = document.getElementById('btnFalarJustificativa');
+            const reconhecimento = new SpeechRecognition();
+            reconhecimento.lang = 'pt-BR';
+            reconhecimento.continuous = false;
+            reconhecimento.interimResults = false;
+            reconhecimento.maxAlternatives = 1;
+            reconhecimentoVoz = reconhecimento;
+
+            reconhecimento.onstart = () => {
+                status.innerText = '🔴 Ouvindo... fale sua justificativa.';
+                botao.innerText = '⏹️ Parar';
+            };
+
+            reconhecimento.onresult = (event) => {
+                const transcricao = event.results?.[0]?.[0]?.transcript?.trim() || '';
+                if(transcricao) {
+                    const atual = campo.value.trim();
+                    campo.value = atual ? `${atual} ${transcricao}` : transcricao;
+                    justificativaFoiDitada = true;
+                    document.getElementById('erroJustificativaAtraso').style.display = 'none';
+                    status.innerText = '✅ Fala convertida em texto. Revise o texto antes de confirmar.';
+                }
+            };
+
+            reconhecimento.onerror = (event) => {
+                const mensagens = {
+                    'not-allowed': 'Permissão do microfone negada.',
+                    'no-speech': 'Nenhuma fala foi detectada.',
+                    'audio-capture': 'Não foi possível acessar o microfone.',
+                    'network': 'O reconhecimento de voz precisa de conexão com a internet neste navegador.'
+                };
+                status.innerText = `⚠️ ${mensagens[event.error] || 'Não foi possível reconhecer a fala.'} Você pode escrever a justificativa.`;
+            };
+
+            reconhecimento.onend = () => {
+                reconhecimentoVoz = null;
+                botao.innerText = '🎙️ Falar justificativa';
+                if(status.innerText.includes('Ouvindo')) status.innerText = 'Toque novamente no microfone se quiser continuar ditando.';
+            };
+
+            try {
+                reconhecimento.start();
+            } catch(e) {
+                reconhecimentoVoz = null;
+                botao.innerText = '🎙️ Falar justificativa';
+                status.innerText = '⚠️ Não foi possível iniciar o reconhecimento de voz. Use o campo de texto.';
+            }
+        };
+
+        async function concluirAtrasoSemJustificativa() {
+            if(!pendenteJustificativaAtraso) return;
+            const p=pendenteJustificativaAtraso, t=p.tarefa;
+            const percentual=regraAtrasoAtual.estourado; const base={horarioTermino:p.horaFinalTexto,status:`Atrasado (${percentual}%)`,pontosGanhos:Math.round((Number(t.pontosMaximos)||0)*(percentual/100)),percentualAplicado:percentual,faixaAtraso:'estourado',regraAtrasoAplicada:{...regraAtrasoAtual},justificativaAtraso:'',tipoJustificativa:'nao-informada',justificativaRecusada:true};
+            await updateDoc(doc(db,'tarefas',p.id),base);
+            const hist={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:p.id,tarefaGrupoId:t.tarefaGrupoId||'',nomeTarefa:t.nome,diaSemana:t.diaSemana,data:p.dataHojeISO,horaSugeridaInicio:t.horaSugeridaInicio,horaSugeridaFim:t.horaSugeridaFim,horarioInicio:t.horarioInicio||'',tempoLimite:Number(t.tempoLimite)||0,pontosMaximos:Number(t.pontosMaximos)||0,iniciouComAtraso:!!t.iniciouComAtraso,...base};
+            await setDoc(doc(db,'historico',`${clientePerfilId}_${p.id}_${p.dataHojeISO}`),hist,{merge:true});
+            await setDoc(doc(db,'execucoes',execucaoId(p.id,new Date())),hist,{merge:true});
+            pendenteJustificativaAtraso=null; justificativaFoiDitada=false; document.getElementById('modalFeedback').style.display='none';
+        }
+
+        window.optarJustificarAtraso = async (querJustificar) => {
+            if(!pendenteJustificativaAtraso) return;
+            if(!querJustificar){ await concluirAtrasoSemJustificativa(); return; }
+            document.getElementById('acoesJustificativaOpcional').style.display='none';
+            document.getElementById('blocoCamposJustificativa').style.display='block';
+            document.getElementById('textoPerguntaJustificativa').innerHTML='<strong>Qual foi o motivo do atraso?</strong> Você pode escrever ou tocar no microfone e falar.';
+            document.getElementById('textoJustificativaAtraso').focus();
+        };
+
+        window.confirmarJustificativaAtraso = async () => {
+            if(!pendenteJustificativaAtraso) return;
+            const texto = document.getElementById('textoJustificativaAtraso').value.trim();
+            const palavras = texto.split(/\s+/).filter(Boolean);
+            if(palavras.length < 5) {
+                document.getElementById('erroJustificativaAtraso').style.display = 'block';
+                return;
+            }
+
+            const p = pendenteJustificativaAtraso;
+            const t = p.tarefa;
+            const percentual=regraAtrasoAtual.estourado;
+            const base = {
+                horarioTermino: p.horaFinalTexto,
+                status: `Atrasado (${percentual}%)`,
+                pontosGanhos: Math.round((Number(t.pontosMaximos)||0)*(percentual/100)),
+                percentualAplicado: percentual,
+                faixaAtraso: 'estourado',
+                regraAtrasoAplicada: {...regraAtrasoAtual},
+                justificativaAtraso: texto,
+                tipoJustificativa: justificativaFoiDitada ? 'voz-transcrita' : 'texto',
+                justificativaRecusada: false
+            };
+
+            await updateDoc(doc(db,'tarefas',p.id),base);
+            const hist = {
+                grupoId:codigoGrupo,
+                perfilId:clientePerfilId,
+                perfilNome:clienteNome,
+                tarefaId:p.id,
+                tarefaGrupoId:t.tarefaGrupoId||'',
+                nomeTarefa:t.nome,
+                diaSemana:t.diaSemana,
+                data:p.dataHojeISO,
+                horaSugeridaInicio:t.horaSugeridaInicio,
+                horaSugeridaFim:t.horaSugeridaFim,
+                horarioInicio:t.horarioInicio||'',
+                tempoLimite:Number(t.tempoLimite)||0,
+                pontosMaximos:Number(t.pontosMaximos)||0,
+                iniciouComAtraso:!!t.iniciouComAtraso,
+                ...base
+            };
+            await setDoc(doc(db,'historico',`${clientePerfilId}_${p.id}_${p.dataHojeISO}`),hist,{merge:true});
+            await setDoc(doc(db,'execucoes',execucaoId(p.id,new Date())),hist,{merge:true});
+            pendenteJustificativaAtraso = null;
+            justificativaFoiDitada = false;
+            const status = document.getElementById('statusReconhecimentoVoz');
+            if(status) status.innerText = '';
+            document.getElementById('modalFeedback').style.display = 'none';
+        };
+
+        function ehExecucaoPontual(h){ return h.faixaAtraso ? h.faixaAtraso==='dentro-limites' : (h.status?.includes('Prazo') && !h.iniciouComAtraso); }
+        function atualizarConquistas(){ const el=document.getElementById('conquistasCliente');if(!el)return; const datas=[...new Set(cacheHistorico.filter(ehExecucaoPontual).map(h=>h.data))].sort().reverse(); let seq=0,d=new Date();for(let i=0;i<60;i++){const iso=formatarDataISO(d);if(datas.includes(iso))seq++;else if(i>0)break;d.setDate(d.getDate()-1);} const total=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0); const conquistas=[];if(seq>=3)conquistas.push('🔥 3 dias seguidos');if(seq>=7)conquistas.push('🏅 Persistente: 7 dias');if(total>=1000)conquistas.push('⭐ Mil pontos');if(cacheHistorico.filter(ehExecucaoPontual).length>=10)conquistas.push('⏱️ Pontual: 10 tarefas'); el.innerHTML=`<strong>🔥 ${seq} dia(s)</strong><br>${conquistas.map(escaparHtml).join('<br>')||'Continue cumprindo metas para desbloquear conquistas.'}`; }
+        function saldoPontos(){
+            const ganho=cacheHistorico.reduce((s,h)=>s+(Number(h.pontosGanhos)||0),0);
+            const comprometido=resgatesCache.filter(r=>r.status==='Aprovado'||r.status==='Pendente').reduce((s,r)=>s+(Number(r.pontos)||0),0);
+            return ganho-comprometido;
+        }
+        function renderizarRecompensasCliente(){
+            const el=document.getElementById('recompensasCliente');if(!el)return; const saldo=saldoPontos();
+            const hojeISO=formatarDataISO(new Date());
+            const catalogo=recompensasCache.map(r=>`<div style="margin-top:7px">🎁 ${escaparHtml(r.nome)} — ${Number(r.pontos)||0} pts <button class="btn" style="padding:5px 9px" onclick="resgatarRecompensa('${r.id}')" ${saldo<(Number(r.pontos)||0)?'disabled':''}>Resgatar</button></div>`).join('')||'<div style="margin-top:7px">Nenhuma recompensa disponível.</div>';
+            const hist=[...resgatesCache].filter(r=>{const d=new Date(r.criadoEm||'');return Number.isFinite(d.getTime())&&formatarDataISO(d)===hojeISO;}).sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||'')).map(r=>{const ic=r.status==='Aprovado'?'✅':r.status==='Recusado'?'❌':'⏳'; const msg=r.status==='Aprovado'?'Resgate autorizado':r.status==='Recusado'?'Não autorizado':'Aguardando autorização'; return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">${ic} <strong>${escaparHtml(r.recompensaNome||'Recompensa')}</strong><br><small>${msg} · ${Number(r.pontos)||0} pts</small></div>`}).join('');
+            el.innerHTML=`<strong>Saldo disponível: ${saldo} pts</strong><br>${catalogo}<div style="margin-top:12px"><strong>Meus resgates de hoje</strong>${hist||'<br><small>Nenhum resgate solicitado hoje.</small>'}</div>`;
+        }
+        const resgatesEmEnvio=new Set();
+        window.resgatarRecompensa=async id=>{ const r=recompensasCache.find(x=>x.id===id);if(!r||resgatesEmEnvio.has(id))return; const custo=Number(r.pontos)||0;if(saldoPontos()<custo)return alert('Pontos insuficientes ou já reservados em pedidos pendentes.'); if(resgatesCache.some(x=>x.recompensaId===id&&x.status==='Pendente'))return alert('Você já tem um pedido pendente para esta recompensa.'); resgatesEmEnvio.add(id); try{ const pedidoId=`${clientePerfilId}_${id}_${Date.now()}`,agora=new Date().toISOString(); await setDoc(doc(db,'resgates',pedidoId),{grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,recompensaId:id,recompensaNome:r.nome,pontos:custo,status:'Pendente',criadoEm:agora,pushAdminPendente:true,pushAdminSolicitadoEm:agora,pushAdminTentativas:0});window.rotinaLog?.('recompensa.solicitada',{recompensaId:id,pontos:custo});alert('Pedido enviado aos seus pais! Os pontos ficam reservados enquanto aguardam a decisão.'); } finally { resgatesEmEnvio.delete(id); } };
+        function verificarRetornosResgates(){
+            resgatesCache.forEach(r=>{ if(r.status!=='Aprovado'&&r.status!=='Recusado') return; const chave=`resgate_visto_${r.id}_${r.status}`; if(localStorage.getItem(chave)) return; localStorage.setItem(chave,'1'); const aprovado=r.status==='Aprovado'; document.getElementById('iconeRecompensaStatus').innerText=aprovado?'🎉':'💬'; document.getElementById('tituloRecompensaStatus').innerText=aprovado?'Resgate autorizado!':'Resgate não autorizado'; document.getElementById('textoRecompensaStatus').innerText=aprovado?`${r.recompensaNome} foi autorizado. Aproveite sua conquista!`:`Converse com seus pais para compreender por que ${r.recompensaNome} não foi autorizado.`; document.getElementById('modalRecompensaStatus').style.display='flex'; if(aprovado) confetti({particleCount:180,spread:110,origin:{y:.65}}); });
+        }
+        function renderizarJustificativasCliente(){
+            const el=document.getElementById('justificativasCliente'); if(!el)return; const hojeISO=formatarDataISO(new Date()); const lista=cacheHistorico.filter(h=>h.justificativaAtraso&&h.data===hojeISO).sort((a,b)=>(b.horarioTermino||b.horarioInicio||'').localeCompare(a.horarioTermino||a.horarioInicio||'')); el.innerHTML=lista.map(h=>`<div style="padding:9px 0;border-bottom:1px solid #eee"><strong>${escaparHtml(h.nomeTarefa||'Tarefa')}</strong><br><span>${escaparHtml(h.justificativaAtraso)}</span> <button class="btn" style="padding:4px 8px;margin-left:6px" onclick="editarJustificativa('${h.id}')">Editar</button></div>`).join('')||'<small>Nenhuma justificativa registrada hoje.</small>';
+        }
+        window.editarJustificativa=async id=>{ const h=cacheHistorico.find(x=>x.id===id); if(!h)return; const novo=prompt('Edite sua justificativa:',h.justificativaAtraso||''); if(novo===null)return; const texto=novo.trim(); if(texto.split(/\s+/).filter(Boolean).length<5)return alert('A justificativa precisa ter pelo menos 5 palavras.'); await updateDoc(doc(db,'historico',id),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); if(h.tarefaId){ const t=cacheTarefasTodas.find(x=>x.id===h.tarefaId); if(t&&t.status?.includes('Atrasado')) await updateDoc(doc(db,'tarefas',h.tarefaId),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()}); } if(h.tarefaId&&h.data) await setDoc(doc(db,'execucoes',`${h.data}__${h.tarefaId}`),{justificativaAtraso:texto,justificativaEditadaEm:new Date().toISOString()},{merge:true}); };
+
+        function triggerCelebracao100() {
+            sessionStorage.setItem("parabens_mostrado_" + diaAtualTexto, "true");
+            const containerAvatar = document.getElementById("avatarCelebracaoContainer");
+
+            containerAvatar.innerHTML = "";
+            if(clienteSexo === "Feminino") {
+                containerAvatar.innerHTML = `
+                    <div class="boneca-container">
+                        <div class="boneca-emoji">💃</div>
+                        <div class="status-texto">Meta Diária Atingida!</div>
+                    </div>`;
+            } else {
+                containerAvatar.innerHTML = `
+                    <div class="boneca-container">
+                        <div class="boneca-emoji">🕺</div>
+                        <div class="status-texto" style="color: #2563eb;">Meta Diária Atingida!</div>
+                    </div>`;
+            }
+
+            somMusica100.play().catch(e => {});
+            somFogos.play().catch(e => {});
+
+            document.getElementById("txtParabens100").innerText = `${clienteNome}, você completou 100% das suas metas hoje! 🎉`;
+
+            confetti({
+                particleCount: 160,
+                spread: 110,
+                origin: { y: 0.5 }
+            });
+
+            document.getElementById("modalCelebracao").style.display = "flex";
+        }
+        window.fecharModal = (id) => { document.getElementById(id).style.display = "none"; };
+    </script>
+    <script type="module" src="./app-monitoring.js?v=2"></script>
+    <script src="./client-ui-pro.js?v=44"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js?v=30')
+            .then(reg => console.log('Service Worker registrado com sucesso!', reg))
+            .catch(err => console.error('Erro ao registrar Service Worker:', err));
+        });
+      }
+    </script>
+<div id="pwaInstallBanner" style="display:none;position:fixed;left:16px;right:16px;bottom:18px;z-index:9999;background:#fff;border:1px solid #ffd3dc;border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.18);padding:14px 16px;max-width:520px;margin:auto;font-family:inherit">
+  <div style="display:flex;align-items:center;gap:12px">
+    <img src="icon-cliente-192.png" alt="Ícone" width="48" height="48" style="border-radius:12px">
+    <div style="flex:1"><strong style="display:block;color:#a4133c">Instalar Rotina Family</strong><small id="pwaInstallTexto" style="color:#666">Instale para acessar mais rápido e usar recursos offline.</small></div>
+    <button id="pwaInstallBtn" style="border:0;background:#ff4d6d;color:#fff;border-radius:10px;padding:9px 12px;font-weight:700;cursor:pointer">Instalar</button>
+    <button id="pwaInstallFechar" aria-label="Fechar" style="border:0;background:transparent;font-size:20px;cursor:pointer;color:#777">×</button>
+  </div>
+</div>
+<script>
+(() => {
+  let deferredPrompt=null;
+  const banner=document.getElementById('pwaInstallBanner');
+  const btn=document.getElementById('pwaInstallBtn');
+  const fechar=document.getElementById('pwaInstallFechar');
+  const texto=document.getElementById('pwaInstallTexto');
+  const standalone=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+  const dispensado=sessionStorage.getItem('pwaInstallDismissed')==='1';
+  if(standalone || dispensado) return;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault(); deferredPrompt=e; banner.style.display='block';
+  });
+  btn.addEventListener('click', async () => {
+    if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; banner.style.display='none'; return; }
+    const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
+    if(ios){ texto.textContent='No Safari: toque em Compartilhar e depois em "Adicionar à Tela de Início".'; btn.style.display='none'; }
+  });
+  fechar.addEventListener('click',()=>{ banner.style.display='none'; sessionStorage.setItem('pwaInstallDismissed','1'); });
+  window.addEventListener('appinstalled',()=>{ banner.style.display='none'; deferredPrompt=null; });
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(ios){ banner.style.display='block'; texto.textContent='Instale no iPhone/iPad para acesso rápido.'; }
+})();
+</script>
+<div style="position:fixed;left:8px;bottom:8px;z-index:99999;background:#4a4e69;color:white;padding:5px 9px;border-radius:999px;font-size:10px;opacity:.8">Sprint 2 · teste participante</div>
+</body>
+</html>
