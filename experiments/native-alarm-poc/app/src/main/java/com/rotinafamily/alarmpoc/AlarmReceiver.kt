@@ -5,7 +5,10 @@ import android.os.Build
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        val serviceIntent = Intent(context, AlarmService::class.java).setAction(AlarmService.ACTION_START)
+        val serviceIntent = Intent(context, AlarmService::class.java).setAction(AlarmService.ACTION_START).apply {
+            putExtra(AlarmScheduler.EXTRA_TITLE, intent?.getStringExtra(AlarmScheduler.EXTRA_TITLE).orEmpty())
+            putExtra(AlarmScheduler.EXTRA_MOMENT, intent?.getStringExtra(AlarmScheduler.EXTRA_MOMENT).orEmpty())
+        }
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent) else context.startService(serviceIntent)
     }
 }
