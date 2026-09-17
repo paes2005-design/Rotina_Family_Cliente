@@ -7,25 +7,31 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build-test-pwa:
+  deploy-test-pwa:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Verify native alarm test integration
         run: |
-          grep -q "native-alarm-bridge-v1.js" index-CLIENTE-v6.html
+          grep -q "native-alarm-bridge-v1.js" index.html
           grep -q "rotinafamily" native-alarm-bridge-v1.js
-      - name: Build isolated test package
+          grep -q "sprint3-native-alarm-test" index.html
+      - name: Build isolated test site
         run: |
           mkdir -p test-pwa
-          rsync -a --exclude '.git' --exclude '.github' --exclude 'experiments' ./ test-pwa/
-          printf '%s\n' '<!doctype html><meta charset="utf-8"><title>Rotina Family - Teste Alarme Nativo</title><script>location.replace("./index.html?nativeAlarmTest=1")</script>' > test-pwa/teste-alarme.html
-      - name: Upload test PWA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Rotina-Family-PWA-Teste-Alarme
-          path: test-pwa
-          retention-days: 14
+          rsync -a --exclude '.git' --exclude '.github' --exclude 'experiments' --exclude 'test-pwa' ./ test-pwa/
+          touch test-pwa/.nojekyll
+      - name: Publish isolated test site
+        run: |
+          cd test-pwa
+          git init
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .
+          git commit -m "deploy native alarm test PWA"
+          git branch -M native-alarm-test-pages
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git push --force origin native-alarm-test-pages
