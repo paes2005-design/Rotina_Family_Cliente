@@ -12,11 +12,14 @@
   <div class="loading"><strong>Rotina Family — PWA de teste</strong><br>Carregando integração do alarme nativo...</div>
   <script>
   (async()=>{
-    const BUILD='20260918.native-alarm-test.1';
+    const BUILD='20260918.native-alarm-test.2';
     try{
       const response=await fetch('./index-CLIENTE-v6.html?build='+BUILD,{cache:'no-store'});
       if(!response.ok) throw new Error('HTTP '+response.status);
       let html=await response.text();
+
+      // document.write substitui o documento inicial; preserve explicitamente a raiz do app.
+      html=html.replace('<head>','<head><base href="../">');
 
       html=html
         .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=6')
