@@ -1,0 +1,10 @@
+package com.rotinafamily.nativehosttest
+import android.Manifest;import android.app.*;import android.content.*;import android.net.Uri;import android.os.*;import android.provider.Settings;import android.webkit.*;import android.widget.Toast;import org.json.JSONObject
+class MainActivity:Activity(){
+ private lateinit var web:WebView
+ override fun onCreate(b:Bundle?){super.onCreate(b);if(Build.VERSION.SDK_INT>=33)requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),10);web=WebView(this);setContentView(web);web.settings.javaScriptEnabled=true;web.settings.domStorageEnabled=true;web.settings.databaseEnabled=true;web.webViewClient=WebViewClient();installBridge();web.loadUrl("https://paes2005-design.github.io/Rotina_Family_Cliente/")}
+ private fun installBridge(){if(Build.VERSION.SDK_INT<23)return;WebViewCompatShim.add(web,"RotinaFamilyNative",setOf("https://paes2005-design.github.io")){payload->runOnUiThread{handle(payload)}}}
+ private fun handle(raw:String){try{val j=JSONObject(raw);when(j.optString("action")){"schedule"->{if(Build.VERSION.SDK_INT>=31&&!getSystemService(AlarmManager::class.java).canScheduleExactAlarms()){startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:$packageName")));return};val ok=AlarmScheduler.schedule(this,j.getString("key"),j.optString("title","Tarefa"),j.optString("moment","inicio"),j.getLong("at"));Toast.makeText(this,if(ok)"Alarme nativo sincronizado" else "Não foi possível agendar",Toast.LENGTH_SHORT).show()} "cancel"->{AlarmScheduler.cancel(this,j.getString("key"));Toast.makeText(this,"Alarme nativo removido",Toast.LENGTH_SHORT).show()}}}catch(e:Exception){Toast.makeText(this,"Comando de alarme inválido",Toast.LENGTH_SHORT).show()}}
+ override fun onBackPressed(){if(web.canGoBack())web.goBack() else super.onBackPressed()}
+}
+object WebViewCompatShim{fun add(web:WebView,name:String,origins:Set<String>,receive:(String)->Unit){if(Build.VERSION.SDK_INT>=23)web.addJavascriptInterface(object{ @JavascriptInterface fun postMessage(payload:String){if(web.url?.startsWith("https://paes2005-design.github.io/Rotina_Family_Cliente/")==true)receive(payload)}} ,name)}}
