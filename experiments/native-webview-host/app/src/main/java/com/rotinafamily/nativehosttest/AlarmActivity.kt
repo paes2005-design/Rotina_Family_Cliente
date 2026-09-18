@@ -1,0 +1,3 @@
+package com.rotinafamily.nativehosttest
+import android.app.*;import android.content.*;import android.os.*;import android.widget.*
+class AlarmActivity:Activity(){override fun onCreate(b:Bundle?){super.onCreate(b);setShowWhenLocked(true);setTurnScreenOn(true);setContentView(LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(48,48,48,48);addView(TextView(this@AlarmActivity).apply{text="ROTINA FAMILY";textSize=28f});addView(TextView(this@AlarmActivity).apply{text=intent.getStringExtra(AlarmScheduler.TITLE)?:"Tarefa";textSize=22f});addView(Button(this@AlarmActivity).apply{text="PARAR";setOnClickListener{startService(Intent(this@AlarmActivity,AlarmService::class.java).setAction(AlarmService.STOP));finishAndRemoveTask()}}})}}
