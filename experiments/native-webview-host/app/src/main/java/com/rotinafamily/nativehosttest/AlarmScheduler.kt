@@ -1,0 +1,6 @@
+package com.rotinafamily.nativehosttest
+import android.app.*; import android.content.*
+object AlarmScheduler { const val KEY="key"; const val TITLE="title"; const val MOMENT="moment"
+ fun schedule(c:Context,key:String,title:String,moment:String,at:Long):Boolean { if(key.isBlank()||at<=System.currentTimeMillis())return false; val am=c.getSystemService(AlarmManager::class.java); if(android.os.Build.VERSION.SDK_INT>=31&&!am.canScheduleExactAlarms())return false; val rc=key.hashCode() and 0x7fffffff; val recv=PendingIntent.getBroadcast(c,rc,Intent(c,AlarmReceiver::class.java).putExtra(KEY,key).putExtra(TITLE,title).putExtra(MOMENT,moment),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE); val show=PendingIntent.getActivity(c,rc,Intent(c,AlarmActivity::class.java).putExtra(TITLE,title).putExtra(MOMENT,moment),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE); am.setAlarmClock(AlarmManager.AlarmClockInfo(at,show),recv); return true }
+ fun cancel(c:Context,key:String){val p=PendingIntent.getBroadcast(c,key.hashCode() and 0x7fffffff,Intent(c,AlarmReceiver::class.java),PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)?:return;c.getSystemService(AlarmManager::class.java).cancel(p);p.cancel()}
+}
