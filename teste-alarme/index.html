@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <base href="../">
+  <title>Rotina Family — Teste Alarme Nativo</title>
+  <style>body{font-family:Segoe UI,Tahoma,sans-serif;background:#fff0f3;color:#590d22;margin:0;display:grid;place-items:center;min-height:100vh}.loading{padding:24px;text-align:center}</style>
+</head>
+<body>
+  <div class="loading"><strong>Rotina Family — PWA de teste</strong><br>Carregando integração do alarme nativo...</div>
+  <script>
+  (async()=>{
+    const BUILD='20260918.native-alarm-test.1';
+    try{
+      const response=await fetch('./index-CLIENTE-v6.html?build='+BUILD,{cache:'no-store'});
+      if(!response.ok) throw new Error('HTTP '+response.status);
+      let html=await response.text();
+
+      html=html
+        .replace('./app-monitoring.js?v=2','./app-monitoring.js?v=6')
+        .replace('./client-ui-pro.js?v=44','./client-ui-pro.js?v=50')
+        .replace(/navigator\.serviceWorker\.register\([^;]+;?/g,"console.info('SW próprio desativado no ambiente de teste');");
+
+      const bootstrap='<script src="./client-bootstrap-v1.js?v=20260917.1"><\/script>';
+      if(!html.includes('client-bootstrap-v1.js')) html=html.replace('</body>',bootstrap+'\n</body>');
+
+      if(!html.includes('native-alarm-bridge-v1.js')){
+        html=html.replace('</body>','<script src="./native-alarm-bridge-v1.js?v=1"><\/script>\n</body>');
+      }
+
+      const badge='<div id="rfTestBadge" style="position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:40000;background:#111827;color:#fff;padding:5px 10px;border-radius:999px;font:700 11px Segoe UI,sans-serif;box-shadow:0 2px 8px #0003">TESTE • ALARME NATIVO V3</div>';
+      html=html.replace('<body>','<body>'+badge);
+      html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.__ROTINA_NATIVE_ALARM_TEST=true;window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',release:'sprint3-native-alarm-test',nativeAlarmBridge:1,authVersion:8});<\/script>\n</body>`);
+
+      document.open();
+      document.write(html);
+      document.close();
+    }catch(error){
+      document.body.innerHTML='<div class="loading"><strong>Falha ao abrir o ambiente de teste.</strong><br>'+String(error.message||error)+'<br><button onclick="location.reload()" style="margin-top:14px;padding:10px 16px">Tentar novamente</button></div>';
+    }
+  })();
+  </script>
+</body>
+</html>
