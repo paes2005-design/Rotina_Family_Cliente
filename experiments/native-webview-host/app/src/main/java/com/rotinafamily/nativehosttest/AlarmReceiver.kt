@@ -1,0 +1,3 @@
+package com.rotinafamily.nativehosttest
+import android.content.*; import android.os.Build
+class AlarmReceiver:BroadcastReceiver(){override fun onReceive(c:Context,i:Intent?){val s=Intent(c,AlarmService::class.java).setAction(AlarmService.START).putExtra(AlarmScheduler.TITLE,i?.getStringExtra(AlarmScheduler.TITLE)).putExtra(AlarmScheduler.MOMENT,i?.getStringExtra(AlarmScheduler.MOMENT));if(Build.VERSION.SDK_INT>=26)c.startForegroundService(s) else c.startService(s)}}
