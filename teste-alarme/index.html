@@ -12,7 +12,7 @@
   <div class="loading"><strong>Rotina Family — PWA de teste</strong><br>Carregando integração do alarme nativo...</div>
   <script>
   (async()=>{
-    const BUILD='20260918.native-alarm-test.2';
+    const BUILD='20260918.native-alarm-test.3';
     try{
       const response=await fetch('./index-CLIENTE-v6.html?build='+BUILD,{cache:'no-store'});
       if(!response.ok) throw new Error('HTTP '+response.status);
@@ -30,12 +30,12 @@
       if(!html.includes('client-bootstrap-v1.js')) html=html.replace('</body>',bootstrap+'\n</body>');
 
       if(!html.includes('native-alarm-bridge-v1.js')){
-        html=html.replace('</body>','<script src="./native-alarm-bridge-v1.js?v=1"><\/script>\n</body>');
+        html=html.replace('</body>','<script src="./native-alarm-bridge-v1.js?v=2"><\/script>\n</body>');
       }
 
       const badge='<div id="rfTestBadge" style="position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:40000;background:#111827;color:#fff;padding:5px 10px;border-radius:999px;font:700 11px Segoe UI,sans-serif;box-shadow:0 2px 8px #0003">TESTE • ALARME NATIVO V3</div>';
       html=html.replace('<body>','<body>'+badge);
-      html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.__ROTINA_NATIVE_ALARM_TEST=true;window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',release:'sprint3-native-alarm-test',nativeAlarmBridge:1,authVersion:8});<\/script>\n</body>`);
+      html=html.replace('</body>',`<script>window.__ROTINA_BUILD='${BUILD}';window.__ROTINA_NATIVE_ALARM_TEST=true;window.rotinaLog?.('app.build_ativo',{build:'${BUILD}',release:'sprint3-native-alarm-test',nativeAlarmBridge:2,authVersion:8});<\/script>\n</body>`);
 
       document.open();
       document.write(html);
