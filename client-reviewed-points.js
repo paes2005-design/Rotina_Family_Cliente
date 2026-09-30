@@ -34,9 +34,7 @@ function garantirEscuta(){
   if(!s.grupo||!s.perfilId){encerrarEscuta();return;}
   chaveSessao=novaChave;
   const store=window.rotinaParticipantStore?.snapshot?.();
-  const legacy=window.rotinaClientCacheSnapshot?.();
-  const fonte=store&&Array.isArray(store.historico)?store:legacy;
-  historicoPerfil=(fonte?.historico||[]).map(x=>({...x}));
+  historicoPerfil=(store?.historico||[]).map(x=>({...x}));
   historicoCarregado=true;
   aplicarTudo(false);
 }
