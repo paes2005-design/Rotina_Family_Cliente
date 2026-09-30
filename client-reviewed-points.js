@@ -33,7 +33,8 @@ function garantirEscuta(){
   const novaChave=`${s.grupo}|${s.perfilId}|${s.nome}`;
   if(!s.grupo||!s.perfilId){encerrarEscuta();return;}
   chaveSessao=novaChave;
-  historicoPerfil=(window.rotinaClientCacheSnapshot?.().historico||[]).map(x=>({...x}));
+  const store=window.rotinaParticipantStore?.snapshot?.();
+  historicoPerfil=(store?.historico||[]).map(x=>({...x}));
   historicoCarregado=true;
   aplicarTudo(false);
 }
@@ -111,6 +112,7 @@ window.aplicarPontosRevisadosCliente=()=>aplicarTudo(true);
 document.addEventListener('click',e=>{if(e.target.closest?.('[onclick*="sairCliente"],.btn-sair-top'))queueMicrotask(()=>garantirEscuta());});
 window.addEventListener('beforeunload',encerrarEscuta);
 window.addEventListener('rotina-client-cache-updated',()=>{garantirEscuta();requestAnimationFrame(()=>aplicarTudo(false));});
+window.addEventListener('rotina-participant-store-updated',()=>{garantirEscuta();requestAnimationFrame(()=>aplicarTudo(false));});
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>aplicarTudo(true),{once:true});
 else aplicarTudo(true);
