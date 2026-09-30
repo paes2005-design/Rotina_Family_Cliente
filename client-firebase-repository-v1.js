@@ -1,11 +1,11 @@
 import {getApps,getApp} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import {
   getFirestore,collection,query,where,doc,
-  getDocsFromCache,getDocsFromServer,getDocFromCache,getDocFromServer,
+  getDocsFromCache,getDocsFromServer,getDocFromCache,getDocFromServer,onSnapshot,
   updateDoc,setDoc,writeBatch,serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const REPOSITORY_VERSION=3;
+const REPOSITORY_VERSION=4;
 const clean=value=>String(value||'').trim();
 const group=value=>clean(value).toUpperCase();
 const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{...details,firebaseRepositoryVersion:REPOSITORY_VERSION},level);}catch{}};
@@ -102,6 +102,22 @@ async function readParticipantHistory({grupoId,perfilId,source='server'}={}){
   const items=docsToItems(snapshot),elapsedMs=Math.round(performance.now()-started);
   log('repository.historico_lido',{source,server:readers.server,total:items.length,tempoMs:elapsedMs});
   return{grupoId:g,perfilId:p,source,server:readers.server,items,elapsedMs};
+}
+
+function subscribeParticipantHistory({grupoId,perfilId,onChange,onError}={}){
+  const g=group(grupoId),p=clean(perfilId);
+  if(!g||!p)throw new Error('grupoId e perfilId são obrigatórios para acompanhar o histórico.');
+  if(typeof onChange!=='function')throw new Error('onChange é obrigatório para acompanhar o histórico.');
+  const q=participantQueries(database(),g,p).historico;
+  log('repository.historico_live_iniciado',{grupoId:g,perfilId:p});
+  return onSnapshot(q,{includeMetadataChanges:false},snapshot=>{
+    const items=docsToItems(snapshot);
+    log('repository.historico_live_atualizado',{grupoId:g,perfilId:p,total:items.length,fromCache:!!snapshot.metadata?.fromCache});
+    onChange({grupoId:g,perfilId:p,items,fromCache:!!snapshot.metadata?.fromCache});
+  },error=>{
+    log('repository.historico_live_erro',{grupoId:g,perfilId:p,mensagem:String(error?.message||error)},'warning');
+    onError?.(error);
+  });
 }
 
 async function readTask(id,{source='cache',grupoId='',perfilId=''}={}){
@@ -201,6 +217,7 @@ const api=Object.freeze({
   readParticipantBundle,
   readParticipantExecutions,
   readParticipantHistory,
+  subscribeParticipantHistory,
   readTask,
   readTaskCacheThenServer,
   readGroupConfig,
