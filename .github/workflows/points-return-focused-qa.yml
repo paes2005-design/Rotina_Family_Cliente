@@ -1,0 +1,15 @@
+name: Points return focused QA
+on:
+  push:
+    branches: [qa/points-return-run]
+  workflow_dispatch:
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JavaScript syntax
+        run: |
+          node --check qa/points-return-contract.mjs
+      - name: Run points return contract
+        run: node qa/points-return-contract.mjs
