@@ -465,6 +465,17 @@
             const perfilStore=String(estado.perfilId||'').trim();
             if(grupoStore&&codigoGrupo&&grupoStore!==String(codigoGrupo).trim().toUpperCase())return false;
             if(perfilStore&&clientePerfilId&&perfilStore!==String(clientePerfilId).trim())return false;
+            if(origem==='history-live-server'&&Array.isArray(estado.historico)){
+                cacheHistorico=estado.historico.map(x=>({...x})).filter(h=>(h.perfilId?h.perfilId===clientePerfilId:h.perfilNome===clienteNome));
+                ultimaSincronizacaoClienteServidor=Math.max(Number(ultimaSincronizacaoClienteServidor)||0,Number(estado.ultimaSincronizacaoServidor)||0);
+                atualizarPainelPontos();
+                atualizarConquistas();
+                renderizarRecompensasCliente();
+                renderizarJustificativasCliente();
+                window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem}}));
+                window.rotinaLog?.('sync.historico_live_aplicado_ui',{origem,owner:'participant-sync-scheduler-v5',historico:cacheHistorico.length,caminhoRapido:true});
+                return true;
+            }
             if(Array.isArray(estado.tarefasTodas)){
                 cacheTarefasGrupo=estado.tarefasTodas.map(x=>({...x}));
                 cacheTarefasTodas=cacheTarefasGrupo.filter(tarefaVisivelParticipante);

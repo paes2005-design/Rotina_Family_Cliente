@@ -92,10 +92,10 @@ function aplicarTarefas(){
     const devolvidos=Math.max(0,Number(h.pontosDevolvidos)||0);
     if(devolvidos>0){
       note.classList.remove('maintained');
-      note.textContent=`↩️ ${devolvidos} ponto${devolvidos===1?'':'s'} devolvido${devolvidos===1?'':'s'} pelo responsável · total ${Number(h.pontosGanhos)||0}/${Number(h.pontosMaximos)||0} pts`;
+      note.textContent=`↩️ ${devolvidos} ponto${devolvidos===1?'':'s'} devolvido${devolvidos===1?'':'s'} pelo responsável`;
     }else{
       note.classList.add('maintained');
-      note.textContent='👀 Justificativa revisada · pontuação automática mantida';
+      note.textContent='✓ Resultado mantido pelo responsável';
     }
   });
 }
@@ -112,7 +112,14 @@ window.aplicarPontosRevisadosCliente=()=>aplicarTudo(true);
 document.addEventListener('click',e=>{if(e.target.closest?.('[onclick*="sairCliente"],.btn-sair-top'))queueMicrotask(()=>garantirEscuta());});
 window.addEventListener('beforeunload',encerrarEscuta);
 window.addEventListener('rotina-client-cache-updated',()=>{garantirEscuta();requestAnimationFrame(()=>aplicarTudo(false));});
-window.addEventListener('rotina-participant-store-updated',()=>{garantirEscuta();requestAnimationFrame(()=>aplicarTudo(false));});
+window.addEventListener('rotina-participant-store-updated',()=>{garantirEscuta();aplicarDashboard();});
+window.addEventListener('rotina-family-tasks-rendered',event=>{
+  garantirEscuta();
+  requestAnimationFrame(()=>{
+    aplicarTarefas();
+    window.rotinaLog?.('pontos.revisao_inline_aplicada',{origem:event?.detail?.origem||'tasks-rendered'});
+  });
+});
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>aplicarTudo(true),{once:true});
 else aplicarTudo(true);
