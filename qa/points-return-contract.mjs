@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+const reviewed=fs.readFileSync('client-reviewed-points.js','utf8');
+const scheduler=fs.readFileSync('client-sync-scheduler-v1.js','utf8');
+const repository=fs.readFileSync('client-firebase-repository-v1.js','utf8');
+const checks=[];const ok=(l,c)=>{checks.push([l,!!c]);console.log(c?'OK  ':'FAIL',l)};
+ok('review UI reads ParticipantStore',reviewed.includes('window.rotinaParticipantStore?.snapshot?.()'));
+ok('review UI has no legacy snapshot fallback',!reviewed.includes('window.rotinaClientCacheSnapshot?.().historico'));
+ok('review UI reacts to store updates',reviewed.includes("rotina-participant-store-updated"));
+ok('repository exposes live history',repository.includes('subscribeParticipantHistory'));
+ok('live history uses onSnapshot',/function subscribeParticipantHistory[\s\S]*onSnapshot\(/.test(repository));
+ok('scheduler starts live history after server-first',scheduler.includes('startHistorySubscription(nextScope,generation)'));
+ok('scheduler ignores local-cache history snapshots',scheduler.includes('if(payload.fromCache)return;'));
+ok('scheduler replaces authoritative history',scheduler.includes("source:'history-live-server'"));
+ok('scheduler applies store to legacy UI',scheduler.includes("window.rotinaParticipantApplyStoreToLegacy"));
+ok('scheduler stops listener on session stop',scheduler.includes('stopHistorySubscription();'));
+const passed=checks.filter(([,v])=>v).length;console.log(`POINTS_RETURN_CLIENT_CONTRACT=${passed}/${checks.length}`);if(passed!==checks.length)process.exit(1);
