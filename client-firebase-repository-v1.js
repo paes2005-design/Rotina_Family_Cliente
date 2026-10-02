@@ -5,7 +5,7 @@ import {
   updateDoc,setDoc,writeBatch,serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const REPOSITORY_VERSION=4;
+const REPOSITORY_VERSION=5;
 const clean=value=>String(value||'').trim();
 const group=value=>clean(value).toUpperCase();
 const log=(event,details={},level='info')=>{try{window.rotinaLog?.(event,{...details,firebaseRepositoryVersion:REPOSITORY_VERSION},level);}catch{}};
@@ -120,6 +120,22 @@ function subscribeParticipantHistory({grupoId,perfilId,onChange,onError}={}){
   });
 }
 
+function subscribeParticipantTasks({grupoId,perfilId,onChange,onError}={}){
+  const g=group(grupoId),p=clean(perfilId);
+  if(!g||!p)throw new Error('grupoId e perfilId são obrigatórios para acompanhar as tarefas.');
+  if(typeof onChange!=='function')throw new Error('onChange é obrigatório para acompanhar as tarefas.');
+  const q=participantQueries(database(),g,p).tarefas;
+  log('repository.tarefas_live_iniciado',{grupoId:g,perfilId:p});
+  return onSnapshot(q,{includeMetadataChanges:false},snapshot=>{
+    const items=docsToItems(snapshot);
+    log('repository.tarefas_live_atualizado',{grupoId:g,perfilId:p,total:items.length,fromCache:!!snapshot.metadata?.fromCache});
+    onChange({grupoId:g,perfilId:p,items,fromCache:!!snapshot.metadata?.fromCache});
+  },error=>{
+    log('repository.tarefas_live_erro',{grupoId:g,perfilId:p,mensagem:String(error?.message||error)},'warning');
+    onError?.(error);
+  });
+}
+
 async function readTask(id,{source='cache',grupoId='',perfilId=''}={}){
   const taskId=clean(id);if(!taskId)throw new Error('ID da tarefa é obrigatório.');
   const db=database(),readers=sourceReaders(source),snap=await readers.document(doc(db,'tarefas',taskId));
@@ -218,6 +234,7 @@ const api=Object.freeze({
   readParticipantExecutions,
   readParticipantHistory,
   subscribeParticipantHistory,
+  subscribeParticipantTasks,
   readTask,
   readTaskCacheThenServer,
   readGroupConfig,
