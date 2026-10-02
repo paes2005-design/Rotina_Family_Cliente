@@ -113,13 +113,6 @@ document.addEventListener('click',e=>{if(e.target.closest?.('[onclick*="sairClie
 window.addEventListener('beforeunload',encerrarEscuta);
 window.addEventListener('rotina-client-cache-updated',()=>{garantirEscuta();requestAnimationFrame(()=>aplicarTudo(false));});
 window.addEventListener('rotina-participant-store-updated',()=>{garantirEscuta();aplicarDashboard();});
-window.addEventListener('rotina-family-tasks-rendered',event=>{
-  garantirEscuta();
-  requestAnimationFrame(()=>{
-    aplicarTarefas();
-    window.rotinaLog?.('pontos.revisao_inline_aplicada',{origem:event?.detail?.origem||'tasks-rendered'});
-  });
-});
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>aplicarTudo(true),{once:true});
 else aplicarTudo(true);
