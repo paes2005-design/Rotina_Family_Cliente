@@ -472,6 +472,7 @@
                 atualizarConquistas();
                 renderizarRecompensasCliente();
                 renderizarJustificativasCliente();
+                renderizarTarefasHoje();
                 window.dispatchEvent(new CustomEvent('rotina-family-tasks-rendered',{detail:{origem}}));
                 window.rotinaLog?.('sync.historico_live_aplicado_ui',{origem,owner:'participant-sync-scheduler-v5',historico:cacheHistorico.length,caminhoRapido:true});
                 return true;
@@ -643,10 +644,11 @@
                 const observacao=textoObservacaoTarefa(dados);
                 const botaoObservacao=observacao?`<button type="button" class="btn-observacao-tarefa" onclick="abrirObservacaoTarefa('${dados.id}')" aria-label="Ver observação da tarefa ${escaparHtml(dados.nome)}" title="Ver observação">📝</button>`:'';
                 const hojeISO=formatarDataISO(new Date());
-                const revisaoData=String(dados.revisaoData||'')||((()=>{const d=new Date(dados.revisadoEm||'');return Number.isFinite(d.getTime())?formatarDataISO(d):'';})());
-                const revisadoHoje=String(dados.revisaoStatus||'')==='revisado'&&revisaoData===hojeISO;
-                const devolvidos=Math.max(0,Number(dados.pontosDevolvidos)||0);
-                const decisao=String(dados.revisaoDecisao||'').trim().toLowerCase();
+                const historicoIdEsperado=[clientePerfilId,dados.id,hojeISO].join('_');
+                const revisao=cacheHistorico.find(h=>String(h.id||'')===historicoIdEsperado)||null;
+                const revisadoHoje=String(revisao?.revisaoStatus||'')==='revisado';
+                const devolvidos=Math.max(0,Number(revisao?.pontosDevolvidos)||0);
+                const decisao=String(revisao?.revisaoDecisao||'').trim().toLowerCase();
                 const foiDevolvido=decisao==='devolver'||decisao.startsWith('devolver-')||devolvidos>0;
                 const textoRevisao=foiDevolvido?`↩️ ${devolvidos} ponto${devolvidos===1?'':'s'} devolvido${devolvidos===1?'':'s'} pelo responsável`:'✓ Resultado mantido pelo responsável';
                 const revisaoInline=revisadoHoje?`<br><span class="review-inline-note" style="display:inline-block;margin-top:7px;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:999px;padding:4px 9px;font-size:.78rem;font-weight:700">${textoRevisao}</span>`:'';
