@@ -40,6 +40,16 @@
         .card span { font-size: 0.85rem; color: var(--cor-secundaria); display: block; font-weight: 600; text-transform: uppercase; }
         .card strong { font-size: 1.5rem; color: var(--cor-primaria); }
         .card strong small { font-size: 0.95rem; color: #999; font-weight: 500; }
+        .task-list-v3 { display:grid; gap:12px; margin-top:20px; }
+        .task-card-v3 { border:1px solid #f3c5cf; border-radius:18px; padding:14px; background:#fff; box-shadow:0 4px 14px rgba(89,13,34,.06); }
+        .task-card-v3-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+        .task-card-v3-time { font-weight:700; color:#590d22; }
+        .task-card-v3-real { font-size:.82rem; color:#666; margin-top:3px; }
+        .task-card-v3-name { font-size:1.05rem; font-weight:800; margin-top:10px; display:flex; gap:8px; align-items:center; }
+        .task-card-v3-meta { color:#777; font-size:.82rem; margin-top:5px; }
+        .task-card-v3-actions { margin-top:10px; }
+        .task-review-v3 { margin-top:10px; padding:9px 11px; border-radius:12px; background:#dcfce7; border:1px solid #86efac; color:#166534; font-size:.86rem; font-weight:800; }
+        .task-review-v3[data-review="missing"] { display:none; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th { background-color: var(--cor-secundaria); color: white; font-weight: 600; padding: 15px; text-align: left; border-radius: 12px 12px 0 0; }
         td { padding: 18px 15px; border-bottom: 1px solid var(--cor-clara); font-size: 1.05rem; }
@@ -159,17 +169,7 @@
             <div class="card" style="text-align:left"><span>🎁 Recompensas, Desafios e Resgates</span><div id="recompensasCliente" style="margin-top:8px"></div></div>
         </div>
         <div class="card" style="text-align:left;margin-bottom:20px"><span>📝 Minhas justificativas</span><div id="justificativasCliente" style="margin-top:8px"></div></div>
-        <table>
-            <thead>
-                <tr>
-                    <th style="width: 30%;">Horário Sugerido / Real</th>
-                    <th style="width: 45%;">Tarefa</th>
-                    <th style="width: 15%;">Status</th>
-                    <th style="width: 10%;">Ação</th>
-                </tr>
-            </thead>
-            <tbody id="tabelaCorpo"></tbody>
-        </table>
+        <div id="tabelaCorpo" class="task-list-v3" aria-live="polite"></div>
     </div>
 
     <script type="module">
@@ -633,28 +633,49 @@
             window.rotinaLog?.('tarefa.observacao_aberta',{tarefaId:String(id||''),temObservacao:true});
         };
 
+        function obterRevisaoTarefaHoje(tarefa, hojeISO){
+            const candidatos=cacheHistorico.filter(h=>String(h.data||h.dataExecucao||'').slice(0,10)===hojeISO&&String(h.revisaoStatus||'')==='revisado');
+            return candidatos.find(h=>String(h.tarefaId||'')===String(tarefa.id||''))||
+                candidatos.find(h=>String(h.tarefaGrupoId||'')&&String(h.tarefaGrupoId||'')===String(tarefa.tarefaGrupoId||''))||
+                candidatos.find(h=>String(h.nomeTarefa||'').trim()===String(tarefa.nome||'').trim())||null;
+        }
+        function modeloCartaoTarefa(tarefa){
+            const status=tarefa.status||'Pendente';
+            let cls='status-pendente',acao='';
+            if(status==='Pendente')acao=`<button class="btn btn-iniciar" onclick="iniciarTarefa('${tarefa.id}')">Iniciar</button>`;
+            else if(status==='Em andamento'){cls='status-andamento';acao=`<button class="btn btn-finalizar" onclick="finalizarTarefa('${tarefa.id}')">Finalizar</button>`;}
+            else if(tarefa.faixaAtraso==='atraso-maior'||status.includes('50%')){cls='status-prazo-50';acao='🎉';}
+            else if(tarefa.faixaAtraso==='atraso-leve'||status.includes('75%')){cls='status-prazo-75';acao='🎉';}
+            else if(status.includes('Prazo')){cls='status-prazo';acao='🎉';}
+            else {cls='status-atrasado';acao='⏰';}
+            const hojeISO=formatarDataISO(new Date());
+            const revisao=obterRevisaoTarefaHoje(tarefa,hojeISO);
+            const devolvidos=Math.max(0,Number(revisao?.pontosDevolvidos)||0);
+            const decisao=String(revisao?.revisaoDecisao||'').trim().toLowerCase();
+            const devolveu=decisao==='devolver'||decisao.startsWith('devolver-')||devolvidos>0;
+            const reviewText=!revisao?'':devolveu?`${devolvidos} ponto${devolvidos===1?'':'s'} devolvido${devolvidos===1?'':'s'} pelo responsável`:'Resultado mantido pelo responsável';
+            const observacao=textoObservacaoTarefa(tarefa);
+            const obs=observacao?`<button type="button" class="btn-observacao-tarefa" onclick="abrirObservacaoTarefa('${tarefa.id}')" aria-label="Ver observação da tarefa ${escaparHtml(tarefa.nome)}" title="Ver observação">📝</button>`:'';
+            const real=tarefa.horarioInicio?`<div class="task-card-v3-real">▶️ ${escaparHtml(tarefa.horarioInicio)}${tarefa.horarioTermino?` / ⏹️ ${escaparHtml(tarefa.horarioTermino)}`:''}</div>`:'';
+            const atraso=tarefa.iniciouAposLimiteFinal?`<div style="color:#d90429;font-weight:700;font-size:.84rem;margin-top:6px">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</div>`:tarefa.iniciouComAtraso?'<div style="color:#d97706;font-weight:700;font-size:.84rem;margin-top:6px">⚠️ Iniciado com atraso</div>':'';
+            return `<article class="task-card-v3" data-family-task-id="${escaparHtml(tarefa.id)}" data-family-task-group="${escaparHtml(tarefa.tarefaGrupoId||'')}" data-family-task-name="${escaparHtml(tarefa.nome)}">
+                <div class="task-card-v3-head"><div><div class="task-card-v3-time">⏰ ${escaparHtml(horaSugeridaComSegundos(tarefa.horaSugeridaInicio,false))} - ${escaparHtml(horaSugeridaComSegundos(tarefa.horaSugeridaFim,true))}</div>${real}</div><span class="status-badge ${cls}">${escaparHtml(status)}</span></div>
+                <div class="task-card-v3-name"><span data-task-icon="${escaparHtml(tarefa.icone||'')}">${escaparHtml(tarefa.nome)}</span>${obs}</div>
+                ${atraso}<div class="task-card-v3-meta">${Number(tarefa.pontosMaximos)||0} pontos · Tolerância: ${Number(tarefa.tempoLimite)||0} min</div>
+                <div class="task-review-v3" data-review="${revisao?'reviewed':'missing'}">${escaparHtml(reviewText)}</div>
+                <div class="task-card-v3-actions">${acao}</div>
+            </article>`;
+        }
         function renderizarTarefasHoje(){
-            const tbody=document.getElementById('tabelaCorpo'); tbody.innerHTML='';
-            if(!cacheTarefasHoje.length){tbody.innerHTML='<tr><td colspan="4" style="text-align:center">Nenhuma tarefa cadastrada para hoje.</td></tr>';return;}
-            let concluidas=0;
-            cacheTarefasHoje.forEach(dados=>{
-                const status=dados.status||'Pendente'; if(status.includes('Prazo')||status.includes('Atrasado')) concluidas++;
-                let cls='status-pendente',acao=''; if(status==='Pendente')acao=`<button class="btn btn-iniciar" onclick="iniciarTarefa('${dados.id}')">Iniciar</button>`; else if(status==='Em andamento'){cls='status-andamento';acao=`<button class="btn btn-finalizar" onclick="finalizarTarefa('${dados.id}')">Finalizar</button>`;} else if(dados.faixaAtraso==='atraso-maior'||status.includes('50%')){cls='status-prazo-50';acao='🎉';} else if(dados.faixaAtraso==='atraso-leve'||status.includes('75%')){cls='status-prazo-75';acao='🎉';} else if(status.includes('Prazo')){cls='status-prazo';acao='🎉';} else {cls='status-atrasado';acao='⏰';}
-                let horario=`<div class="horario-container"><span class="horario-sugerido">⏰ ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaInicio,false))} - ${escaparHtml(horaSugeridaComSegundos(dados.horaSugeridaFim,true))}</span>`; if(dados.horarioInicio) horario+=`<span class="horario-real">▶️ ${escaparHtml(dados.horarioInicio)}${dados.horarioTermino?` / ⏹️ ${escaparHtml(dados.horarioTermino)}`:''}</span>`; horario+='</div>';
-                const observacao=textoObservacaoTarefa(dados);
-                const botaoObservacao=observacao?`<button type="button" class="btn-observacao-tarefa" onclick="abrirObservacaoTarefa('${dados.id}')" aria-label="Ver observação da tarefa ${escaparHtml(dados.nome)}" title="Ver observação">📝</button>`:'';
-                const hojeISO=formatarDataISO(new Date());
-                const historicoIdEsperado=[clientePerfilId,dados.id,hojeISO].join('_');
-                const revisao=cacheHistorico.find(h=>String(h.id||'')===historicoIdEsperado)||null;
-                const revisadoHoje=String(revisao?.revisaoStatus||'')==='revisado';
-                const devolvidos=Math.max(0,Number(revisao?.pontosDevolvidos)||0);
-                const decisao=String(revisao?.revisaoDecisao||'').trim().toLowerCase();
-                const foiDevolvido=decisao==='devolver'||decisao.startsWith('devolver-')||devolvidos>0;
-                const textoRevisao=foiDevolvido?`↩️ ${devolvidos} ponto${devolvidos===1?'':'s'} devolvido${devolvidos===1?'':'s'} pelo responsável`:'✓ Resultado mantido pelo responsável';
-                const revisaoInline=revisadoHoje?`<br><span class="review-inline-note" style="display:inline-block;margin-top:7px;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:999px;padding:4px 9px;font-size:.78rem;font-weight:700">${textoRevisao}</span>`:'';
-                tbody.insertAdjacentHTML('beforeend',`<tr data-family-task-id="${escaparHtml(dados.id)}" data-family-task-group="${escaparHtml(dados.tarefaGrupoId||'')}" data-family-task-name="${escaparHtml(dados.nome)}" data-family-task-day="${escaparHtml(dados.diaSemana||diaAtualTexto)}" data-family-task-date="${formatarDataISO(new Date())}" data-family-task-time="${escaparHtml(dados.horaSugeridaInicio||'')}" data-family-task-end="${escaparHtml(dados.horaSugeridaFim||'')}" data-family-task-status="${escaparHtml(status)}"><td>${horario}</td><td><div class="task-name-line"><strong data-task-icon="${escaparHtml(dados.icone||'')}">${escaparHtml(dados.nome)}</strong>${botaoObservacao}</div>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small>${revisaoInline}</td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
-            });
-            const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
+            const container=document.getElementById('tabelaCorpo');
+            if(!container)return;
+            if(!cacheTarefasHoje.length){container.innerHTML='<div class="task-card-v3">Nenhuma tarefa cadastrada para hoje.</div>';return;}
+            container.innerHTML=cacheTarefasHoje.map(modeloCartaoTarefa).join('');
+            const concluidas=cacheTarefasHoje.filter(t=>String(t.status||'').includes('Prazo')||String(t.status||'').includes('Atrasado')).length;
+            const todas=concluidas===cacheTarefasHoje.length;
+            const perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado')||(t.faixaAtraso&&t.faixaAtraso!=='dentro-limites')||(!t.faixaAtraso&&t.iniciouComAtraso));
+            window.rotinaLog?.('ui.task_cards_v3_rendered',{total:cacheTarefasHoje.length,revisados:cacheTarefasHoje.filter(t=>!!obterRevisaoTarefaHoje(t,formatarDataISO(new Date()))).length,versao:'task-card-v3'});
+            if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto))triggerCelebracao100();
         }
 
         window.iniciarTarefa = async (id) => {
