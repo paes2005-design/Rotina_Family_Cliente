@@ -1,4 +1,4 @@
-const PARTICIPANT_SYNC_SCHEDULER_VERSION=7;
+const PARTICIPANT_SYNC_SCHEDULER_VERSION=8;
 const DEFAULT_INTERVAL_MS=5*60*1000;
 const BOOT_COALESCE_WINDOW_MS=10*1000;
 
@@ -13,6 +13,7 @@ let onlineHandler=null;
 let visibilityHandler=null;
 let requestSyncHandler=null;
 let historyUnsubscribe=null;
+let tasksUnsubscribe=null;
 let sessionGeneration=0;
 
 const clean=value=>String(value||'').trim();
@@ -31,30 +32,37 @@ function scope(){
 
 function stopLiveSubscriptions(){
   if(historyUnsubscribe){try{historyUnsubscribe();}catch{}historyUnsubscribe=null;}
+  if(tasksUnsubscribe){try{tasksUnsubscribe();}catch{}tasksUnsubscribe=null;}
 }
 
-function startHistorySubscription(expectedScope,generation){
+function startLiveSubscriptions(expectedScope,generation){
   stopLiveSubscriptions();
   const repository=window.rotinaFirebaseRepository;
-  if(!repository?.subscribeParticipantHistory)return false;
+  if(!repository?.subscribeParticipantHistory||!repository?.subscribeParticipantTasks)return false;
+  const valid=()=>generation===sessionGeneration&&scopeKey(scope())===scopeKey(expectedScope);
   historyUnsubscribe=repository.subscribeParticipantHistory({
-    grupoId:expectedScope.grupoId,
-    perfilId:expectedScope.perfilId,
+    grupoId:expectedScope.grupoId,perfilId:expectedScope.perfilId,
     onChange:payload=>{
-      if(generation!==sessionGeneration||scopeKey(scope())!==scopeKey(expectedScope))return;
-      // O primeiro snapshot pode vir do cache local. A sessão já foi carregada
-      // server-first; por isso só alterações confirmadas pelo servidor substituem
-      // o histórico autoritativo.
-      if(payload.fromCache)return;
-      const store=window.rotinaParticipantStore;
-      const current=store?.snapshot?.()||{};
+      if(!valid()||payload.fromCache)return;
+      const store=window.rotinaParticipantStore,current=store?.snapshot?.()||{};
       store?.replace?.({...current,historico:Array.isArray(payload.items)?payload.items:[],ultimaSincronizacaoServidor:Date.now()},{source:'history-live-server',server:true,failures:0,reason:'history-live-server'});
       try{window.rotinaParticipantApplyStoreToLegacy?.(store?.snapshot?.(),'history-live-server');}catch(error){log('sync.historico_live_ui_erro',{mensagem:String(error?.message||error)},'warning');}
       log('sync.historico_live_aplicado',{total:payload.items?.length||0,scope:scopeKey(expectedScope)});
     },
     onError:error=>log('sync.historico_live_erro',{mensagem:String(error?.message||error),scope:scopeKey(expectedScope)},'warning')
   });
-  log('sync.live_pronto',{scope:scopeKey(expectedScope),historico:true});
+  tasksUnsubscribe=repository.subscribeParticipantTasks({
+    grupoId:expectedScope.grupoId,perfilId:expectedScope.perfilId,
+    onChange:payload=>{
+      if(!valid()||payload.fromCache)return;
+      const store=window.rotinaParticipantStore,current=store?.snapshot?.()||{};
+      store?.replace?.({...current,tarefasTodas:Array.isArray(payload.items)?payload.items:[],tarefasHoje:[],ultimaSincronizacaoServidor:Date.now()},{source:'tasks-live-server',server:true,failures:0,reason:'tasks-live-server'});
+      try{window.rotinaParticipantApplyStoreToLegacy?.(store?.snapshot?.(),'tasks-live-server');}catch(error){log('sync.tarefas_live_ui_erro',{mensagem:String(error?.message||error)},'warning');}
+      log('sync.tarefas_live_aplicado',{total:payload.items?.length||0,scope:scopeKey(expectedScope)});
+    },
+    onError:error=>log('sync.tarefas_live_erro',{mensagem:String(error?.message||error),scope:scopeKey(expectedScope)},'warning')
+  });
+  log('sync.live_pronto',{scope:scopeKey(expectedScope),historico:true,tarefas:true});
   return true;
 }
 
@@ -150,7 +158,7 @@ async function prepareSession({grupoId='',perfilId=''}={}){
   try{
     const ok=await executeServerRead('session-authoritative',nextScope,generation);
     if(!ok)throw new Error('Não foi possível carregar os dados atuais do participante.');
-    startHistorySubscription(nextScope,generation);
+    startLiveSubscriptions(nextScope,generation);
     return true;
   }finally{
     running=false;
