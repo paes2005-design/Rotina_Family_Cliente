@@ -1,0 +1,29 @@
+name: Publish Task Card V3 Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/v3-task-card-rewrite
+      - name: Build isolated test route
+        run: |
+          rm -rf /tmp/v3test
+          mkdir -p /tmp/v3test
+          cp -a . /tmp/v3test/repo
+          git fetch origin gh-pages:gh-pages || true
+          git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
+          mkdir -p teste-cartao-v3
+          rm -rf teste-cartao-v3/*
+          cp -a /tmp/v3test/repo/. teste-cartao-v3/
+          rm -rf teste-cartao-v3/.git teste-cartao-v3/.github
+          git add teste-cartao-v3
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'publish: task card v3 isolated test' || true
+          git push origin gh-pages
