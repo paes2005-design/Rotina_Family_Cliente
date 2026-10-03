@@ -174,7 +174,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, updateDoc, doc, getDocs, getDocsFromCache, getDocsFromServer, addDoc, writeBatch, getDoc, getDocFromCache, getDocFromServer, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, updateDoc, doc, getDocs, getDocsFromCache, getDocsFromServer, addDoc, writeBatch, getDoc, getDocFromCache, getDocFromServer, setDoc, deleteField, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCP9odEV8TJGOM4lflHk64BbPyXXVjGcYg",
@@ -655,10 +655,30 @@
             const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
         }
 
+        function ordemTarefasHoje(tarefas){
+            return tarefas.slice().sort((a,b)=>{
+                const horario=String(a.horaSugeridaInicio||'').localeCompare(String(b.horaSugeridaInicio||''));
+                return horario||String(a.id||'').localeCompare(String(b.id||''));
+            });
+        }
+        function statusFinalTarefa(status){ return /Prazo|Atrasado/i.test(String(status||'')); }
+        function bloquearInicioTarefa(motivo,id,detalhes={}){
+            somErroQuak.play().catch(()=>{});
+            document.getElementById('modalTrava').style.display='flex';
+            window.rotinaLog?.('integridade_ordem.inicio_bloqueado',{tarefaId:id,motivo,...detalhes},'warning');
+            return false;
+        }
+
         window.iniciarTarefa = async (id) => {
-            const tarefa=cacheTarefasHoje.find(t=>t.id===id); if(!tarefa)return;
-            const idx=cacheTarefasHoje.findIndex(t=>t.id===id);
-            if(cacheTarefasHoje.some(t=>t.status==='Em andamento') || cacheTarefasHoje.slice(0,idx).some(t=>['Pendente','Em andamento'].includes(t.status))){ somErroQuak.play().catch(()=>{}); document.getElementById('modalTrava').style.display='flex'; return; }
+            const tarefa=cacheTarefasHoje.find(t=>t.id===id); if(!tarefa)return false;
+            const ordemLocal=ordemTarefasHoje(cacheTarefasHoje);
+            const idxLocal=ordemLocal.findIndex(t=>t.id===id);
+            if(ordemLocal.some(t=>t.id!==id&&t.status==='Em andamento') || ordemLocal.slice(0,idxLocal).some(t=>!statusFinalTarefa(t.status))){
+                return bloquearInicioTarefa('estado-local',id);
+            }
+            if(navigator.onLine===false){
+                return bloquearInicioTarefa('servidor-indisponivel',id);
+            }
             const agora=new Date(),hora=agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
             const minInicio=converterHoraParaMinutos(hora);
             const tolerancia=Number(tarefa.tempoLimite)||0;
@@ -667,8 +687,32 @@
             const atraso=minInicio > limiteInicio;
             const iniciouAposLimiteFinal=minInicio > limiteFinal;
             const dadosExec={grupoId:codigoGrupo,perfilId:clientePerfilId,perfilNome:clienteNome,tarefaId:id,tarefaGrupoId:tarefa.tarefaGrupoId||'',nomeTarefa:tarefa.nome,data:formatarDataISO(agora),status:'Em andamento',horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,percentualMaximoPrevisto:iniciouAposLimiteFinal?regraAtrasoAtual.estourado:null};
-            await updateDoc(doc(db,'tarefas',id),{horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,status:'Em andamento'});
-            await setDoc(doc(db,'execucoes',execucaoId(id,agora)),dadosExec,{merge:true});
+            try{
+                const qServidor=query(collection(db,'tarefas'),where('grupoId','==',codigoGrupo),where('perfilId','==',clientePerfilId));
+                const snapServidor=await getDocsFromServer(qServidor);
+                const hojeServidor=ordemTarefasHoje(snapServidor.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.diaSemana===diaAtualTexto&&tarefaVisivelParticipante(t)));
+                const idxServidor=hojeServidor.findIndex(t=>t.id===id);
+                const alvoServidor=hojeServidor[idxServidor];
+                if(idxServidor<0||!alvoServidor||alvoServidor.status!=='Pendente') return bloquearInicioTarefa('alvo-nao-pendente-servidor',id,{status:alvoServidor?.status||'ausente'});
+                const emAndamento=hojeServidor.find(t=>t.id!==id&&t.status==='Em andamento');
+                const anteriorAberta=hojeServidor.slice(0,idxServidor).find(t=>!statusFinalTarefa(t.status));
+                if(emAndamento||anteriorAberta) return bloquearInicioTarefa(emAndamento?'outra-em-andamento-servidor':'anterior-nao-concluida-servidor',id,{bloqueadoraId:(emAndamento||anteriorAberta)?.id||''});
+                await runTransaction(db,async transaction=>{
+                    const alvoRef=doc(db,'tarefas',id);
+                    const alvoSnap=await transaction.get(alvoRef);
+                    if(!alvoSnap.exists()||alvoSnap.data().status!=='Pendente') throw new Error('ROTINA_ORDEM_ALVO_MUDOU');
+                    transaction.update(alvoRef,{horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,status:'Em andamento'});
+                    transaction.set(doc(db,'execucoes',execucaoId(id,agora)),dadosExec,{merge:true});
+                });
+                window.rotinaAtualizarTarefaLocal?.(id,{horarioInicio:hora,iniciouComAtraso:atraso,iniciouAposLimiteFinal,status:'Em andamento'});
+                window.rotinaLog?.('integridade_ordem.inicio_confirmado',{tarefaId:id,validacao:'server-first-transaction'});
+                return true;
+            }catch(error){
+                if(String(error?.message||error)==='ROTINA_ORDEM_ALVO_MUDOU') return bloquearInicioTarefa('concorrencia-servidor',id);
+                window.rotinaLog?.('integridade_ordem.validacao_erro',{tarefaId:id,mensagem:String(error?.message||error)},'error');
+                alert('Não foi possível confirmar a ordem das tarefas no servidor. Tente novamente.');
+                return false;
+            }
         };
 
         window.finalizarTarefa = async (id) => {
@@ -918,7 +962,7 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js?v=85',{updateViaCache:'none'})
+          navigator.serviceWorker.register('./sw.js?v=102',{updateViaCache:'none'})
             .then(reg => console.log('Service Worker registrado com sucesso!', reg))
             .catch(err => console.error('Erro ao registrar Service Worker:', err));
         });
