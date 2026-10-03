@@ -282,6 +282,7 @@ function install() {
       watchHistory(event.detail || {});
       setTimeout(wrapActions, 50);
       setTimeout(applyLocksToDom, 80);
+      setTimeout(reconcileLocks, 250);
 
     });
     window.addEventListener('rotina-family-tasks-rendered', () => setTimeout(applyLocksToDom, 0));
@@ -292,6 +293,7 @@ function install() {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
         applyLocksToDom();
+        setTimeout(reconcileLocks, 100);
       }
     });
     log('integridade_offline.modulo_pronto', { versao: VERSION, prioridade: 'historico-servidor' });
