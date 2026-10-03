@@ -70,7 +70,7 @@
             100% { transform: translateY(-10px) rotate(6deg); } 
         }
     </style>
-<meta name="rotina-test-build" content="20261003.v3.1">
+<meta name="rotina-test-build" content="20261003.v3.2">
 </head>
 <body>
     <div id="telaAuth" class="auth-container">
@@ -646,16 +646,13 @@
                 const observacao=textoObservacaoTarefa(dados);
                 const botaoObservacao=observacao?`<button type="button" class="btn-observacao-tarefa" onclick="abrirObservacaoTarefa('${dados.id}')" aria-label="Ver observação da tarefa ${escaparHtml(dados.nome)}" title="Ver observação">📝</button>`:'';
                 const hojeISO=formatarDataISO(new Date());
-                const revisoesHoje=cacheHistorico.filter(h=>String(h.data||h.dataExecucao||'').slice(0,10)===hojeISO&&String(h.revisaoStatus||'')==='revisado');
-                const revisao=revisoesHoje.find(h=>String(h.tarefaId||'')===String(dados.id||''))||
-                    revisoesHoje.find(h=>String(h.tarefaGrupoId||'')&&String(h.tarefaGrupoId||'')===String(dados.tarefaGrupoId||''))||null;
-                const revisadoHoje=String(revisao?.revisaoStatus||'')==='revisado';
-                const devolvidos=Math.max(0,Number(revisao?.pontosDevolvidos)||0);
-                const decisao=String(revisao?.revisaoDecisao||'').trim().toLowerCase();
-                const foiDevolvido=decisao==='devolver'||decisao.startsWith('devolver-')||devolvidos>0;
-                const textoRevisao=foiDevolvido?`↩️ ${devolvidos} ponto${devolvidos===1?'':'s'} devolvido${devolvidos===1?'':'s'} pelo responsável`:'✓ Resultado mantido pelo responsável';
-                const revisaoInline=revisadoHoje?`<br><span class="review-inline-note" style="display:inline-block;margin-top:7px;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:999px;padding:4px 9px;font-size:.78rem;font-weight:700">${textoRevisao}</span>`:'';
-                tbody.insertAdjacentHTML('beforeend',`<tr data-family-task-id="${escaparHtml(dados.id)}" data-family-task-group="${escaparHtml(dados.tarefaGrupoId||'')}" data-family-task-name="${escaparHtml(dados.nome)}" data-family-task-day="${escaparHtml(dados.diaSemana||diaAtualTexto)}" data-family-task-date="${formatarDataISO(new Date())}" data-family-task-time="${escaparHtml(dados.horaSugeridaInicio||'')}" data-family-task-end="${escaparHtml(dados.horaSugeridaFim||'')}" data-family-task-status="${escaparHtml(status)}"><td>${horario}</td><td><div class="task-name-line"><strong data-task-icon="${escaparHtml(dados.icone||'')}">${escaparHtml(dados.nome)}</strong>${botaoObservacao}</div>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small>${revisaoInline}</td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
+                const revisao=cacheHistorico.find(h=>{
+                    const data=String(h.data||h.dataExecucao||'').slice(0,10);
+                    if(data!==formatarDataISO(new Date())||String(h.revisaoStatus||'')!=='revisado')return false;
+                    if(String(h.tarefaId||'')===String(dados.id||''))return true;
+                    return String(h.tarefaGrupoId||'')&&String(h.tarefaGrupoId||'')===String(dados.tarefaGrupoId||'');
+                })||null;
+                tbody.insertAdjacentHTML('beforeend',`<tr data-family-task-id="${escaparHtml(dados.id)}" data-family-task-group="${escaparHtml(dados.tarefaGrupoId||'')}" data-family-task-name="${escaparHtml(dados.nome)}" data-family-task-day="${escaparHtml(dados.diaSemana||diaAtualTexto)}" data-family-task-date="${formatarDataISO(new Date())}" data-family-task-time="${escaparHtml(dados.horaSugeridaInicio||'')}" data-family-task-end="${escaparHtml(dados.horaSugeridaFim||'')}" data-family-task-status="${escaparHtml(status)}"><td>${horario}</td><td><div class="task-name-line"><strong data-task-icon="${escaparHtml(dados.icone||'')}">${escaparHtml(dados.nome)}</strong>${botaoObservacao}</div>${dados.iniciouAposLimiteFinal?`<br><span style="color:#d90429;font-weight:bold;font-size:.85rem">🔴 Início após o limite final (${regraAtrasoAtual.estourado}% máx.)</span>`:dados.iniciouComAtraso?'<br><span style="color:#d97706;font-weight:bold;font-size:.85rem">⚠️ Iniciado com atraso</span>':''}<br><small style="color:gray">${Number(dados.pontosMaximos)||0} pontos (Tolerância: ${Number(dados.tempoLimite)||0} min)</small></td><td><span class="status-badge ${cls}">${escaparHtml(status)}</span></td><td>${acao}</td></tr>`);
             });
             const todas=concluidas===cacheTarefasHoje.length, perdeuPontualidade=cacheTarefasHoje.some(t=>t.status?.includes('Atrasado') || (t.faixaAtraso && t.faixaAtraso!=='dentro-limites') || (!t.faixaAtraso && t.iniciouComAtraso)); if(todas&&!perdeuPontualidade&&!sessionStorage.getItem('parabens_mostrado_'+diaAtualTexto)) triggerCelebracao100();
         }
