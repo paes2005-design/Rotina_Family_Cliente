@@ -1,7 +1,7 @@
 import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import { getFirestore, doc, getDocFromCache, updateDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const VERSION = 4;
+const VERSION = 5;
 const PREFIX = 'rotina_execucao_concluida_v1';
 let stopHistory = null;
 let installed = false;
@@ -254,7 +254,14 @@ async function reconcileLocks() {
     try {
       const existente=historico.find(h=>clean(h.tarefaId)===lock.taskId&&clean(h.data||h.dataExecucao)===lock.date&&isFinal(h.status));
       if (existente) {
-        lockFirstCompletion(lock.taskId, existente, 'reconciliacao-cache-servidor', true);
+        const confirmado=lockFirstCompletion(lock.taskId, existente, 'reconciliacao-cache-servidor', true);
+        const tarefaAtual=window.rotinaParticipantStore?.snapshot?.().tarefasTodas?.find(t=>clean(t.id)===lock.taskId);
+        if(confirmado && tarefaAtual && !isFinal(tarefaAtual.status)){
+          const repo=window.rotinaFirebaseRepository;
+          if(!repo?.patchTask)throw new Error('Repository indisponível para reconciliar tarefa finalizada.');
+          await repo.patchTask(lock.taskId,taskPatch(confirmado),'history-authoritative-task-repair');
+          log('integridade_offline.tarefa_reparada_pelo_historico',{tarefaId:lock.taskId,data:lock.date,statusAnterior:clean(tarefaAtual.status),statusFinal:confirmado.status});
+        }
         continue;
       }
       const historyRef = doc(db, 'historico', `${lock.perfilId}_${lock.taskId}_${lock.date}`);
