@@ -1,7 +1,7 @@
 import { getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import { getFirestore, doc, getDocFromCache, updateDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import { getFirestore, doc, getDocFromServer, updateDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-const VERSION = 5;
+const VERSION = 6;
 const PREFIX = 'rotina_execucao_concluida_v1';
 let stopHistory = null;
 let installed = false;
@@ -138,11 +138,17 @@ function applyLocksToDom() {
 }
 
 async function authoritativeHistory(taskId, date = isoDate(), allowServer = false) {
+  if (allowServer && getApps().length && group() && profile()) {
+    const ref = doc(getFirestore(getApp()), 'historico', `${profile()}_${clean(taskId)}_${date}`);
+    try {
+      const snap = await getDocFromServer(ref);
+      if (snap.exists()) return { id:snap.id, ...snap.data(), __source:'server' };
+    } catch (error) {
+      log('integridade_offline.historico_servidor_erro',{tarefaId:clean(taskId),data:date,mensagem:clean(error?.message||error)},'warning');
+    }
+  }
   const compartilhado=(window.rotinaClientCacheSnapshot?.().historico||[]).find(h=>clean(h.tarefaId)===clean(taskId)&&clean(h.data||h.dataExecucao)===date);
-  if(compartilhado)return { ...compartilhado, __source:'shared-cache' };
-  if (!allowServer || !getApps().length || !group() || !profile()) return null;
-  const ref = doc(getFirestore(getApp()), 'historico', `${profile()}_${clean(taskId)}_${date}`);
-  try { const snap=await getDocFromCache(ref); return snap.exists()?{id:snap.id,...snap.data(),__source:'cache'}:null; } catch { return null; }
+  return compartilhado ? { ...compartilhado, __source:'shared-cache' } : null;
 }
 
 async function captureCompletion(taskId, source, allowServer = true) {
@@ -248,25 +254,21 @@ function taskPatch(lock) {
 
 async function reconcileLocks() {
   if (navigator.onLine === false || !getApps().length) return;
-  const db = getFirestore(getApp());
-  const historico=(window.rotinaClientCacheSnapshot?.().historico||[]);
+  const repo=window.rotinaFirebaseRepository;
+  if(!repo?.patchTask){log('integridade_offline.reconciliacao_erro',{mensagem:'Repository indisponível.'},'warning');return;}
   for (const lock of listLocksToday()) {
     try {
-      const existente=historico.find(h=>clean(h.tarefaId)===lock.taskId&&clean(h.data||h.dataExecucao)===lock.date&&isFinal(h.status));
-      if (existente) {
-        const confirmado=lockFirstCompletion(lock.taskId, existente, 'reconciliacao-cache-servidor', true);
-        const tarefaAtual=window.rotinaParticipantStore?.snapshot?.().tarefasTodas?.find(t=>clean(t.id)===lock.taskId);
-        if(confirmado && tarefaAtual && !isFinal(tarefaAtual.status)){
-          const repo=window.rotinaFirebaseRepository;
-          if(!repo?.patchTask)throw new Error('Repository indisponível para reconciliar tarefa finalizada.');
-          await repo.patchTask(lock.taskId,taskPatch(confirmado),'history-authoritative-task-repair');
-          log('integridade_offline.tarefa_reparada_pelo_historico',{tarefaId:lock.taskId,data:lock.date,statusAnterior:clean(tarefaAtual.status),statusFinal:confirmado.status});
-        }
+      const existente=await authoritativeHistory(lock.taskId,lock.date,true);
+      if (existente && isFinal(existente.status)) {
+        const confirmado=lockFirstCompletion(lock.taskId, existente, 'reconciliacao-servidor', true);
+        await repo.patchTask(lock.taskId,taskPatch(confirmado),'history-authoritative-task-repair');
+        log('integridade_offline.tarefa_reparada_pelo_historico',{tarefaId:lock.taskId,data:lock.date,statusFinal:confirmado.status,fonteHistorico:existente.__source});
         continue;
       }
-      const historyRef = doc(db, 'historico', `${lock.perfilId}_${lock.taskId}_${lock.date}`);
+      const db=getFirestore(getApp());
+      const historyRef=doc(db,'historico',`${lock.perfilId}_${lock.taskId}_${lock.date}`);
       await setDoc(historyRef,{grupoId:lock.grupoId,perfilId:lock.perfilId,tarefaId:lock.taskId,data:lock.date,...taskPatch(lock),recuperadoDaTravaLocal:true,recuperadoEm:new Date().toISOString()},{merge:true});
-      await updateDoc(doc(db,'tarefas',lock.taskId),taskPatch(lock));
+      await repo.patchTask(lock.taskId,taskPatch(lock),'local-lock-authoritative-repair');
       log('integridade_offline.trava_reconciliada',{tarefaId:lock.taskId,data:lock.date});
     } catch(error){log('integridade_offline.reconciliacao_erro',{tarefaId:lock.taskId,mensagem:clean(error?.message||error)},'warning');}
   }
