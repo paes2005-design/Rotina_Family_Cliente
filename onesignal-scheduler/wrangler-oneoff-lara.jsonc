@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rotina-family-onesignal-scheduler",
+  "main": "src/oneoff-lara-inspect.js",
+  "compatibility_date": "2026-08-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "FIREBASE_PROJECT_ID": "sistema-de-metas-diarias",
+    "ONESIGNAL_APP_ID": "356292b3-a763-4a89-b0e5-21bf54bf0424",
+    "CLIENT_APP_URL": "https://paes2005-design.github.io/Rotina_Family_Cliente/",
+    "ADMIN_APP_URL": "https://paes2005-design.github.io/Rotina_Family_ADM/",
+    "ALARM_TIME_ZONE": "America/Bahia"
+  }
+}
